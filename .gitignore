@@ -1,0 +1,12 @@
+# Ignore files by extension
+
+*.vscode
+*.obj
+*.h5
+*.zip
+/__pycache__
+
+# Ignore specific files by path
+
+/downloads
+*/NOCS_CVPR2019/data
