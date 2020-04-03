@@ -1,25 +1,33 @@
 # Library Import
-
 import os
 import sys
+import pathlib
+
 import cv2
 from matplotlib import pyplot as plt
 import pickle
 
-# Getting Root directory
-ROOT_DIR = os.getcwd()
+# Determing the ROOT_DIR from CWD_DIR
+CWD_DIR = pathlib.Path.cwd()
+ROOT_DIR = CWD_DIR.parents[len(CWD_DIR.parts) - CWD_DIR.parts.index('MastersProject') - 2]
+NETWORKS_DIR = ROOT_DIR / 'networks'
 
 # Getting NOCS paths
-NOCS_ROOT_DIR = os.path.join(ROOT_DIR, "NOCS_CVPR2019")
-NOCS_MODEL_DIR = os.path.join(NOCS_ROOT_DIR, "logs")
-NOCS_COCO_MODEL_PATH = os.path.join(NOCS_MODEL_DIR, "mask_rcnn_coco.h5")
-NOCS_WEIGHTS_PATH = os.path.join(NOCS_MODEL_DIR, "nocs_rcnn_res50_bin32.h5")
+NOCS_ROOT_DIR = NETWORKS_DIR / "NOCS_CVPR2019"
+NOCS_MODEL_DIR = NOCS_ROOT_DIR / "logs"
+NOCS_COCO_MODEL_PATH = NOCS_MODEL_DIR / "mask_rcnn_coco.h5"
+NOCS_WEIGHTS_PATH = NOCS_MODEL_DIR / "nocs_rcnn_res50_bin32.h5"
 
 # Getting DenseDepth paths
-DENSE_ROOT_DIR = os.path.join(ROOT_DIR, "DenseDepth")
-DENSE_TF_ROOT_DIR = os.path.join(DENSE_ROOT_DIR, "Tensorflow")
+DENSE_ROOT_DIR = NETWORKS_DIR / "DenseDepth"
+DENSE_TF_ROOT_DIR = DENSE_ROOT_DIR / "Tensorflow"
+
+# Source Code path
+SOURCE_CODE_DIR = ROOT_DIR / "source_code"
 
 # Appending necessary paths
+sys.path.append(SOURCE_CODE_DIR)
+sys.path.append(NETWORKS_DIR)
 sys.path.append(NOCS_ROOT_DIR)
 sys.path.append(DENSE_TF_ROOT_DIR)
 

@@ -1,12 +1,21 @@
-# Ignore files by extension
+# File-Type Ignore
 
-*.vscode
-*.obj
 *.h5
 *.zip
-/__pycache__
+*.json
+*.obj
+*.vscode
 
-# Ignore specific files by path
+# Folder-Type Ignore 
+logs/
+__pycache__/
+
+# Path-Specific Ignore
 
 /downloads
-*/NOCS_CVPR2019/data
+**/bts/logs
+**/DenseDepth/logs
+**/NOCS_CVPR2019/data
+
+/networks/NOCS_CVPR2019/__pycache__
+/networks/DenseDepth/Tensorflow/__pycache__

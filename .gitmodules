@@ -1,13 +1,16 @@
 [submodule "NOCS_CVPR2019"]
     path = networks/NOCS_CVPR2019
     url = https://github.com/hughw19/NOCS_CVPR2019
+    ignore = all
 
 [submodule "bts"]
     path = networks/bts
     url = https://github.com/cogaplex-bts/bts
+    ignore = all
 
 [submodule "DenseDepth"]
     path = networks/DenseDepth
     url = https://github.com/ialhashim/DenseDepth
+    ignore = all
 
     
