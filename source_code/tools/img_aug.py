@@ -70,9 +70,19 @@ def dd_to_nocs_depth(dd_depth):
 
     dd_depth_uint16 = img_change_dtype(dd_depth, np.uint16)
     dd_depth_uint16_resized = scale_up(2, dd_depth_uint16)
-    dd_depth_uint16_resized_factored = (dd_depth_uint16_resized / 14.037758827209473).astype(np.uint16)
+    #dd_depth_uint16_resized_factored = (dd_depth_uint16_resized / 14.037758827209473).astype(np.uint16)
 
-    return dd_depth_uint16_resized_factored
+    return dd_depth_uint16_resized
+
+def factor_dd_depth_by_nocs_depth(dd_depth, nocs_depth):
+    
+    nocs_depth[nocs_depth == 0] = np.median(nocs_depth[nocs_depth > 0])
+    division = (dd_depth / nocs_depth).astype(np.float32)
+    mean = np.mean(division[division > 0])
+
+    new_dd_depth = (dd_depth / mean).astype(np.uint16)
+
+    return new_dd_depth
 
 def nocs_depth_formatting(depth):
 

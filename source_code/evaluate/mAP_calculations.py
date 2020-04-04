@@ -74,9 +74,9 @@ def generate_data():
 
         # Obtaining images information
         image_path = dataset.image_info[image_id]["path"]
-        image_path_parse = image_path.split("\\")
-        scene_info = image_path_parse[-2]
-        image_large_id = image_path_parse[-1].replace("_color.png", "")
+        pathlib_image_path = pathlib.Path(image_path)
+        scene_info = pathlib_image_path.parts[-2]
+        image_large_id = pathlib_image_path.parts[-1].replace("_color.png", "")
         
         # Loading image and source depth
         image = dataset.load_image(image_id)
@@ -93,6 +93,7 @@ def generate_data():
         #tools.print_cv2_data_info(generated_depth_float32)
         
         generated_depth = tools.img_aug.dd_to_nocs_depth(generated_depth_float32)
+        generated_depth = tools.img_aug.factor_dd_depth_by_nocs_depth(generated_depth, source_depth)
 
         tools.visualize.print_img_info(generated_depth)
 
