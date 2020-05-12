@@ -102,6 +102,7 @@ callbacks = tools.training.callbacks.get_callbacks(model, basemodel, train_gener
 # Start training
 print("Training!\n")
 model.fit_generator(train_generator, callbacks=callbacks, validation_data=test_generator, epochs=epochs, shuffle=True)
+print("Finished Training!\n")
 
 # Save the final trained model
-basemodel.save(model_save_location)
+basemodel.save(str(model_save_location))
