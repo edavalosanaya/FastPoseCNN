@@ -6,6 +6,8 @@ import random
 import PIL
 import io
 
+import matplotlib.pyplot as plt
+
 import tensorflow as tf
 import keras
 import numpy as np
@@ -121,8 +123,8 @@ class MyTensorBoard(keras.callbacks.TensorBoard):
             height, width = depth_train.shape[0], depth_train.shape[1]
 
             # Resizing color to match depth size
-            resized_color_train = skimage.transform.resize(color_train, (height, width), preserver_range=True, mode='reflect', anti_aliasing=True)
-            resized_color_test = skimage.transform.resize(color_test, (height, width), preserver_range=True, mode='reflect', anti_aliasing=True)
+            resized_color_train = skimage.transform.resize(color_train, (height, width), preserve_range=True, mode='reflect', anti_aliasing=True)
+            resized_color_test = skimage.transform.resize(color_test, (height, width), preserve_range=True, mode='reflect', anti_aliasing=True)
 
             # Getting the ground truth images
             gt_train = plasma(depth_train[:,:,0])[:,:,:3]

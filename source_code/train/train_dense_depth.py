@@ -4,6 +4,7 @@ import sys
 import glob
 import pathlib
 import time
+import socket
 
 from matplotlib import pyplot as plt
 import numpy as np
@@ -67,7 +68,7 @@ output_path = pathlib.Path.cwd() / 'models'
 model = dd_model.create_model(existing=str(dense_depth_checkpoint))
 
 # Data loaders
-train_generator, test_generator = tools.training.data.get_training_data(dataset_path, batch_size)
+train_generator, test_generator = tools.training.data.get_training_data(dataset_path, batch_size, 5)
 
 # Training session details and saving model name
 model_name = "time-{}-epochs-{}-datasetsize-{}-batchsize-{}-learning_rate-{}.h5".format(time.time(),
@@ -86,7 +87,8 @@ model_save_location = output_path / model_name
 basemodel = model
 
 # for the lambda machine
-#model = keras.utils.multi_gpu_model(model, gpus=3)
+if socket.gethostname() == 'lambda-quad': # if the lambda machine, use all cores
+    model = keras.utils.multi_gpu_model(model, gpus=3)
 
 # Optimizer
 optimizer = keras.optimizers.Adam(lr=learning_rate, amsgrad=True)

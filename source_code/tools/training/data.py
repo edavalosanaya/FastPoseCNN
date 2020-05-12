@@ -10,6 +10,7 @@ import keras
 import numpy as np
 import sklearn
 import skimage
+import skimage.transform
 
 # Determing the ROOT_DIR from CWD_DIR
 CWD_DIR = pathlib.Path.cwd()
@@ -117,7 +118,7 @@ class BasicAugmentRGBSequence(BasicRGBSequence):
 #-------------------------------------------------------------------
 # Functions
 
-def get_training_data(dataset_path, batch_size=1):
+def get_training_data(dataset_path, batch_size=1, dataset_size=None):
 
     # Making sure that dataset_path is a pathlib.Path object
     if isinstance(dataset_path, str):
@@ -127,6 +128,10 @@ def get_training_data(dataset_path, batch_size=1):
     print("Obtaining file pathnames ...")
     train_filepath_list, test_filepath_list = get_dataset_image_filepaths(dataset_path, False)
     print("Train database size:", len(train_filepath_list), "Test database size:", len(test_filepath_list))
+
+    if dataset_size != None:
+        index = min(dataset_size, len(train_filepath_list))
+        train_filepath_list = train_filepath_list[:index]
 
     # Create the generators
     print("Creating database generators")
