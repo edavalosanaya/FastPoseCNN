@@ -59,8 +59,8 @@ batch_size = 2
 learning_rate = 0.001
 
 # Paths
-dense_depth_checkpoint = pathlib.Path(r"E:\MASTERS_STUFF\MastersProject\networks\DenseDepth\logs\nyu.h5")
-dataset_path = pathlib.Path(r"E:\MASTERS_STUFF\MastersProject\datasets\NOCS\real")
+dense_depth_checkpoint = DENSE_ROOT_DIR / 'logs' / 'nyu.h5'
+dataset_path = ROOT_DIR / 'datasets' / 'NOCS' / 'real'
 output_path = pathlib.Path.cwd() / 'models'
 
 # Create model 

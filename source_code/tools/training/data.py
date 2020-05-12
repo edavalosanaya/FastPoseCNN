@@ -3,7 +3,7 @@ import os
 import sys
 import pathlib
 import random
-import PIL
+import PIL.Image
 import tqdm
 
 import keras
@@ -52,9 +52,9 @@ class BasicRGBSequence(keras.utils.Sequence):
         self.N = len(self.dataset_filepaths)
         
         # set information
-        self.maxDepth = 1000.0
+        self.max_depth = 1000.0
         self.rgb_shape = [480, 640, 3]
-        self.depth_shape = [240, 320, 1]
+        self.depth_shape = [640, 480, 1]
 
         return None
 
@@ -75,9 +75,10 @@ class BasicRGBSequence(keras.utils.Sequence):
 
             # Getting the color and depth images
             image_pair = self.dataset_filepaths[index]
+            print(f"image_pair: {image_pair}")
             color_image = np.clip(np.asarray(PIL.Image.open(image_pair[0])).reshape(480,640,3)/255,0,1)
-            depth_image = np.asarray(PIL.Image.open(image_pair[1]), dtype=np.float32).reshape(240, 320,1).copy().astype(float) / 10.0
-            depth_image = self.maxDepth / depth_image # depth normalization
+            depth_image = np.asarray(PIL.Image.open(image_pair[1]), dtype=np.float32).reshape(640,480,1).copy().astype(float) / 10.0
+            depth_image = self.max_depth / depth_image # depth normalization
 
             batch_color[i] = color_image
             batch_depth[i] = depth_image
@@ -217,9 +218,12 @@ def split_dataset(dataset_filepath_list, train_percentage=0.5):
 if __name__ == "__main__":
     # This section is for pure troubleshooting purposes
 
-    dataset_path = pathlib.Path(r"E:\MASTERS_STUFF\MastersProject\datasets\NOCS\real")
+    dataset_path = ROOT_DIR / 'datasets' / 'NOCS' / 'real'
 
     # Testing get_training_data
     print("\n\nGetting training data ...")
     train_generator, test_generator = get_training_data(dataset_path, batch_size=2)
     print("Finished getting training data\n\n")
+
+    # Testing the output generators
+    print(train_generator[0])
