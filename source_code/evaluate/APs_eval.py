@@ -31,10 +31,10 @@ DENSE_TF_ROOT_DIR = DENSE_ROOT_DIR / "Tensorflow"
 SOURCE_CODE_DIR = ROOT_DIR / "source_code"
 
 # Appending necessary paths
-sys.path.append(SOURCE_CODE_DIR)
-sys.path.append(NETWORKS_DIR)
-sys.path.append(NOCS_ROOT_DIR)
-sys.path.append(DENSE_TF_ROOT_DIR)
+sys.path.append(str(SOURCE_CODE_DIR))
+sys.path.append(str(NETWORKS_DIR))
+sys.path.append(str(NOCS_ROOT_DIR))
+sys.path.append(str(DENSE_TF_ROOT_DIR))
 
 # Local Imports
 
@@ -45,9 +45,11 @@ from NOCS_CVPR2019 import utils as nocs_utils
 #---------------------------------------------------------------------
 # Constants
 
-gen_aps_path = r"E:\MASTERS_STUFF\workspace\case_study_data\output_logs\generated_aps"
-sou_aps_path = r"E:\MASTERS_STUFF\workspace\case_study_data\output_logs\source_aps"
-output_path = r"E:\MASTERS_STUFF\workspace\case_study_data\output_logs"
+output_path = ROOT_DIR / 'case_study_data' / 'large_tests' / 'output_logs_4'
+gen_aps_path = output_path / 'aps' / 'dynamic_ratio' / 'size1000' / 'generated'
+sou_aps_path = output_path / 'aps' / 'dynamic_ratio' / 'size1000' / 'source'
+
+
 """
 # Getting the entire aps
 with open(os.path.join(sou_aps_path, 'aps_source.pickle'), 'rb') as f:
@@ -67,7 +69,8 @@ for title, depth_type_path in {"source": sou_aps_path, "generated": gen_aps_path
     ap_dict[title] = {}
 
     # Getting the iou_dict
-    with open(os.path.join(depth_type_path, 'IoU_3D_AP_0.0-1.0.pkl'), 'rb') as f:
+    iou_pickle_path = depth_type_path / 'IoU_3D_AP_0.0-1.0.pkl'
+    with open(str(iou_pickle_path), 'rb') as f:
         iou_dict = pickle.load(f)
 
     #print(iou_dict)
@@ -84,9 +87,9 @@ for title, depth_type_path in {"source": sou_aps_path, "generated": gen_aps_path
         ap_dict[title][thresh_value] = {}
         mAP = 0
 
-        for cls_id in range(1, len(tools.synset_names)):
+        for cls_id in range(1, len(tools.constants.synset_names)):
 
-            class_name = tools.synset_names[cls_id]
+            class_name = tools.constants.synset_names[cls_id]
 
             ap_dict[title][thresh_value][class_name] = "{:.3f}".format(iou_dict['aps'][cls_id, thresh_index])
             mAP += iou_dict['aps'][cls_id, thresh_index]

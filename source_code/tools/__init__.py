@@ -4,7 +4,8 @@ import sys
 
 sys.path.append(os.path.dirname(os.path.realpath(__file__)))
 
-import constants
-import img_aug
-import visualize
-import models
+from . import constants
+from . import img_aug
+from . import visualize
+from . import models
+from . import training
