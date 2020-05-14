@@ -1,6 +1,7 @@
 # File-Type Ignore
 
 *.h5
+*.hdf5
 *.zip
 *.json
 *.obj

@@ -46,7 +46,7 @@ import tools
 #-----------------------------------------------------------------------
 # File-Specific Constants
 
-data_dir = ROOT_DIR / 'case_study_data' / 'small_tests' / "debug_depth" / 'real_dataset'
+data_dir = ROOT_DIR / 'case_study_data' / 'small_tests' / "debug_depth" / 'custom_weights'
 output_dir = data_dir / 'generated_images'
 
 rgb_path = data_dir / 'color.png'
@@ -60,11 +60,11 @@ depth = cv2.imread(str(depth_path), cv2.IMREAD_UNCHANGED)
 
 # Creating the right depth
 
-def gen_depth():
+def gen_depth(checkpoint=False):
 
     # Generate original depth
 
-    dense_depth_net = tools.models.DenseDepth()
+    dense_depth_net = tools.models.DenseDepth(checkpoint)
     gen_depth_float32 = dense_depth_net.predict(rgb)
 
     np.save(str(output_dir / 'gen_depth_float32.npy'), gen_depth_float32)
@@ -111,7 +111,7 @@ def get_depth_data():
 
     # Reading image
     for key in new_depth.keys():
-        new_depth[key] = cv2.imread(str(output_dir / 'gen_depth_{}_s2_factored.png'.format(key)), cv2.IMREAD_UNCHANGED)
+        new_depth[key] = cv2.imread(str(output_dir / 'gen_depth_{}_s2.png'.format(key)), cv2.IMREAD_UNCHANGED)
         tools.visualize.print_img_info(new_depth[key])
 
     src_depth = cv2.imread(str(data_dir / 'depth.png'), cv2.IMREAD_UNCHANGED)
@@ -221,8 +221,18 @@ def difference_visualize():
 #-----------------------------------------------------------------------
 # Main Code
 
+checkpoint_path = SOURCE_CODE_DIR / 'train' / 'models' / 'epochs-15-datasetsize-4318-batchsize-1-learning_rate-0.0001.h5'
+
+# Generating depth and modifying it
+#gen_depth(str(checkpoint_path))
+#convert_float32_depth()
+#scale_up_uint16()
+
+# Attribute comparision
 #get_depth_data()
-#click_on_depth()
+
+# Visualize depth
+click_on_depth()
 #determine_relative_scale()
 #difference_visualize()
 

@@ -103,6 +103,8 @@ class BasicAugmentRGBSequence(BasicRGBSequence):
         # Getting the non-augmented batch
         batch_color, batch_depth = super().__getitem__(idx)
 
+        # Not using augmentation to test
+        """
         # If no augmentation is asked, do not augment and return simple images
         if is_apply_policy is False:
             return batch_color, batch_depth
@@ -112,6 +114,7 @@ class BasicAugmentRGBSequence(BasicRGBSequence):
 
             # Applying augment policy
             batch_color[i], batch_depth[i] = self.policy(batch_color[i], batch_depth[i])           
+        """
 
         return batch_color, batch_depth
 
@@ -127,11 +130,12 @@ def get_training_data(dataset_path, batch_size=1, dataset_size=None):
     # Load filepaths for train and test datasets/generators
     print("Obtaining file pathnames ...")
     train_filepath_list, test_filepath_list = get_dataset_image_filepaths(dataset_path, False)
-    print("Train database size:", len(train_filepath_list), "Test database size:", len(test_filepath_list))
 
     if dataset_size != None:
         index = min(dataset_size, len(train_filepath_list))
         train_filepath_list = train_filepath_list[:index]
+
+    print("Train database size:", len(train_filepath_list), "Test database size:", len(test_filepath_list))
 
     # Create the generators
     print("Creating database generators")

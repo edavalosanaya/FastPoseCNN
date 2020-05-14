@@ -69,7 +69,7 @@ def make_tensor_to_image(tensor):
     height, width, channel = tensor.shape
     image = PIL.Image.fromarray(tensor.astype('uint8'))
     output = io.BytesIO()
-    image.shape(output, format='JPEG', quality=90)
+    image.save(output, format='JPEG', quality=90)
     image_string = output.getvalue()
     output.close()
     return tf.Summary.Image(height=height, width=width, colorspace=channel, encoded_image_string=image_string)
@@ -131,8 +131,8 @@ class MyTensorBoard(keras.callbacks.TensorBoard):
             gt_test = plasma(depth_test[:,:,0])[:,:,:3]
 
             # Make the prediction
-            predict_train = plasma(dd_utils.predict(model, color_train, minDepth=min_depth, maxDepth=max_depth)[0,:,:,0])[:,:,:3]
-            predict_test = plasma(dd_utils.predict(model, color_test, minDepth=min_depth, maxDepth=max_depth)[0,:,:,0])[:,:,:3]
+            predict_train = plasma(dd_utils.predict(self.model, color_train, minDepth=min_depth, maxDepth=max_depth)[0,:,:,0])[:,:,:3]
+            predict_test = plasma(dd_utils.predict(self.model, color_test, minDepth=min_depth, maxDepth=max_depth)[0,:,:,0])[:,:,:3]
 
             # Combining color and depth into a sample
             train_samples.append(np.vstack([resized_color_train, gt_train, predict_train]))

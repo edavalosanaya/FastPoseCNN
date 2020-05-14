@@ -5,6 +5,8 @@ import glob
 import pathlib
 import time
 import socket
+import datetime
+import argparse
 
 from matplotlib import pyplot as plt
 import numpy as np
@@ -55,9 +57,17 @@ from DenseDepth import loss as dd_loss
 # Main Code
 
 # Parameters
-epochs = 5
-batch_size = 2
-learning_rate = 0.001
+parser = argparse.ArgumentParser()
+parser.add_argument('--epochs', '-e', required=True, type=int)
+parser.add_argument('--batch', '-b', default=1, type=int)
+parser.add_argument('--lr', '-l', default=0.0001, type=int)
+parser.add_argument('--dataset_size', '-ds', default=0, type=int)
+args = parser.parse_args()
+
+epochs = args.epochs
+batch_size = args.batch
+learning_rate = args.lr
+dataset_size = None if args.dataset_size == 0 else args.dataset_size
 
 # Paths
 dense_depth_checkpoint = DENSE_ROOT_DIR / 'logs' / 'nyu.h5'
@@ -68,14 +78,16 @@ output_path = pathlib.Path.cwd() / 'models'
 model = dd_model.create_model(existing=str(dense_depth_checkpoint))
 
 # Data loaders
-train_generator, test_generator = tools.training.data.get_training_data(dataset_path, batch_size, 5)
+train_generator, test_generator = tools.training.data.get_training_data(dataset_path, batch_size, dataset_size)
 
 # Training session details and saving model name
-model_name = "time-{}-epochs-{}-datasetsize-{}-batchsize-{}-learning_rate-{}.h5".format(time.time(),
-                                                                                        epochs,
-                                                                                        len(train_generator),
-                                                                                        batch_size,
-                                                                                        learning_rate)
+date = datetime.datetime.now()
+timestamp = date.strftime("%d/%b/%Y-%H:%M-")
+model_name = "time-{}-e-{}-size-{}-bsize-{}-lr-{}.h5".format(timestamp,
+                                                             epochs,
+                                                             len(train_generator),
+                                                             batch_size,
+                                                             learning_rate)
 model_save_location = output_path / model_name
 
 # The following line get me an error
@@ -88,7 +100,7 @@ basemodel = model
 
 # for the lambda machine
 if socket.gethostname() == 'lambda-quad': # if the lambda machine, use all cores
-    model = keras.utils.multi_gpu_model(model, gpus=3)
+    model = keras.utils.multi_gpu_model(model, gpus=4)
 
 # Optimizer
 optimizer = keras.optimizers.Adam(lr=learning_rate, amsgrad=True)
@@ -107,4 +119,4 @@ model.fit_generator(train_generator, callbacks=callbacks, validation_data=test_g
 print("Finished Training!\n")
 
 # Save the final trained model
-basemodel.save(str(model_save_location))
+model.save(str(model_save_location))

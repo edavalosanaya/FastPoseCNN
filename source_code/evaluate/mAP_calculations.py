@@ -43,9 +43,15 @@ from NOCS_CVPR2019 import utils as nocs_utils
 # Paths
 
 original_dataset_path = ROOT_DIR / 'datasets' / 'NOCS' / 'real'
-checkpoint_path = ROOT_DIR / 'networks' / 'DenseDepth' / 'logs' / 'nyu.h5'
-depth_npys_location = ROOT_DIR / 'case_study_data' / 'large_tests' / 'output_logs_2' / 'images'
-tests_output_dir = ROOT_DIR / 'case_study_data' / 'large_tests' / 'output_logs_4'
+
+# using nyu checkpoint
+#checkpoint_path = ROOT_DIR / 'networks' / 'DenseDepth' / 'logs' / 'nyu.h5'
+
+# using personally trained checkpoint
+checkpoint_path = SOURCE_CODE_DIR / 'train' / 'models' / 'epochs-15-datasetsize-4318-batchsize-1-learning_rate-0.0001.h5'
+
+#depth_npys_location = ROOT_DIR / 'case_study_data' / 'large_tests' / 'output_logs_2' / 'images'
+tests_output_dir = ROOT_DIR / 'case_study_data' / 'large_tests' / 'output_logs_5'
 
 #---------------------------------------------------------------------
 # Functions
@@ -82,6 +88,7 @@ def generate_data():
         image = dataset.load_image(image_id)
         source_depth = dataset.load_depth(image_id)
 
+        """
         # Generating the new depth
         generated_depth_path = depth_npys_location / '{}_{}_gen_depth_float32.npy'.format(scene_info, image_large_id)
 
@@ -89,6 +96,8 @@ def generate_data():
             generated_depth_float32 = np.load(str(generated_depth_path))
         else: 
             generated_depth_float32 = dense_depth_net.predict(image_path + "_color.png")
+        """
+        generated_depth_float32 = dense_depth_net.predict(image_path + "_color.png")
 
         #tools.print_cv2_data_info(generated_depth_float32)
         
@@ -210,7 +219,7 @@ intrinsics = np.array([[591.0125, 0, 322.525], [0, 590.16775, 244.11084], [0, 0,
 # Main Code
 
 # Parameters
-generate_data_flag = False
+generate_data_flag = True
 num_eval = 10
 
 if generate_data_flag is True:
