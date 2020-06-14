@@ -33,6 +33,7 @@ sys.path.append(str(DENSE_TF_ROOT_DIR))
 
 # Local Imports
 from DenseDepth import utils as dd_utils
+from NOCS_CVPR2019 import utils as nocs_utils
 
 #-------------------------------------------------------------------------------------
 # Functions
@@ -91,6 +92,45 @@ def dd_compute_errors(gt, pred):
     print("{:10.4f}, {:10.4f}, {:10.4f}, {:10.4f}, {:10.4f}, {:10.4f}".format(e[0],e[1],e[2],e[3],e[4],e[5]))
 
     return None
+
+def draw_detections(image, image_id, intrinsics, synset_names, pred_bbox, pred_class_ids,
+                    pred_mask, pred_coord, pred_RTs, pred_scores, pred_scales, 
+                    draw_coord = False, draw_tag = False, draw_RT = False):
+
+    draw_image = image.copy()
+
+    num_pred_instances = len(pred_class_ids)
+
+    for i in range(num_pred_instances):
+
+        # Mask and Coord data
+        if draw_coord:
+            mask = pred_mask[:, :, i]
+            cind, rind = np.where(mask == 1)
+            coord_data = pred_coord[:, :, i, :].copy()
+            coord_data[:, :, 2] = 1 - coord_data[:, :, 2]
+            draw_image[cind,rind] = coord_data[cind, rind] * 255
+
+        # Tag data 
+        if draw_tag:
+            text = synset_names[pred_class_ids[i]]+'({:.2f})'.format(pred_scores[i])
+            draw_image = nocs_utils.draw_text(draw_image, pred_bbox[i], text, draw_box=True)
+
+        # Rotation and Translation data
+        if draw_RT:
+            RT = pred_RTs[i]
+            class_id = pred_class_ids[i]
+
+            xyz_axis = 0.3*np.array([[0, 0, 0], [0, 0, 1], [0, 1, 0], [1, 0, 0]]).transpose()
+            transformed_axes = nocs_utils.transform_coordinates_3d(xyz_axis, RT)
+            projected_axes = nocs_utils.calculate_2d_projections(transformed_axes, intrinsics)
+
+            bbox_3d = nocs_utils.get_3d_bbox(pred_scales[i,:],0)
+            transformed_bbox_3d = nocs_utils.transform_coordinates_3d(bbox_3d, RT)
+            projected_bbox = nocs_utils.calculate_2d_projections(transformed_bbox_3d, intrinsics)
+            draw_image = nocs_utils.draw(draw_image, projected_bbox, projected_axes, (255, 0, 0))
+
+    return draw_image
 
 # CV2 Functions
 

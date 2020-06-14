@@ -68,7 +68,7 @@ epochs = args.epochs
 batch_size = args.batch
 learning_rate = args.lr
 dataset_size = None if args.dataset_size == 0 else args.dataset_size
-
+000
 # Paths
 dense_depth_checkpoint = DENSE_ROOT_DIR / 'logs' / 'nyu.h5'
 dataset_path = ROOT_DIR / 'datasets' / 'NOCS' / 'real'

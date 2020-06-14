@@ -6,6 +6,7 @@
 *.json
 *.obj
 *.vscode
+*.gitignore
 
 # Folder-Type Ignore 
 logs/
@@ -20,3 +21,6 @@ __pycache__/
 
 /networks/NOCS_CVPR2019/__pycache__
 /networks/DenseDepth/Tensorflow/__pycache__
+
+/tutorials
+
