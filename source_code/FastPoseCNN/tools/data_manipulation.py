@@ -5,7 +5,8 @@ import numpy as np
 import scipy.spatial
 import scipy.linalg
 import sklearn.preprocessing
-from dual_quaternions import DualQuaternion
+import scipy.spatial.transform
+#from dual_quaternions import DualQuaternion
 
 #-------------------------------------------------------------------------------
 # Classes

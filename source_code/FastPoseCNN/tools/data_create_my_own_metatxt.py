@@ -1,13 +1,14 @@
 import os
 import sys
 import pathlib
+import tqdm
 
 import cv2
 import numpy as np
 # local Imports (new source code)
 
-#root = next(path for path in pathlib.Path(os.path.abspath(__file__)).parents if path.name == 'FastPoseCNN')
-#sys.path.append(str(root))
+root = next(path for path in pathlib.Path(os.path.abspath(__file__)).parents if path.name == 'FastPoseCNN')
+sys.path.append(str(root))
 
 import constants
 
@@ -18,8 +19,8 @@ import data_manipulation
 # visual-category imports
 import visual_draw
 
-#sys.path.append(r'E:\MASTERS_STUFF\MastersProject\networks\NOCS_CVPR2019')
-#import utils as nocs_utils
+sys.path.append(str(root.parents[1] / 'networks' / 'NOCS_CVPR2019'))
+import utils as nocs_utils
 
 #-------------------------------------------------------------------------------
 # Small Helper Functions
@@ -530,7 +531,7 @@ def create_new_dataset(dataset_path, obj_model_dir):
 
     all_color_images = get_image_paths_in_dir(dataset_path)
 
-    for color_image in all_color_images:
+    for color_image in tqdm.tqdm(all_color_images):
 
         # Obtain the ground truth data for the image
         class_ids, bboxes, masks, coords, RTs, scores, scales, instance_dict = get_original_information(color_image, obj_model_dir)
@@ -538,6 +539,7 @@ def create_new_dataset(dataset_path, obj_model_dir):
         new_RTs = []
         old_RTs = []
         normalizing_factors = []
+        quaternions = []
 
         # Convert RT into quaternion
         for RT in RTs:
@@ -577,6 +579,7 @@ def create_new_dataset(dataset_path, obj_model_dir):
             #quaternion, translation_vector, _norm_factor = data_manipulation.convert_RT_to_quaternion(new_RT.copy())
 
             new_RTs.append(new_RT)
+            quaternions.append(quaternion)
 
         """
         # Checking output
@@ -590,8 +593,7 @@ def create_new_dataset(dataset_path, obj_model_dir):
         """
 
         # Saving output into a meta+.json
-        data = {'instance_dict': instance_dict, 'scales': scales, 'RTs': new_RTs,'norm_factors': normalizing_factors}
-        print(data)
+        data = {'instance_dict': instance_dict, 'scales': scales, 'RTs': new_RTs,'norm_factors': normalizing_factors, 'quaternions': quaternions}
         data_id = color_image.name.replace('_color.png', '')
         new_meta_filepath = color_image.parent / f'{data_id}_meta+.json'
         data_json_tools.save_to_json(new_meta_filepath, data)
@@ -622,14 +624,14 @@ def load_new_dataset(dataset_path, obj_model_dir):
 # Constants
 
 # Obtaining information paths
-camera_dataset = pathlib.Path(r'E:\MASTERS_STUFF\MastersProject\datasets\NOCS\small_camera')
-obj_model_dir = pathlib.Path(r'E:\MASTERS_STUFF\MastersProject\networks\NOCS_CVPR2019\data\obj_models\val')
+camera_dataset = root.parents[1] / 'datasets' / 'NOCS' / 'camera' / 'val'
+obj_model_dir = root.parents[1] / 'networks' / 'NOCS_CVPR2019' / 'data' / 'obj_models' / 'val'
 
 #-------------------------------------------------------------------------------
 # Main Code
 
 if __name__ == '__main__':
 
-    load_new_dataset(camera_dataset, obj_model_dir)
+    create_new_dataset(camera_dataset, obj_model_dir)
 
 
