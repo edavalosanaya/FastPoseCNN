@@ -1,5 +1,6 @@
 # File-Type Ignore
 
+*.pth
 *.h5
 *.hdf5
 *.zip
