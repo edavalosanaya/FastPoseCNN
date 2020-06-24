@@ -1,0 +1,81 @@
+Errors with the dataset:
+
+https://discuss.pytorch.org/t/only-batches-of-spatial-targets-supported-non-empty-3d-tensors-but-got-targets-of-size-1-1-256-256/49134/6
+
+The expected shape of the target tensor for a multi-class segmentation use case 
+is [batch_size, height, width] containing the class indices, while your target 
+seems to have the unwanted channel dimension.
+
+https://discuss.pytorch.org/t/loss-function-for-multi-class-semantic-segmentation/40596
+
+If you are dealing with a multi-label classification, nn.BCELoss should work fine, if you pass the target as a “multi-hot” encoded tensor.
+
+target = torch.tensor([[0,1,0,1,0,0]], dtype=torch.float32)
+output = torch.randn(1, 6, requires_grad=True)
+
+criterion = nn.BCEWithLogitsLoss()
+loss = criterion(output, target)
+loss.backward()
+
+In this small example, I just passed a single data sample with a target for two active classes.
+For a semantic segmentation use case, each pixel should contain the corresponding label (0 or 1) in the channel dimension.
+
+https://discuss.pytorch.org/t/multiclass-segmentation-u-net-masks-format/70979
+
+If you are using a multi-class segmentation use case and therefore nn.CrossEntropyLoss or nn.NLLLoss, your mask should not contain a channel dimension, but instead contain the class indices in the shape [batch_size, height, width].
+
+PIL.NEAREST is a valid option, as it won’t distort your color codes or class indices.
+Since you are loading the image via PIL, I assume your mask is an RGB image, where each color represents a class?
+
+If so, you should map the color values to the corresponding class index.
+
+Let me know, if that would work for you or if you need more information.
+
+#------ Continuation of previous thingy
+
+Basically I have PNG image but already labelled with index 0 , 1 , 2, 3
+
+In that case you don’t need any mapping, as your mask will already contain the class indices.
+
+``
+
+I tried to add in the calculation of the loss: target_ = torch.empty(batch_size, 1,64,64) target = target_.to(device)
+
+torch.empty uses uninitialized memory to create the tensor, so it might contain invalid values (e.g. NaNs).
+For a multi-class segmentation (each pixel belongs to one class only). you should use nn.CrossEntropyLoss instead of nn.BCEWithLogitsLoss.
+The latter criterion can be used for a multi-label classification/segmentation (each pixel can belong to zero, one, or more classes).
+
+https://discuss.pytorch.org/t/solved-what-is-the-correct-way-to-implement-custom-loss-function/3568/5
+
+I might need to create a custom loss function
+
+https://discuss.pytorch.org/t/multiclass-segmentation/54065
+
+I assume you have already found suitable code snippets for a binary segmentation use case?
+If so, you could use it as a base line and make a few changes for a multi class segmentation use case:
+
+use nn.CrossEntropyLoss as your criterion
+
+your model should output a tensor with the shape [batch_size, nb_classes, height ,width]
+the target should be a LongTensor with the shape [batch_size, height, width] and 
+contain the class indices for each pixel location in the range [0, nb_classes-1]
+
+Depending on the format of your segmentation mask images, you might need to 
+create a mapping e.g. between color codes and the corresponding class indices.
+
+Let us know, if and where you get stuck.
+
+#--------- Continuation of previous thingy
+
+This wouldn’t work for a multi-class segmentation with nn.CrossEntropyLoss or 
+nn.NLLLoss, since the target has to contain a class index.
+
+With three classes the class indices would be [0, 1, 2] and that for each pixel 
+one of these classes would be active.
+
+If you consider your use case a multi-label segmentation, you could use 
+nn.BCEWithLogitsLoss, which would allow you to define zero, one, or more active classes for each pixel.
+
+This approach would work for 3 explicit channels, as no active class could be 
+considered the “background class”. However, since each pixel could also have all 
+classes set to active, this would be a multi-label segmentation.
