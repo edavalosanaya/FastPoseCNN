@@ -7,7 +7,6 @@
 *.json
 *.obj
 *.vscode
-*.gitignore
 
 # Folder-Type Ignore 
 logs/

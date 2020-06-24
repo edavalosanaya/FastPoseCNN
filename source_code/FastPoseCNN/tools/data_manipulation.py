@@ -1,11 +1,16 @@
 import os
 import sys
 
+import cv2
+import imutils
+
 import numpy as np
 import scipy.spatial
 import scipy.linalg
 import sklearn.preprocessing
 import scipy.spatial.transform
+
+import torch
 
 # Local Imports
 import abc123
@@ -96,6 +101,50 @@ def get_3d_bbox(scale, shift = 0):
 
     bbox_3d = bbox_3d.transpose()
     return bbox_3d
+
+def get_masks_centroids(masks):
+
+    if type(masks) == torch.Tensor:
+        masks = masks.numpy().astype(np.uint8)
+
+    if len(masks.shape) == 3: # multiple masks
+
+        total_centroids = []
+
+        for i in range(masks.shape[0]): # assuming CHW
+            
+            mask = masks[i]
+            centroids = get_mask_centroids(mask)
+            total_centroids.append(centroids)
+
+    else: # one mask only
+
+        total_centroids = [get_mask_centroids(masks)]
+
+    return total_centroids
+
+def get_mask_centroids(mask):
+
+    _, cnts, hie = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+
+    # Hierarchy representation in OpenCV: [Next, Previous, First_Child, Parent]
+
+    print(len(cnts), hie)
+
+    centroids = []
+
+    for i, c in enumerate(cnts):
+
+        # if the contour has a parent, meaning inside another contour, skip it.
+        if hie[0][i][3] != -1: 
+            continue
+
+        M = cv2.moments(c)
+        cX = int(M["m10"] / M["m00"])
+        cY = int(M["m01"] / M["m00"])
+        centroids.append((cX, cY))
+
+    return centroids
 
 #-------------------------------------------------------------------------------
 # Pure Geometric Functions
@@ -225,6 +274,9 @@ def transform_3d_camera_coords_to_2d_quantized_projections(cartesian_camera_coor
 
     return cartesian_projections_2d
 
+#-------------------------------------------------------------------------------
+# RT and Quaternion Functions
+
 def create_translation_vector(cartesian_projections_2d_xy_origin, z, intrinsics):
     """
     Inputs: 
@@ -295,6 +347,7 @@ def convert_RT_to_quaternion(RT):
     normalizing_factor = np.amax(RT)
     print(f'normalizing_factor: {normalizing_factor}')
     RT[:3, :] = RT[:3, :] / normalizing_factor
+    #normalizing_factor = 1
 
     # Testing quaternion representation
     print(f'original RT matrix: \n{RT}\n')

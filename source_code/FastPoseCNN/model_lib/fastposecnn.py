@@ -27,7 +27,7 @@ test_image = project.cfg.DATASET_DIR / 'NOCS' / 'camera' / 'val' / '00000' / '00
 
 class FastPoseCNN(nn.Module):
 
-    def __init__(self, n_channels=3, out_channels_id = 6, bilinear=True):
+    def __init__(self, n_channels=3, out_channels_mask = 6, bilinear=True):
         super().__init__()
         
         """
@@ -36,7 +36,7 @@ class FastPoseCNN(nn.Module):
 
         # Saving input arguments
         self.n_channels = n_channels
-        self.out_channels_id = out_channels_id
+        self.out_channels_mask = out_channels_mask
         self.bilinear = bilinear
 
         # Encoder phase
@@ -47,12 +47,12 @@ class FastPoseCNN(nn.Module):
         factor = 2 if bilinear else 1
         self.down4 = L.Down(512, 1024//factor)
 
-        # ID MASK Decoder 
-        self.up1_id = L.Up(1024, 512, bilinear)
-        self.up2_id = L.Up(512, 256, bilinear)
-        self.up3_id = L.Up(256, 128, bilinear)
-        self.up4_id = L.Up(128, 64 * factor, bilinear)
-        self.out_conv_id = L.OutConv(64, out_channels_id)
+        # MASK Decoder 
+        self.up1_mask = L.Up(1024, 512, bilinear)
+        self.up2_mask = L.Up(512, 256, bilinear)
+        self.up3_mask = L.Up(256, 128, bilinear)
+        self.up4_mask = L.Up(128, 64 * factor, bilinear)
+        self.out_conv_mask = L.OutConv(64, out_channels_mask)
 
     def forward(self, x):
 
@@ -63,14 +63,14 @@ class FastPoseCNN(nn.Module):
         x4 = self.down3(x3)
         x5 = self.down4(x4)
 
-        # ID MASK Decoder
-        x_id = self.up1_id(x5, x4)
-        x_id = self.up2_id(x_id, x3)
-        x_id = self.up3_id(x_id, x2)
-        x_id = self.up4_id(x_id, x1)
-        logits_id = self.out_conv_id(x_id)
+        # MASK Decoder
+        x_mask = self.up1_mask(x5, x4)
+        x_mask = self.up2_mask(x_mask, x3)
+        x_mask = self.up3_mask(x_mask, x2)
+        x_mask = self.up4_mask(x_mask, x1)
+        logits_mask = self.out_conv_mask(x_mask)
 
-        return logits_id
+        return logits_mask
 
 #-------------------------------------------------------------------------------
 # Functions

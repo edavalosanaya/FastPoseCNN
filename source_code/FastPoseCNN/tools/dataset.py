@@ -4,8 +4,10 @@ import pathlib
 
 import numpy as np
 import cv2
+import imutils
 
 import torch
+import torchvision
 
 # Local Imports
 root = next(path for path in pathlib.Path(os.path.abspath(__file__)).parents if path.name == 'FastPoseCNN')
@@ -343,7 +345,8 @@ class NOCSDataset(torch.utils.data.Dataset):
                   'masks': masks,
                   'coords': coords,
                   'scales': scales_img,
-                  'quaternions': quat_img}
+                  'quaternions': quat_img,
+                  'norm_factors': norm_factors}
 
         abc123.enable_print(DEBUG)
 
@@ -409,6 +412,10 @@ class NOCSDataLoader(torch.utils.data.DataLoader):
         """
 
         for key in all_data.keys():
+
+            if key == 'norm_factors':
+                collate_batch[key] = all_data[key]
+                continue
 
             collate_batch[key] = torch.stack(all_data[key])
 
@@ -482,20 +489,43 @@ if __name__ == '__main__':
     print("\n\nTesting dataset loading\n\n")
     test_sample = dataset[0]
 
+    """
     for key in test_sample.keys():
         shape_info = test_sample[key].shape if type(test_sample[key]) == np.ndarray else len(test_sample[key])
         unique = np.unique(test_sample[key]) if key in ['masks'] else None
         print(f'key: {key} - type: {type(test_sample[key])} - shape: {shape_info} - unique: {unique}')
+    """
 
     dataloader = NOCSDataLoader(dataset, batch_size=2, shuffle=True, num_workers=0)
 
     # Testing dataloader
     print("\n\nTesting dataloader loading\n\n")
     for i, batched_sample in enumerate(dataloader):
-        
-        for key in batched_sample.keys():
 
-            try:
-                print(f'key: {key} - shape: {batched_sample[key].shape} - type: {type(batched_sample[key])}')
-            except AttributeError:
-                print(f'key: {key} - list length: {len(batched_sample[key])} - type: {type(batched_sample[key])}')
+        print(batched_sample.keys())
+
+        color_image = batched_sample['color_image'][0]
+        color_image = color_image.permute(1, 2, 0).numpy().astype(np.int32).copy()
+        print(color_image.shape)
+        print(color_image.dtype)
+
+        batched_masks = batched_sample['masks']
+        masks = batched_masks[0]
+        masks = masks * 255
+        print(masks.shape)
+
+        class_centroids = data_manipulation.get_masks_centroids(masks)
+    
+        for c_id in range(len(class_centroids)):
+            centroids = class_centroids[c_id]
+
+            for i_id, centroid in enumerate(centroids):
+
+                cX, cY = centroid
+
+                cv2.circle(color_image, centroid, 4, (0,255,0), -1)
+                label = f'{project.constants.SYNSET_NAMES[c_id+1]}: {i_id}'
+                cv2.putText(color_image, label, (cX-20, cY-20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,255,0), 1)
+
+        cv2.imwrite('color_image.png', color_image)
+        break

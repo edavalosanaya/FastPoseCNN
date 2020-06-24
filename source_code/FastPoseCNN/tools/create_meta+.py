@@ -5,12 +5,13 @@ import tqdm
 
 import cv2
 import numpy as np
+
 # local Imports (new source code)
 
 root = next(path for path in pathlib.Path(os.path.abspath(__file__)).parents if path.name == 'FastPoseCNN')
 sys.path.append(str(root))
 
-import project.constants
+import project
 
 # data-category imports
 import json_tools
@@ -581,8 +582,9 @@ def create_new_dataset(dataset_path, obj_model_dir):
             new_RTs.append(new_RT)
             quaternions.append(quaternion)
 
-        """
+        
         # Checking output
+        """
         image = cv2.imread(str(color_image), cv2.IMREAD_UNCHANGED)
         output = draw.draw_detections(image, project.constants.INTRINSICS, None, None, class_ids,
                                              None, None, old_RTs, None, scales, [1 for i in range(len(old_RTs))],
@@ -590,8 +592,11 @@ def create_new_dataset(dataset_path, obj_model_dir):
         output = draw.draw_detections(output, project.constants.INTRINSICS, None, None, class_ids,
                                              None, None, new_RTs, None, scales, normalizing_factors,
                                              (255,0,0), False, False, True)
+
+        cv2.imwrite(f'output_{counter}.png', output)
         """
 
+        
         # Saving output into a meta+.json
         data = {'instance_dict': instance_dict, 'scales': scales, 'RTs': new_RTs,'norm_factors': normalizing_factors, 'quaternions': quaternions}
         data_id = color_image.name.replace('_color.png', '')

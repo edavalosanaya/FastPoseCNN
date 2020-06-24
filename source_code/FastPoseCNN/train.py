@@ -21,11 +21,12 @@ from model_lib.fastposecnn import FastPoseCNN as Net
 
 DEBUG = False
 camera_dataset = root.parents[1] / 'datasets' / 'NOCS' / 'camera' / 'val'
+model_path = project.cfg.SAVED_MODEL_DIR / 'test_model.pth'
 
 #-------------------------------------------------------------------------------
 # Functions
 
-def train(num_epoch):
+def train(num_epoch, PATH):
 
     # Loading dataset
     print('Loading dataset')
@@ -59,11 +60,20 @@ def train(num_epoch):
 
     # Load model
     print('Loading model')
-    net = Net(n_channels=3, out_channels_id=6, bilinear=True)
+    net = Net(n_channels=3, out_channels_mask=6, bilinear=True)
+    
+    # Using multiple GPUs if avaliable
+    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    if torch.cuda.device_count() > 1:
+        print(f'Using {torch.cuda.device_count()} GPUs!')
+        net = torch.nn.DataParallel(net)
+    
+    net.to(device)
 
     # Load loss functions
     print('Initializing loss function')
-    criterion_masks = torch.nn.CrossEntropyLoss()
+    #criterion_masks = torch.nn.CrossEntropyLoss()
+    criterion_masks = torch.nn.BCEWithLogitsLoss()
 
     # Specify optimizer
     print('Specifying optimizer')
@@ -74,7 +84,7 @@ def train(num_epoch):
     for epoch in range(1, num_epoch+1):
 
         # Signaling epoch
-        print(f'Entering epoch: {epoch}')
+        #print(f'Entering epoch: {epoch}')
 
         # Keepting track of training and validation loss
         train_loss = 0.0
@@ -88,13 +98,11 @@ def train(num_epoch):
         net.train()
 
         # Feed training input
-        print('Entering training loop') 
+        #print('Entering training loop') 
         for i, sample in enumerate(train_loader):
 
-            print(f'id: {i} \n {sample.keys()}\n')
-
             # Deconstructing dictionary for simple usage
-            color_img, masks, coords, scales, quaternions = sample.values()
+            color_img, masks, coords, scales, quaternions, norm_factors = [data.to(device) for data in sample.values()]
             
             # clearing gradients
             optimizer.zero_grad()
@@ -125,11 +133,11 @@ def train(num_epoch):
         net.eval()
 
         # Feed validating input
-        print('Entering validation loop')
+        #print('Entering validation loop')
         for i, sample in enumerate(valid_loader):
 
             # Deconstructing dictionary for simple usage
-            color_img, masks, coords, scales, quaternions = sample.values()
+            color_img, masks, coords, scales, quaternions, norm_factors = [data.to(device) for data in sample.values()]
 
             # Forward pass
             masks_pred = net(color_img)
@@ -159,7 +167,7 @@ def train(num_epoch):
         #***********************************
 
         # Save model if validation loss is minimum
-
+        torch.save(net.state_dict(), PATH)
 
     return None
 
@@ -168,4 +176,4 @@ def train(num_epoch):
 
 if __name__ == '__main__':
 
-    train(2)
+    train(10, model_path)
