@@ -334,10 +334,9 @@ class NOCSDataset(torch.utils.data.Dataset):
             #print(f'quat_img[c_id,:,:,:].shape: {quat_img[c_id,:,:,:].shape}')
             quat_img[c_id,:,:,:] = np.where(np.expand_dims(masks[c_id,:,:], axis=0), temp_quaterion, quat_img[c_id,:,:,:])
 
-            scale = scales[e_id,:]
+            scale = scales[e_id,:] / norm_factors[e_id] # accounting for normalization
             temp_scales = np.expand_dims(np.expand_dims(scale, axis=-1), axis=-1)
             scales_img[c_id,:,:,:] = np.where(np.expand_dims(masks[c_id,:,:], axis=0), temp_scales, scales_img[c_id,:,:,:])
-
 
         # Placing all information into a convenient data structure
         print('Constructing sample dictionary')

@@ -4,6 +4,10 @@ import pathlib
 
 import numpy as np
 import cv2
+from pyquaternion import Quaternion
+
+import scipy.spatial.transform
+import scipy.spatial
 
 # Local Imports
 
@@ -59,6 +63,61 @@ def draw_detections(image, intrinsics, synset_names, bbox, class_ids, masks, coo
             # Drawing the projections by using the resulting points
             draw_image = draw_3d_bbox(draw_image, projected_bbox, RT_color)
             draw_image = draw_axes(draw_image, projected_axes)
+
+    return draw_image
+
+def draw_quat_detections(image, intrinsics, quaternions, translation_vectors, norm_scales):
+
+    draw_image = image.copy()
+
+    xyz = np.array([[0,0,0],[1,0,0],[0,1,0],[0,0,1]], dtype=np.float32).transpose()
+
+    print(xyz)
+    print(norm_scales)
+
+    for i, quaternion in enumerate(quaternions):
+
+        #quaternion = Quaternion(quaternion)
+        RT = data_manipulation.reconstruct_RT(quaternion, translation_vectors[i])
+
+        norm_scale = norm_scales[i]
+        
+        norm_xyz = xyz.copy()
+        norm_xyz[0,:] *= norm_scale[0] / 2
+        norm_xyz[1,:] *= norm_scale[1] / 2
+        norm_xyz[2,:] *= norm_scale[2] / 2
+
+        #print(norm_xyz)
+
+        """
+
+        for j in range(4): # for origin, x, y, and z
+
+            vector = norm_xyz[:,j]
+            print(f'vector: \n{vector}\n')
+            rotated_vector = R.apply(vector).reshape((-1,1))
+            print(f'rotated_vector: \n{rotated_vector}\n')
+            shifted_rotated_vector = intrinsics @ translation_vectors[i] + rotated_vector
+            print(f'shifted_rotated_vector: \n{shifted_rotated_vector}\n')
+
+            shifted_rotated_vector = shifted_rotated_vector.flatten()
+
+            norm_xyz[:,j] = shifted_rotated_vector
+
+        norm_xyz = data_manipulation.homogeneous_2_cartesian_coord(norm_xyz)
+        norm_xyz = norm_xyz.astype(np.int32)
+        norm_xyz = norm_xyz.transpose()
+
+        print(norm_xyz)
+
+        #draw_image = draw_axes(draw_image, norm_xyz)
+        """
+
+        projections = data_manipulation.transform_3d_camera_coords_to_2d_quantized_projections(norm_xyz, RT, intrinsics)
+        
+        print(projections)
+        
+        draw_image = draw_axes(draw_image, projections)
 
     return draw_image
 

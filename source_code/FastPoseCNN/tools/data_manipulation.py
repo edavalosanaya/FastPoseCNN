@@ -4,7 +4,11 @@ import sys
 import cv2
 import imutils
 
+from pyquaternion import Quaternion
+
+import math
 import numpy as np
+
 import scipy.spatial
 import scipy.linalg
 import sklearn.preprocessing
@@ -102,26 +106,15 @@ def get_3d_bbox(scale, shift = 0):
     bbox_3d = bbox_3d.transpose()
     return bbox_3d
 
-def get_masks_centroids(masks):
+def get_3d_bboxes(scales, shift = 0):
 
-    if type(masks) == torch.Tensor:
-        masks = masks.numpy().astype(np.uint8)
+    bboxes_3d = []
 
-    if len(masks.shape) == 3: # multiple masks
+    for i in range(scales.shape[0]):
 
-        total_centroids = []
+        bboxes_3d.append(get_3d_bbox(scales[i,:], shift))
 
-        for i in range(masks.shape[0]): # assuming CHW
-            
-            mask = masks[i]
-            centroids = get_mask_centroids(mask)
-            total_centroids.append(centroids)
-
-    else: # one mask only
-
-        total_centroids = [get_mask_centroids(masks)]
-
-    return total_centroids
+    return bboxes_3d
 
 def get_mask_centroids(mask):
 
@@ -145,6 +138,27 @@ def get_mask_centroids(mask):
         centroids.append((cX, cY))
 
     return centroids
+
+def get_masks_centroids(masks):
+
+    if type(masks) == torch.Tensor:
+        masks = masks.numpy().astype(np.uint8)
+
+    if len(masks.shape) == 3: # multiple masks
+
+        total_centroids = []
+
+        for i in range(masks.shape[0]): # assuming CHW
+            
+            mask = masks[i]
+            centroids = get_mask_centroids(mask)
+            total_centroids.append(centroids)
+
+    else: # one mask only
+
+        total_centroids = [get_mask_centroids(masks)]
+
+    return total_centroids
 
 #-------------------------------------------------------------------------------
 # Pure Geometric Functions
@@ -177,6 +191,9 @@ def homogeneous_2_cartesian_coord(homogeneous_coord):
 
     cartesian_coord = homogeneous_coord[:-1, :] / homogeneous_coord[-1, :]
     return cartesian_coord
+
+#-------------------------------------------------------------------------------
+# RT Functions
 
 def transform_2d_quantized_projections_to_3d_camera_coords(cartesian_projections_2d, RT, intrinsics, z):
     # Math comes from: https://robotacademy.net.au/lesson/image-formation/
@@ -253,12 +270,24 @@ def transform_3d_camera_coords_to_2d_quantized_projections(cartesian_camera_coor
     # Creating proper K matrix (including Pu, Pv, Uo, Vo, and f)
     K_matrix = np.hstack([intrinsics, np.zeros((intrinsics.shape[0], 1), dtype=np.float32)])
 
+    """
+    # METHOD 1
     # Creating camera matrix (including intrinsic and external paramaters)
     camera_matrix = K_matrix @ np.linalg.inv(RT)
     
     # Obtaining the homogeneous 2D projection
     homogeneous_projections_2d = camera_matrix @ homogeneous_camera_coordinates_3d
     print(f'homo projections: \n{homogeneous_projections_2d}\n')
+    """
+    
+    # METHOD 2
+    # Obtaining the homogeneous world coordinates 3d
+    homogeneous_world_coordinates_3d = np.linalg.inv(RT) @ homogeneous_camera_coordinates_3d
+    print(f'homo world_coordinates: {homogeneous_world_coordinates_3d}')
+
+    # Convert homogeneous world coordinates 3d to homogeneous 2d projections
+    homogeneous_projections_2d = K_matrix @ homogeneous_world_coordinates_3d
+    print(f'homo projections: {homogeneous_projections_2d}')
 
     # Converting the homogeneous projection into a cartesian projection
     cartesian_projections_2d = homogeneous_2_cartesian_coord(homogeneous_projections_2d)
@@ -275,7 +304,7 @@ def transform_3d_camera_coords_to_2d_quantized_projections(cartesian_camera_coor
     return cartesian_projections_2d
 
 #-------------------------------------------------------------------------------
-# RT and Quaternion Functions
+# RT-Quaternion Functions
 
 def create_translation_vector(cartesian_projections_2d_xy_origin, z, intrinsics):
     """
@@ -320,7 +349,7 @@ def create_translation_vector(cartesian_projections_2d_xy_origin, z, intrinsics)
 
     return translation_vector
 
-def convert_RT_to_quaternion(RT):
+def convert_RT_to_quaternion(RT, normalize=True):
     """
     Inputs:
         RT, transformation matrix: [4, 4]
@@ -344,10 +373,12 @@ def convert_RT_to_quaternion(RT):
     print(f'RT before normalization: \n{RT}\n')
 
     # normalizing
-    normalizing_factor = np.amax(RT)
-    print(f'normalizing_factor: {normalizing_factor}')
-    RT[:3, :] = RT[:3, :] / normalizing_factor
-    #normalizing_factor = 1
+    if normalize:
+        normalizing_factor = np.amax(RT)
+        print(f'normalizing_factor: {normalizing_factor}')
+        RT[:3, :] = RT[:3, :] / normalizing_factor
+    else:
+        normalizing_factor = 1
 
     # Testing quaternion representation
     print(f'original RT matrix: \n{RT}\n')
@@ -392,11 +423,11 @@ def convert_quaternion_to_RT(quaternion, translation_vector):
 
     return RT
 
-def get_new_RT_error(perfect_projected_axes, quat_projected_axes):
+def get_new_RT_error(perfect_projected_pts, quat_projected_pts):
     """
     Inputs:
-        perfect_projected_axes: [N, 2]
-        quat_projected_axes: [N, 2]
+        perfect_projected_pts: [N, 2]
+        quat_projected_pts: [N, 2]
     Process:
         Given the inputs, this function does the following routine:
             (1) Obtain the difference between the perfect and quaternion projected
@@ -404,27 +435,27 @@ def get_new_RT_error(perfect_projected_axes, quat_projected_axes):
             (2) Calculate overall error by taking the sum of the absolute value 
                 of the difference.
     Output:
-        error: error of the quat_projected_axes compared to the perfect_projected_axes,
+        error: error of the quat_projected_pts compared to the perfect_projected_pts,
                size = scalar
     """
 
-    #print(f'\nperfect_projected_axes: \n{perfect_projected_axes}\n')
-    #print(f'quat_projected_axes: \n{quat_projected_axes}\n')
+    #print(f'\nperfect_projected_pts: \n{perfect_projected_pts}\n')
+    #print(f'quat_projected_pts: \n{quat_projected_pts}\n')
 
-    diff_axes = quat_projected_axes - perfect_projected_axes
-    #print(f'diff_axes: \n{diff_axes}\n')
+    diff_pts = quat_projected_pts - perfect_projected_pts
+    #print(f'diff_pts: \n{diff_pts}\n')
 
-    error = np.sum(np.absolute(diff_axes))
+    error = np.average(np.absolute(diff_pts))
     #print(f'error: {error}')
 
     return error
 
-def fix_quaternion_RT(intrinsics, original_RT, quad_RT, normalizing_factor):
+def fix_quaternion_T(intrinsics, original_RT, quat_RT, normalizing_factor):
     """
     Inputs:
         intrinsics: camera intrinsics parameters: [3, 3]
         original_RT: original transformation matrix: [4,4]
-        quad_RT: quaternion-generated transformation matrix: [4, 4]
+        quat_RT: quaternion-generated transformation matrix: [4, 4]
         normalizing_factor: normalizing factor used to do the RT2Quat conversion: scalar
     Process:
         Given the inputs, this function does the following routine:
@@ -447,7 +478,7 @@ def fix_quaternion_RT(intrinsics, original_RT, quad_RT, normalizing_factor):
     perfect_projected_axes = transform_3d_camera_coords_to_2d_quantized_projections(xyz_axis, original_RT, intrinsics)
 
     norm_xyz_axis = xyz_axis / normalizing_factor
-    quat_projected_axes = transform_3d_camera_coords_to_2d_quantized_projections(norm_xyz_axis, quad_RT, intrinsics)
+    quat_projected_axes = transform_3d_camera_coords_to_2d_quantized_projections(norm_xyz_axis, quat_RT, intrinsics)
     abc123.disable_print(DEBUG)
 
     baseline_error = get_new_RT_error(perfect_projected_axes, quat_projected_axes)
@@ -455,7 +486,7 @@ def fix_quaternion_RT(intrinsics, original_RT, quad_RT, normalizing_factor):
     print(f'baseline_error: {baseline_error}')
 
     step_size = 0.000001 # 0.01
-    test_RT = quad_RT.copy()
+    test_RT = quat_RT.copy()
     min_error = baseline_error
     past_error = np.zeros((3, 2), np.int)
 
@@ -470,7 +501,7 @@ def fix_quaternion_RT(intrinsics, original_RT, quad_RT, normalizing_factor):
             # try both positive and negative addition
             for operation_index, operation in enumerate([add, subtract]):
 
-                test_RT[xyz,-1] = operation(quad_RT[xyz,-1], step_size)
+                test_RT[xyz,-1] = operation(quat_RT[xyz,-1], step_size)
                 test_projected_axes = transform_3d_camera_coords_to_2d_quantized_projections(norm_xyz_axis, test_RT, intrinsics)
                 abc123.disable_print(DEBUG)
 
@@ -494,7 +525,7 @@ def fix_quaternion_RT(intrinsics, original_RT, quad_RT, normalizing_factor):
             min_error = np.amin(errors)
             min_error_index = divmod(errors.argmin(), errors.shape[1])
             min_xyz, operation = min_error_index[0], add if min_error_index[1] == 0 else subtract
-            quad_RT[min_xyz, -1] = operation(quad_RT[min_xyz,-1], step_size)
+            quat_RT[min_xyz, -1] = operation(quat_RT[min_xyz,-1], step_size)
             print(f'new min_error: {min_error}')
 
         if min_error <= 1:
@@ -506,7 +537,77 @@ def fix_quaternion_RT(intrinsics, original_RT, quad_RT, normalizing_factor):
     # Returning printing
     abc123.enable_print(DEBUG)
 
-    return quad_RT
+    return quat_RT
+
+def fix_quat_RT_matrix(intrinsics, original_RT, quat_RT, pts=None):
+
+    # Verbose
+    #abc123.disable_print(DEBUG)
+
+    # Creating an xyz axis and converting 3D coordinates into 2D projections
+    if isinstance(pts, type(None)):
+        pts = 0.3*np.array([[0, 0, 0], [0, 0, 1], [0, 1, 0], [1, 0, 0]]).transpose()
+    
+    perfect_projected_pts = transform_3d_camera_coords_to_2d_quantized_projections(pts, original_RT, intrinsics)
+    quat_projected_pts = transform_3d_camera_coords_to_2d_quantized_projections(pts, quat_RT, intrinsics)
+    #abc123.disable_print(DEBUG)
+
+    # Noting the base error
+    baseline_error = get_new_RT_error(perfect_projected_pts, quat_projected_pts)
+    min_error = baseline_error
+    print(f'baseline_error: {baseline_error}')
+
+    #return quat_RT
+
+    # Getting the quaternion version of the quat_RT affect it
+    quat = Quaternion(matrix=quat_RT)
+    
+    # Fixing hyper-parameters
+    angles = np.array([0.001,0.005,0.01,0.05,0.1,0.25,0.5,1,2,3]) * (math.pi/180)
+    axes = [[1,0,0],[0,1,0],[0,0,1]]
+    direction = [1,-1]
+
+    for i in range(5):
+
+        errors = np.zeros((len(angles),len(axes),len(direction)), np.int)
+
+        for an_id, angle in enumerate(angles):
+
+            for ax_id, axis in enumerate(axes): # x, y, z
+
+                for di_id, di_coefficient in enumerate(direction): # +1, and -1 degrees 
+
+                    # Get this test's quat, RT, and projected axes
+                    temp_quat = quat * Quaternion(axis=axis, angle=angle*di_coefficient)
+                    temp_RT = temp_quat.transformation_matrix
+                    temp_RT[:,-1] = quat_RT[:,-1]
+                    test_projected_pts = transform_3d_camera_coords_to_2d_quantized_projections(pts, temp_RT, intrinsics)
+
+                    # Get the error
+                    error = get_new_RT_error(perfect_projected_pts, test_projected_pts)
+                    errors[an_id, ax_id, di_id] = error
+                
+
+        #print(errors)
+
+        # Get error information
+        temp_min_error = np.amin(errors)
+        min_angle_id, min_error_residue = divmod(errors.argmin(), errors.shape[1] * errors.shape[2])
+        min_axis_id, min_direction_id = divmod(min_error_residue, errors.shape[2])
+        min_error_index = (min_angle_id, min_axis_id, min_direction_id)
+
+        if temp_min_error < min_error:
+            min_error = temp_min_error
+            print('new min_error:', min_error)
+            quat *= Quaternion(axis=axes[min_axis_id], angle=angles[min_angle_id]*direction[min_direction_id])
+
+        else:
+            temp_RT = temp_quat.transformation_matrix
+            temp_RT[:,-1] = quat_RT[:,-1]
+            quat_RT = temp_RT
+            break
+
+    return quat_RT
 
 def reconstruct_RT(quaternion, translation_vector):
     """
@@ -533,3 +634,6 @@ def reconstruct_RT(quaternion, translation_vector):
     RT = np.linalg.inv(inv_RT)
 
     return RT
+
+#-------------------------------------------------------------------------------
+# Quaternion Functions

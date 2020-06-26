@@ -5,6 +5,7 @@ import tqdm
 
 import cv2
 import numpy as np
+from pyquaternion import Quaternion
 
 # local Imports (new source code)
 
@@ -13,6 +14,9 @@ sys.path.append(str(root))
 
 import project
 
+# Helper-functions imports
+import abc123
+
 # data-category imports
 import json_tools
 import data_manipulation
@@ -20,19 +24,30 @@ import data_manipulation
 # visual-category imports
 import draw
 
-sys.path.append(str(root.parents[1] / 'networks' / 'NOCS_CVPR2019'))
-import utils as nocs_utils
+#-------------------------------------------------------------------------------
+# File Constants
+
+DEBUG = False
 
 #-------------------------------------------------------------------------------
 # Small Helper Functions
 
-def get_image_paths_in_dir(dir_path):
+def get_image_paths_in_dir(dir_path, max_size=None):
+    """
+    Args:
+        dir_path (pathlib object): The directory to be search for all possible
+            color images
+    Objective:
+        Perform a search inside dir_path to collect all available color images
+        and save them into a list
+    Output:
+        total_path_list (list): A list of all collected color images
+    """
 
-    if isinstance(dir_path, str):
-        dir_path = pathlib.Path(dir_path)
+    abc123.disable_print(DEBUG)
+    print("Getting all image paths inside dataset path given")
 
-    # Output
-    total_filepath_list = [] # [[color, depth], ...]
+    total_path_list = [] # [[color, depth], ...]
     
     # handling additional directories
     eval_paths = [dir_path]
@@ -51,17 +66,29 @@ def get_image_paths_in_dir(dir_path):
         # for all the evaluate paths, do the following
         files = [x for x in eval_path.iterdir() if x.is_file()]
 
-        # Adding all the color images into the total_filepath_list
+        # Adding all the color images into the total_path_list
         color_images = [x for x in files if x.name.find('color') != -1 and x.suffix == '.png']
-        total_filepath_list += color_images
+        total_path_list += color_images
 
         directories = [x for x in eval_path.iterdir() if x.is_dir()]
         eval_paths += directories
 
-    # removing any falsy elements
-    total_filepath_list = [x for x in total_filepath_list if x]
+        # If max size is reached or overpassed, break from loop
+        if max_size != None:
+            if len(total_path_list) >= max_size:
+                break
 
-    return total_filepath_list
+    # removing any falsy elements
+    total_path_list = [x for x in total_path_list if x]
+
+    # Trimming excess if dataset_max_size is set
+    if max_size != None:
+        total_path_list = total_path_list[:max_size]
+
+    print(f"total_path_list length: {len(total_path_list)}")
+    abc123.enable_print(DEBUG)
+
+    return total_path_list
 
 #-------------------------------------------------------------------------------
 # Large Functions
@@ -178,9 +205,23 @@ def get_original_information(color_image, obj_model_dir):
     bboxes = data_manipulation.extract_2d_bboxes_from_masks(masks)
     scores = [100 for j in range(len(class_ids))]
 
+    # RT pickled
+    RT_json_path = pathlib.Path.cwd() / f'RT_{data_id}.json'
+
     # now obtaining the rotation and translation
-    RTs, _, _, _ = nocs_utils.align(class_ids, masks, coords, depth_image, project.constants.INTRINSICS,
-                                    project.constants.SYNSET_NAMES, ".", None)
+    if RT_json_path.exists():
+        data = json_tools.load_from_json(RT_json_path)
+        RTs = data['RTs']
+        
+    else:
+        sys.path.append(str(root.parents[1] / 'networks' / 'NOCS_CVPR2019'))
+        import utils as nocs_utils
+
+        RTs, _, _, _ = nocs_utils.align(class_ids, masks, coords, depth_image, project.constants.INTRINSICS,
+                                        project.constants.SYNSET_NAMES, ".", None)
+
+        data = {'RTs': RTs}
+        json_tools.save_to_json(RT_json_path, data)
 
     return class_ids, bboxes, masks, coords, RTs, scores, scales, instance_dict
 
@@ -530,7 +571,7 @@ def test_new_data_organization():
 
 def create_new_dataset(dataset_path, obj_model_dir):
 
-    all_color_images = get_image_paths_in_dir(dataset_path)
+    all_color_images = get_image_paths_in_dir(dataset_path, max_size=1)
 
     for color_image in tqdm.tqdm(all_color_images):
 
@@ -541,9 +582,11 @@ def create_new_dataset(dataset_path, obj_model_dir):
         old_RTs = []
         normalizing_factors = []
         quaternions = []
+        norm_scales = np.zeros(scales.shape)
+        translation_vectors = []
 
         # Convert RT into quaternion
-        for RT in RTs:
+        for i, RT in enumerate(RTs):
 
             # Making RT match the following scheme
             """
@@ -551,37 +594,39 @@ def create_new_dataset(dataset_path, obj_model_dir):
             WORLD SPACE  ---     RT     ---> CAMERA SPACE
             """
             RT = np.linalg.inv(RT)
-            old_RTs.append(RT)
 
             # Obtaining the 3D objects that will be drawn
             xyz_axis = 0.3*np.array([[0, 0, 0], [0, 0, 1], [0, 1, 0], [1, 0, 0]]).transpose()
+            bbox_3d = data_manipulation.get_3d_bbox(scales[i,:],0)
+
             perfect_projected_axes = data_manipulation.transform_3d_camera_coords_to_2d_quantized_projections(xyz_axis, RT, project.constants.INTRINSICS)
 
             # Converting transformation matrix into quaterion with translation vector
-            quaternion, translation_vector, normalizing_factor = data_manipulation.convert_RT_to_quaternion(RT.copy())
-            normalizing_factors.append(normalizing_factor)
-
-            # Now translation vector is still not perfect so we got to fix it
+            quaternion, translation_vector, normalizing_factor = data_manipulation.convert_RT_to_quaternion(RT.copy(), normalize=True)
+            
+            # Need to fix the translation vector, to account for the orthogonalization of the rotation matrix
             new_RT = data_manipulation.convert_quaternion_to_RT(quaternion, translation_vector)
 
-            # Fixing translation error introducted by the conversion
-            
             # Method 1 (low accuracy)
-            #new_RT = data_manipulation.fix_quaternion_RT(project.constants.INTRINSICS, RT, new_RT, normalizing_factor)
+            #new_RT = data_manipulation.fix_quaternion_T(project.constants.INTRINSICS, RT, new_RT, normalizing_factor)
             
             # Method 2 (high accuracy)
             projected_origin = perfect_projected_axes[0,:].reshape((-1, 1))
             origin_z = (np.linalg.inv(new_RT)[2, 3] * 1000)
+
             new_translation_vector = data_manipulation.create_translation_vector(projected_origin, origin_z, project.constants.INTRINSICS)
             new_RT = data_manipulation.reconstruct_RT(quaternion, new_translation_vector)
 
-            # Now conversion from transformation matrix into quaternion will not 
-            # result in error
-            #quaternion, translation_vector, _norm_factor = data_manipulation.convert_RT_to_quaternion(new_RT.copy())
+            # Need to fix the rotation matrix, to account for the small error introducted by the orthogonalization of the rotation matrix
+            #new_RT = data_manipulation.fix_quat_RT_matrix(project.constants.INTRINSICS, RT, new_RT, pts=bbox_3d)
 
+            # Saving parameters
+            old_RTs.append(RT)
             new_RTs.append(new_RT)
             quaternions.append(quaternion)
-
+            translation_vectors.append(new_translation_vector)
+            normalizing_factors.append(normalizing_factor)
+            norm_scales[i,:] = scales[i,:] / normalizing_factor
         
         # Checking output
         """
@@ -592,13 +637,19 @@ def create_new_dataset(dataset_path, obj_model_dir):
         output = draw.draw_detections(output, project.constants.INTRINSICS, None, None, class_ids,
                                              None, None, new_RTs, None, scales, normalizing_factors,
                                              (255,0,0), False, False, True)
+        
+
+        output = draw.draw_quat_detections(image, project.constants.INTRINSICS, quaternions, translation_vectors, norm_scales)
 
         cv2.imwrite(f'output_{counter}.png', output)
+        cv2.imshow('output', output)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows
+        sys.exit(0)
         """
-
         
         # Saving output into a meta+.json
-        data = {'instance_dict': instance_dict, 'scales': scales, 'RTs': new_RTs,'norm_factors': normalizing_factors, 'quaternions': quaternions}
+        data = {'instance_dict': instance_dict, 'scales': scales, 'RTs': new_RTs, 'norm_factors': normalizing_factors, 'quaternions': quaternions}
         data_id = color_image.name.replace('_color.png', '')
         new_meta_filepath = color_image.parent / f'{data_id}_meta+.json'
         json_tools.save_to_json(new_meta_filepath, data)
