@@ -17,6 +17,7 @@ import abc123
 import json_tools
 import data_manipulation
 import project
+import draw
 
 #-------------------------------------------------------------------------------
 # File Constants
@@ -290,6 +291,12 @@ class NOCSDataset(torch.utils.data.Dataset):
             pass # depth is perfecto!
         else:
             assert False, '[ Error ]: Unsupported depth type'
+
+        # Converting depth again from np.uint16 to np.int16 because np.uint16 
+        # is not supported by PyTorch
+        depth_image = depth_image.astype(np.int16)
+
+        # Using the exact depth from the RTs
             
         # flip z axis of coord map
         print('Converting coordinate map into a valid one')
@@ -308,12 +315,15 @@ class NOCSDataset(torch.utils.data.Dataset):
         WORLD SPACE  ---     RT     ---> CAMERA SPACE
         """
 
-        num_classes = len(project.constants.SYNSET_NAMES) - 1 # Removing BG
+        # Creating data into multi-label structure
+        #num_classes = len(project.constants.SYNSET_NAMES) - 1 # Removing BG
+        num_classes = len(project.constants.DATA_NAMES)
         class_ids = list(instance_dict.values())
         h, w = mask_cdata.shape
 
         color_image = np.moveaxis(color_image, -1, 0)
 
+        zs = np.zeros([num_classes, h, w], dtype=np.float32)
         masks = np.zeros([num_classes, h, w], dtype=np.float32)
         coords = np.zeros([num_classes, 3, h, w], dtype=np.float32)
         quat_img = np.zeros([num_classes, 4, h, w], dtype=np.float32)
@@ -321,31 +331,45 @@ class NOCSDataset(torch.utils.data.Dataset):
         
         for e_id, (i_id, c_id) in enumerate(instance_dict.items()):
 
-            c_id -= 1 # shifting left to remove BG
+            c_id -= 1 # shifting left to remove BG from SYNSET_NAMES
 
             instance_mask = np.equal(mask_cdata, int(i_id)) * 1 # the * 1 is to convert boolean to binary
+            
+            # Contour filling to avoid possible error (centroid outside of object, collecting no data)
+            instance_mask = instance_mask.astype(np.uint8)
+            _, contour, hei = cv2.findContours(instance_mask, cv2.RETR_TREE ,cv2.CHAIN_APPROX_SIMPLE)
+            for cnt in contour:
+                cv2.drawContours(instance_mask, [cnt],0,1,-1)
+            
             masks[c_id,:,:] += instance_mask
             coords[c_id,:,:,:] += np.moveaxis(np.multiply(coord_map, np.expand_dims(instance_mask, axis=-1)), -1, 0)
-            
-            quaternion = quaternions[e_id,:]
-            #print(f'quaternion: {quaternion} - quaternion.shape: {quaternion.shape}')
-            temp_quaterion = np.expand_dims(np.expand_dims(quaternion, axis=-1), axis=-1)
-            #print(f'tem_quaterion.shape: {temp_quaterion}')
-            #print(f'quat_img[c_id,:,:,:].shape: {quat_img[c_id,:,:,:].shape}')
-            quat_img[c_id,:,:,:] = np.where(np.expand_dims(masks[c_id,:,:], axis=0), temp_quaterion, quat_img[c_id,:,:,:])
+            zs[c_id,:,:] += instance_mask * np.linalg.inv(RTs[e_id])[2,3] * 1000
 
+            # Storing quaternions into the location where the instance is located in the image
+            quaternion = quaternions[e_id,:]
+            for i in range(h):
+                for j in range(w):
+                    #if masks[c_id,i,j] != 0:
+                    if instance_mask[i,j] != 0:
+                        quat_img[c_id,:,i,j] = quaternion
+
+            # Storing scales into the location where the instance is located in the image
             scale = scales[e_id,:] / norm_factors[e_id] # accounting for normalization
-            temp_scales = np.expand_dims(np.expand_dims(scale, axis=-1), axis=-1)
-            scales_img[c_id,:,:,:] = np.where(np.expand_dims(masks[c_id,:,:], axis=0), temp_scales, scales_img[c_id,:,:,:])
+            for i in range(h):
+                for j in range(w):
+                    #if masks[c_id,i,j] != 0:
+                    if instance_mask[i,j] != 0:
+                        scales_img[c_id,:,i,j] = scale
 
         # Placing all information into a convenient data structure
         print('Constructing sample dictionary')
         sample = {'color_image': color_image,
+                  'depth': depth_image,
+                  'zs': zs,
                   'masks': masks,
                   'coords': coords,
                   'scales': scales_img,
-                  'quaternions': quat_img,
-                  'norm_factors': norm_factors}
+                  'quaternions': quat_img}
 
         abc123.enable_print(DEBUG)
 
@@ -411,10 +435,6 @@ class NOCSDataLoader(torch.utils.data.DataLoader):
         """
 
         for key in all_data.keys():
-
-            if key == 'norm_factors':
-                collate_batch[key] = all_data[key]
-                continue
 
             collate_batch[key] = torch.stack(all_data[key])
 
@@ -485,46 +505,57 @@ if __name__ == '__main__':
     print('Finished loading dataset')
 
     # Testing dataset
+    """
     print("\n\nTesting dataset loading\n\n")
     test_sample = dataset[0]
 
-    """
+    color_image = test_sample['color_image']
+    color_image = np.moveaxis(color_image, 0, 2)
+
     for key in test_sample.keys():
         shape_info = test_sample[key].shape if type(test_sample[key]) == np.ndarray else len(test_sample[key])
         unique = np.unique(test_sample[key]) if key in ['masks'] else None
         print(f'key: {key} - type: {type(test_sample[key])} - shape: {shape_info} - unique: {unique}')
     """
 
-    dataloader = NOCSDataLoader(dataset, batch_size=2, shuffle=True, num_workers=0)
+    dataloader = NOCSDataLoader(dataset, batch_size=1, shuffle=False, num_workers=0)
 
     # Testing dataloader
     print("\n\nTesting dataloader loading\n\n")
     for i, batched_sample in enumerate(dataloader):
 
+        print(i)
         print(batched_sample.keys())
 
+        output_path = project.cfg.TEST_OUTPUT / f'{i}-output.png'
+        color_path = project.cfg.TEST_OUTPUT / f'{i}-color.png'
+
+        # Getting color image in numpy format to visualize and save
         color_image = batched_sample['color_image'][0]
         color_image = color_image.permute(1, 2, 0).numpy().astype(np.int32).copy()
-        print(color_image.shape)
-        print(color_image.dtype)
 
+        cv2.imwrite(str(color_path), color_image)
+
+        # Getting mask
         batched_masks = batched_sample['masks']
         masks = batched_masks[0]
-        masks = masks * 255
-        print(masks.shape)
 
+        # Getting the centroids of the objects
         class_centroids = data_manipulation.get_masks_centroids(masks)
-    
-        for c_id in range(len(class_centroids)):
-            centroids = class_centroids[c_id]
+        
+        # Getting data (quaternions, scales, and depth(z) ) at the location of the centroids
+        quaternions = data_manipulation.get_data_from_centroids(class_centroids, batched_sample['quaternions'][0])
+        depths = data_manipulation.get_data_from_centroids(class_centroids, batched_sample['depth'][0])
+        scales = data_manipulation.get_data_from_centroids(class_centroids, batched_sample['scales'][0])
+        zs = data_manipulation.get_data_from_centroids(class_centroids, batched_sample['zs'][0])
 
-            for i_id, centroid in enumerate(centroids):
+        # Creating translation vectors:
+        translation_vectors = data_manipulation.create_translation_vectors(class_centroids, zs, project.constants.INTRINSICS)
 
-                cX, cY = centroid
+        # Converting quat and translation vectors into RT
+        RTs = data_manipulation.quats_2_RTs_given_Ts_in_world(quaternions, translation_vectors)
 
-                cv2.circle(color_image, centroid, 4, (0,255,0), -1)
-                label = f'{project.constants.SYNSET_NAMES[c_id+1]}: {i_id}'
-                cv2.putText(color_image, label, (cX-20, cY-20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,255,0), 1)
+        # Visualize RTs
+        draw_image = draw.draw_RTs(color_image, RTs, scales, project.constants.INTRINSICS)
 
-        cv2.imwrite('color_image.png', color_image)
-        break
+        cv2.imwrite(str(output_path), draw_image)

@@ -36,6 +36,14 @@ constants = EasyDict()
 
 constants.INTRINSICS = np.array([[577.5, 0, 319.5], [0., 577.5, 239.5], [0., 0., 1.]]) # CAMERA intrinsics
 
+
+constants.DATA_NAMES = ['bottle',
+                        'bowl',
+                        'camera',
+                        'can',
+                        'laptop',
+                        'mug']
+
 constants.SYNSET_NAMES = ['BG', #0
                           'bottle', #1
                           'bowl', #2

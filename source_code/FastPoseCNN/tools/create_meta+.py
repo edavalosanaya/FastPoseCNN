@@ -602,20 +602,22 @@ def create_new_dataset(dataset_path, obj_model_dir):
             perfect_projected_axes = data_manipulation.transform_3d_camera_coords_to_2d_quantized_projections(xyz_axis, RT, project.constants.INTRINSICS)
 
             # Converting transformation matrix into quaterion with translation vector
-            quaternion, translation_vector, normalizing_factor = data_manipulation.convert_RT_to_quaternion(RT.copy(), normalize=True)
+            quaternion, translation_vector, normalizing_factor = data_manipulation.RT_2_quat(RT.copy(), normalize=True)
             
             # Need to fix the translation vector, to account for the orthogonalization of the rotation matrix
-            new_RT = data_manipulation.convert_quaternion_to_RT(quaternion, translation_vector)
+            new_RT = data_manipulation.quat_2_RT_given_T_in_camera(quaternion, translation_vector)
 
             # Method 1 (low accuracy)
             #new_RT = data_manipulation.fix_quaternion_T(project.constants.INTRINSICS, RT, new_RT, normalizing_factor)
             
             # Method 2 (high accuracy)
             projected_origin = perfect_projected_axes[0,:].reshape((-1, 1))
+            #origin_z = (np.linalg.inv(new_RT)[2, 3] * 1000)
             origin_z = (np.linalg.inv(new_RT)[2, 3] * 1000)
 
+
             new_translation_vector = data_manipulation.create_translation_vector(projected_origin, origin_z, project.constants.INTRINSICS)
-            new_RT = data_manipulation.reconstruct_RT(quaternion, new_translation_vector)
+            new_RT = data_manipulation.quat_2_RT_given_T_in_world(quaternion, new_translation_vector)
 
             # Need to fix the rotation matrix, to account for the small error introducted by the orthogonalization of the rotation matrix
             #new_RT = data_manipulation.fix_quat_RT_matrix(project.constants.INTRINSICS, RT, new_RT, pts=bbox_3d)
@@ -629,7 +631,7 @@ def create_new_dataset(dataset_path, obj_model_dir):
             norm_scales[i,:] = scales[i,:] / normalizing_factor
         
         # Checking output
-        """
+        
         image = cv2.imread(str(color_image), cv2.IMREAD_UNCHANGED)
         output = draw.draw_detections(image, project.constants.INTRINSICS, None, None, class_ids,
                                              None, None, old_RTs, None, scales, [1 for i in range(len(old_RTs))],
@@ -641,12 +643,13 @@ def create_new_dataset(dataset_path, obj_model_dir):
 
         output = draw.draw_quat_detections(image, project.constants.INTRINSICS, quaternions, translation_vectors, norm_scales)
 
-        cv2.imwrite(f'output_{counter}.png', output)
-        cv2.imshow('output', output)
+
+        cv2.imwrite(f'test.png', output)
+        #cv2.imshow('output', output)
         cv2.waitKey(0)
         cv2.destroyAllWindows
         sys.exit(0)
-        """
+        
         
         # Saving output into a meta+.json
         data = {'instance_dict': instance_dict, 'scales': scales, 'RTs': new_RTs, 'norm_factors': normalizing_factors, 'quaternions': quaternions}

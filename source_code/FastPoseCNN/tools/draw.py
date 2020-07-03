@@ -15,7 +15,7 @@ import project
 import data_manipulation
 
 #-------------------------------------------------------------------------------
-# Complete Routine Functions
+# Complete (old data structure) Routine Functions
 
 def draw_detections(image, intrinsics, synset_names, bbox, class_ids, masks, coords,
                     RTs, scores, scales, normalizing_factors, RT_color, draw_coord=False, draw_tag=False, draw_RT=True):
@@ -78,7 +78,7 @@ def draw_quat_detections(image, intrinsics, quaternions, translation_vectors, no
     for i, quaternion in enumerate(quaternions):
 
         #quaternion = Quaternion(quaternion)
-        RT = data_manipulation.reconstruct_RT(quaternion, translation_vectors[i])
+        RT = data_manipulation.quat_2_RT_given_T_in_world(quaternion, translation_vectors[i])
 
         norm_scale = norm_scales[i]
         
@@ -122,7 +122,54 @@ def draw_quat_detections(image, intrinsics, quaternions, translation_vectors, no
     return draw_image
 
 #-------------------------------------------------------------------------------
+# Complete (new data structure) Routine Functions
+
+def draw_RTs(image, RTs, scales, intrinsics):
+
+    draw_image = image.copy()
+
+    for class_id, class_RTs in RTs.items():
+
+        for instance_id, RT in enumerate(class_RTs):
+
+            # Pts that will be displayed
+            xyz = np.array([[0,0,0],[1,0,0],[0,1,0],[0,0,1]], dtype=np.float32).transpose()
+            xyz[0,:] *= scales[class_id][instance_id][0] / 2
+            xyz[1,:] *= scales[class_id][instance_id][1] / 2
+            xyz[2,:] *= scales[class_id][instance_id][2] / 2
+            
+            bbox_3d = data_manipulation.get_3d_bbox(scales[class_id][instance_id], 0)
+
+            # Apply RT into a set of points
+            xyz_projection = data_manipulation.transform_3d_camera_coords_to_2d_quantized_projections(xyz, RT, intrinsics)
+            bbox_3d_projection = data_manipulation.transform_3d_camera_coords_to_2d_quantized_projections(bbox_3d, RT, intrinsics)
+
+            # Drawing projections
+            draw_image = draw_axes(draw_image, xyz_projection)
+            draw_image = draw_3d_bbox(draw_image, bbox_3d_projection, color=(0,0,255))
+
+    return draw_image
+
+#-------------------------------------------------------------------------------
 # Small-helper Functions
+
+def draw_centroids(class_centroids, img, color=(0,255,0), thickness=4):
+
+    draw_image = img.copy()
+
+    for c_id in range(len(class_centroids)):
+
+            centroids = class_centroids[c_id]
+
+            for i_id, centroid in enumerate(centroids):
+
+                cX, cY = centroid
+
+                cv2.circle(color_image, centroid, thickness, color, -1)
+                label = f'{project.constants.SYNSET_NAMES[c_id+1]}: {i_id}'
+                cv2.putText(draw_image, label, (cX-20, cY-20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
+
+    return draw_image
 
 def draw_3d_bbox(img, bbox_pts, color):
 

@@ -122,7 +122,7 @@ def get_mask_centroids(mask):
 
     # Hierarchy representation in OpenCV: [Next, Previous, First_Child, Parent]
 
-    print(len(cnts), hie)
+    #print(len(cnts), hie)
 
     centroids = []
 
@@ -141,24 +141,84 @@ def get_mask_centroids(mask):
 
 def get_masks_centroids(masks):
 
+    total_centroids = {}
+
     if type(masks) == torch.Tensor:
         masks = masks.numpy().astype(np.uint8)
 
     if len(masks.shape) == 3: # multiple masks
 
-        total_centroids = []
-
-        for i in range(masks.shape[0]): # assuming CHW
+        for class_id in range(masks.shape[0]): # assuming CHW
             
-            mask = masks[i]
+            mask = masks[class_id]
             centroids = get_mask_centroids(mask)
-            total_centroids.append(centroids)
+            if centroids: # not empty
+                total_centroids[class_id] = centroids
 
     else: # one mask only
 
-        total_centroids = [get_mask_centroids(masks)]
+        total_centroids[0] = get_mask_centroids(masks)
 
     return total_centroids
+
+def get_data_from_centroids(class_centroids, img):
+
+    output = {}
+
+    for class_id in class_centroids.keys():
+
+        centroids = class_centroids[class_id]
+        class_data = []
+
+        for centroid in centroids:
+
+            cX, cY = centroid
+            
+            if len(img.shape) == 4: # [C, data, H, W]
+                data = img[class_id, :, cY, cX].numpy()
+            elif len(img.shape) == 3: # [C, H, W]
+                data = img[class_id, cY, cX].numpy()
+            elif len(img.shape) == 2: # [H, W]
+                data = img[cY, cX].numpy()
+
+            class_data.append(data)
+
+        if class_data: # if not empty
+            output[class_id] = class_data
+
+    return output
+
+#-------------------------------------------------------------------------------
+# Dataset Functions
+
+def stack_multichannel_masks(multi_c_image, binary=True):
+
+    output = multi_c_image[0]
+
+    # Stacking
+    for i in range(1, multi_c_image.shape[0]):
+        output = np.concatenate([output, multi_c_image[i,:,:]])
+
+    # Converting to binary
+    if binary:
+        output = (output != 0) * 255
+
+    return output
+
+def stack_multichannel_quat_or_scales(multi_c_image, binary=True):
+
+    n, _, h, w = multi_c_image.shape
+    output = np.empty((h*n,w))
+
+    for c in range(n):
+
+        one_c_output = np.zeros((h,w))
+
+        for i in range(one_c_output.shape[0]):
+            for j in range(one_c_output.shape[1]):
+                output[i+h*c,j] = (multi_c_image[c,:,i,j] != 0).all() * 255
+
+    return output
 
 #-------------------------------------------------------------------------------
 # Pure Geometric Functions
@@ -193,7 +253,7 @@ def homogeneous_2_cartesian_coord(homogeneous_coord):
     return cartesian_coord
 
 #-------------------------------------------------------------------------------
-# RT Functions
+# RT Functions2
 
 def transform_2d_quantized_projections_to_3d_camera_coords(cartesian_projections_2d, RT, intrinsics, z):
     # Math comes from: https://robotacademy.net.au/lesson/image-formation/
@@ -349,7 +409,28 @@ def create_translation_vector(cartesian_projections_2d_xy_origin, z, intrinsics)
 
     return translation_vector
 
-def convert_RT_to_quaternion(RT, normalize=True):
+def create_translation_vectors(class_centroids, zs, intrinsics):
+
+    translation_vectors = {}
+
+    for class_id, centroids in class_centroids.items():
+
+        class_data = []
+
+        for instance_id, centroid in enumerate(centroids):
+
+            formatted_centroid = np.array(centroid).reshape((-1, 1))
+            z = zs[class_id][instance_id]
+
+            translation_vector = create_translation_vector(formatted_centroid, z, intrinsics)
+            class_data.append(translation_vector)
+
+        if class_data: # if not empty
+            translation_vectors[class_id] = class_data
+
+    return translation_vectors
+
+def RT_2_quat(RT, normalize=True):
     """
     Inputs:
         RT, transformation matrix: [4, 4]
@@ -401,11 +482,11 @@ def convert_RT_to_quaternion(RT, normalize=True):
 
     return quaternion, translation_vector, normalizing_factor
 
-def convert_quaternion_to_RT(quaternion, translation_vector):
+def quat_2_RT_given_T_in_camera(quaternion, translation_vector):
     """
     Inputs:
         quaternion: [1, 4]
-        translation_vector: [3, 1]
+        translation_vector, cartesian camera coordinates space: [3, 1]
     Process:
         Given the inputs, this function does the following routine:
             (1) By feeding the quaternion to the scipy...Rotation object, the
@@ -422,6 +503,54 @@ def convert_quaternion_to_RT(quaternion, translation_vector):
     RT = np.vstack([np.hstack([rotation_matrix, translation_vector]), [0,0,0,1]])
 
     return RT
+
+def quat_2_RT_given_T_in_world(quaternion, translation_vector):
+    """
+    Inputs:
+        quaternion: [1, 4]
+        translation_vector, cartesian world coordinates space: [3, 1]
+    Process:
+        Given the inputs, this function does the following:
+            (1) Convert the quaternion into a rotation matrix with scipy...Rotation.
+            (2) Inverting the rotation matrix to match the translation vector's 
+                coordinate space.
+            (3) Joining the inverse rotation matrix with the translation vector 
+                and adding [0,0,0,1] to the matrix.
+            (4) Returning the inverse RT matrix into RT.
+    Output:
+        RT: [4,4]
+    """
+
+    smart_rotation_object = scipy.spatial.transform.Rotation.from_quat(quaternion)
+    rotation_matrix = smart_rotation_object.as_matrix()
+    inv_rotation_matrix = np.linalg.inv(rotation_matrix)
+
+    inv_RT =  np.vstack([np.hstack([inv_rotation_matrix, translation_vector]), [0,0,0,1]])
+    RT = np.linalg.inv(inv_RT)
+
+    return RT
+
+def quats_2_RTs_given_Ts_in_world(quaternions, translation_vectors):
+
+    RTs = {}
+    print(f'quaternions: {quaternions}')
+    print(f'translation_vectors: {translation_vectors}')
+
+    for class_id, class_quaternions in quaternions.items():
+
+        class_RTs = []
+
+        for instance_id, quaternion in enumerate(class_quaternions):
+
+            translation_vector = translation_vectors[class_id][instance_id]
+
+            RT = quat_2_RT_given_T_in_world(quaternion, translation_vector)
+            class_RTs.append(RT)
+
+        if class_RTs: # if not empty
+            RTs[class_id] = class_RTs
+
+    return RTs
 
 def get_new_RT_error(perfect_projected_pts, quat_projected_pts):
     """
@@ -608,32 +737,6 @@ def fix_quat_RT_matrix(intrinsics, original_RT, quat_RT, pts=None):
             break
 
     return quat_RT
-
-def reconstruct_RT(quaternion, translation_vector):
-    """
-    Inputs:
-        quaternion: [1, 4]
-        translation_vector, cartesian camera coordinates space: [3, 1]
-    Process:
-        Given the inputs, this function does the following:
-            (1) Convert the quaternion into a rotation matrix with scipy...Rotation.
-            (2) Inverting the rotation matrix to match the translation vector's 
-                coordinate space.
-            (3) Joining the inverse rotation matrix with the translation vector 
-                and adding [0,0,0,1] to the matrix.
-            (4) Returning the inverse RT matrix into RT.
-    Output:
-        RT: [4,4]
-    """
-
-    smart_rotation_object = scipy.spatial.transform.Rotation.from_quat(quaternion)
-    rotation_matrix = smart_rotation_object.as_matrix()
-    inv_rotation_matrix = np.linalg.inv(rotation_matrix)
-
-    inv_RT =  np.vstack([np.hstack([inv_rotation_matrix, translation_vector]), [0,0,0,1]])
-    RT = np.linalg.inv(inv_RT)
-
-    return RT
 
 #-------------------------------------------------------------------------------
 # Quaternion Functions
