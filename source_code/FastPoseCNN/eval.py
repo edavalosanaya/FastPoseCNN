@@ -72,7 +72,7 @@ def eval(PATH):
         #print(f'id: {i} \n {sample.keys()}\n')
 
         # Deconstructing dictionary for simple usage
-        color_img, masks, coords, scales, quaternions, norm_factors = [data.to(device) for data in sample.values()]
+        color_img, depth, zs, masks, coords, scales, quaternions = [data.to(device) for data in sample.values()]
 
         # Forward pass
         masks_pred = net(color_img)

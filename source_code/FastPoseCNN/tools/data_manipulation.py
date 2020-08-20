@@ -1,5 +1,7 @@
 import os
 import sys
+import warnings
+warnings.filterwarnings('ignore')
 
 import cv2
 import imutils
@@ -13,6 +15,8 @@ import scipy.spatial
 import scipy.linalg
 import sklearn.preprocessing
 import scipy.spatial.transform
+
+import matplotlib.pyplot as plt
 
 import torch
 
@@ -191,7 +195,7 @@ def get_data_from_centroids(class_centroids, img):
 #-------------------------------------------------------------------------------
 # Dataset Functions
 
-def stack_multichannel_masks(multi_c_image, binary=True):
+def vstack_multichannel_masks(multi_c_image, binary=True):
 
     output = multi_c_image[0]
 
@@ -200,25 +204,115 @@ def stack_multichannel_masks(multi_c_image, binary=True):
         output = np.concatenate([output, multi_c_image[i,:,:]])
 
     # Converting to binary
-    if binary:
-        output = (output != 0) * 255
+    output = (output != 0) * 255
 
     return output
 
-def stack_multichannel_quat_or_scales(multi_c_image, binary=True):
+def vstack_multichannel_quat_or_scales(multi_c_image):
 
     n, _, h, w = multi_c_image.shape
     output = np.empty((h*n,w))
 
     for c in range(n):
-
-        one_c_output = np.zeros((h,w))
-
-        for i in range(one_c_output.shape[0]):
-            for j in range(one_c_output.shape[1]):
+        for i in range(h):
+            for j in range(w):
                 output[i+h*c,j] = (multi_c_image[c,:,i,j] != 0).all() * 255
 
     return output
+
+def collapse_multichannel_masks(multi_c_image):
+
+    output = multi_c_image[0]
+
+    # Collapsing
+    for i in range(1, multi_c_image.shape[0]):
+        output += multi_c_image[i,:,:]
+
+    # Converting to binary
+    output = (output != 0) * 255
+
+    output = torch.clamp(output, 0, 255)
+
+    return output
+
+def collapse_multichannel_quat_or_scales(multi_c_image):
+
+    n, _, h, w = multi_c_image.shape
+    output = multi_c_image[0]
+
+    for c in range(1, n):
+
+        for i in range(h):
+            for j in range(w):
+                output[i,j] += (multi_c_image[c,:,i,j] != 0).all() * 255
+
+    output = torch.clamp(output, 0, 255)
+
+    return output
+
+#-------------------------------------------------------------------------------
+# Datasample Functions
+
+def make_test_run_summary_image(inputs, outputs):
+
+    # First creating visual outputs (collapsing masks, scales, )
+    visual_outputs = {}
+
+    for key in outputs.keys():
+
+        if key.find('mask') != -1 or key.find('depth') != 1: # Masks and depth
+            visual_outputs[key] = collapse_multichannel_masks(outputs[key])
+
+        elif key.find('scale') != -1 or key.find('quat') != -1: # Quat and scales
+            visual_outputs[key] = collapse_multichannel_quat_or_scales(outputs[key])
+
+    # Then creating matplotlib figure with all the images like this 
+    # https://www.tensorflow.org/tensorboard/image_summaries
+
+    # Formatting the torch images into numpy images with the right H,W,C layout
+    images_to_visualize = [inputs['color_image']] + list(outputs.values())
+    formatted_images = []
+
+    for img in images_to_visualize:
+        
+        # Converting images with C,H,W to H,W,C
+        if len(img.shape) == 3: # C,H,W
+            new_img = img.permute(2,0,1)
+
+        # Converting tensors to numpy arrays
+        new_img = new_img.numpy()
+        
+        # Saving formatted image
+        formatted_images.append(new_img)
+
+    # Now creating single image with all the formatted images using this example: 
+    # https://stackoverflow.com/questions/46615554/how-to-display-multiple-images-in-one-figure-correctly/46616645
+    
+    fig = plt.figure()
+    ax = fig.gca()
+    columns = len(formatted_images)
+    rows = 1
+
+    for i in range(columns*rows):
+        fig.add_subplot(rows, columns, i+1)
+        plt.imshow(formatted_images[i])
+
+    # Now saving saving figure as an image
+    # Using this method: https://stackoverflow.com/a/57988387/13231446
+
+    # matplotlib
+    ax.axis('off')
+    fig.tight_layout(pad=0)
+
+    # To remove the huge white borders
+    ax.margins(0)
+
+    # Creating the image
+    fig.canvas.draw()
+    image_from_plot = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
+    image_from_plot = image_from_plot.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+
+    return image_from_plot
 
 #-------------------------------------------------------------------------------
 # Pure Geometric Functions
@@ -272,7 +366,7 @@ def transform_2d_quantized_projections_to_3d_camera_coords(cartesian_projections
             (2) Convert the resulting homogeneous vector/matrix (which is in the 
                 world coordinates space) into the camera coordinates space
             (3) Convert the homogeneous camera coordinates into cartesian camera
-                coordinates.
+                coordinates.k
     Output:
         cartesian camera coordinates: [3, N] (N number of 3D points)
     """

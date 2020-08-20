@@ -1,10 +1,37 @@
 import os
 import sys
 import pathlib
+import datetime
+import tqdm
+import warnings
+
+import pdb
+
+# Ignore annoying warnings
+os.environ["TF_CPP_MIN_LOG_LEVEL"]="3"
+warnings.filterwarnings('ignore')
 
 import torch
 import torch.nn
 import torch.optim
+import torch.utils
+import torch.utils.tensorboard
+
+# How to view tensorboard in the Lambda machine
+"""
+Do the following in Lamda machine: 
+
+    tensorboard --logdir=logs --port 6006 --host=localhost
+
+Then run this on the local machine
+
+    ssh -NfL 6006:localhost:6006 edavalos@dp.stmarytx.edu
+
+Then open this on your browser
+
+    http://localhost:6006
+
+"""
 
 import numpy as np
 
@@ -20,21 +47,143 @@ from model_lib.fastposecnn import FastPoseCNN as Net
 # File Constants
 
 DEBUG = False
-camera_dataset = root.parents[1] / 'datasets' / 'NOCS' / 'camera' / 'val'
-model_path = project.cfg.SAVED_MODEL_DIR / 'test_model.pth'
+camera_dataset = project.cfg.DATASET_DIR / 'NOCS' / 'camera' / 'val'
 
 #-------------------------------------------------------------------------------
 # Functions
 
-def train(num_epoch, PATH):
+def training_loop(epoch_info, net, criterions, optimizer, dataloader, backpropagate=True):
+
+    running_loss = 0.0
+
+    for sample in tqdm.tqdm(dataloader, desc = epoch_info):
+
+            # Deconstructing the sample tuple
+            color_image, depth_image, zs, masks, coord_map, scales_img, quat_img = sample
+            
+            # clearing gradients
+            optimizer.zero_grad()
+
+            # Forward pass
+            outputs = net(color_image)
+
+            # calculate loss with both the input and output
+            loss_mask = criterions['masks'](outputs[0], masks)
+            loss_depth = criterions['depth'](outputs[1], depth_image)
+            loss_scale = criterions['scales'](outputs[2], scales_img)
+            loss_quat = criterions['quat'](outputs[3], quat_img)
+            
+            # total loss
+            loss = loss_mask + loss_depth + loss_scale + loss_quat
+
+            if backpropagate: # only for training
+                # compute gradient of the loss
+                loss.backward()
+
+                # backpropagate the loss
+                optimizer.step()
+
+            # update loss
+            running_loss += loss.item()
+
+    return running_loss
+
+def train(*,num_epoch):
+
+    net, criterions, optimizer, train_loader, valid_loader, tensorboard_writer = setup()
+
+    # Epoch Loop
+    for epoch in range(1, num_epoch+1):
+
+        # Signaling epoch
+        #print(f'Entering epoch: {epoch}')
+        epoch_info = f'Epoch {epoch}/{num_epoch}'
+
+        # Keepting track of training and validation loss
+        tracked_metrics = {'loss/train':0.0, 'loss/valid':0.0}
+
+        #***********************************************************************
+        #                               TRAINING
+        #***********************************************************************
+
+        # Set model to train 
+        net.train()
+
+        # Feed training input
+        print('Training loop') 
+        tracked_metrics['loss/train'] = training_loop(epoch_info, net, criterions, optimizer, train_loader, backpropagate=True)
+
+        #***********************************************************************
+        #                              VALIDATE MODEL
+        #***********************************************************************
+
+        # Set model to eval
+        net.eval()
+
+        # Feed validating input
+        print('Validation Loop')
+        tracked_metrics['loss/valid'] = training_loop(epoch_info, net, criterions, optimizer, valid_loader, backpropagate=False)
+
+        #***********************************************************************
+        #                             DATA PROCESSING
+        #***********************************************************************
+
+        # calculate average loss
+        tracked_metrics['loss/train'] /= (len(train_loader.sampler))
+        tracked_metrics['loss/valid'] /= (len(valid_loader.sampler))
+
+        # Foward propagating random sample
+        random_sample = iter(train_loader).next()
+        color_image, depth_image, zs, masks, coord_map, scales_img, quat_img = random_sample
+        outputs = net(color_image)
+
+        #test_run_summary_image = tools.data_manipulation.make_test_run_summary_image(color_image, outputs[0])
+        #cv2.imwrite(str(project.cfg.TEST_OUTPUT / 'test_run_summary_image_{}.png'.format(epoch)), test_run_summary_image)
+
+        # Adding images into tensorboard
+
+        #***********************************************************************
+        #                             TERMINAL REPORT
+        #***********************************************************************
+
+        print('Epoch: {} \tloss/train: {:.6f} \tloss/valid: {:.6f}'.format(epoch, tracked_metrics['loss/train'], tracked_metrics['loss/valid']))
+
+        #***********************************************************************
+        #                            TENSORBOARD REPORT
+        #***********************************************************************
+
+        for metric_name, metric_value in tracked_metrics.items():
+            tensorboard_writer.add_scalar(metric_name, metric_value, epoch)
+
+        #***********************************************************************
+        #                               SAVE MODEL
+        #***********************************************************************
+
+        # Save model if validation loss is minimum
+        
+        #torch.save(net.state_dict(), model_save_filepath)
+
+    return None
+
+def setup(val_split=0.2, dataset_max_size=10, batch_size=2, num_workers=0):
+
+    # Model filename
+    model_name = datetime.datetime.now().strftime('%d-%m-%y--%H-%M') + '-fastposecnn'
+    model_save_filepath = str(project.cfg.SAVED_MODEL_DIR / (model_name + '.pth') )
+    model_logs_dir = str(project.cfg.LOGS / model_name)
+
+    # Creating tensorboard object
+    tensorboard_writer = torch.utils.tensorboard.SummaryWriter(model_logs_dir)
+
+    if os.path.exists(model_logs_dir) is False:
+        os.mkdir(model_logs_dir)
 
     # Loading dataset
     print('Loading dataset')
-    dataset = tools.dataset.NOCSDataset(camera_dataset, dataset_max_size=10)
+    dataset = tools.dataset.NOCSDataset(camera_dataset, dataset_max_size=dataset_max_size)
 
     # Splitting dataset to train and validation
-    print('Creating dataset split (train/validation)')
-    val_split = 0.2
+    #print('Creating dataset split (train/validation)')
     dataset_num = len(dataset)
     
     indices = list(range(dataset_num))
@@ -44,23 +193,28 @@ def train(num_epoch, PATH):
     train_idx, valid_idx = indices[split:], indices[:split]
 
     # Obtain samplers for training and validation batches
-    print('Creating samplers')
+    #print('Creating samplers')
     train_sampler = torch.utils.data.sampler.SubsetRandomSampler(train_idx)
     valid_sampler = torch.utils.data.sampler.SubsetRandomSampler(valid_idx)
 
     # Create data loaders
-    batch_size = 1
-    num_workers = 0
 
-    print('Creating data loaders')
+    """
+    print('Creating data loaders (custom)')
     train_loader = tools.dataset.NOCSDataLoader(dataset, batch_size=batch_size,
                                                 sampler=train_sampler, num_workers=num_workers)
     valid_loader = tools.dataset.NOCSDataLoader(dataset, batch_size=batch_size,
                                                 sampler=valid_sampler, num_workers=num_workers)
+    """
+    print('Creating data loaders (built-in)')
+    train_loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size,
+                                               sampler=train_sampler, num_workers=num_workers)
+    valid_loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size,
+                                               sampler=valid_sampler, num_workers=num_workers)
 
     # Load model
     print('Loading model')
-    net = Net(n_channels=3, out_channels_mask=6, bilinear=True)
+    net = Net(in_channels=3, bilinear=True)
     
     # Using multiple GPUs if avaliable
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
@@ -71,109 +225,21 @@ def train(num_epoch, PATH):
     net.to(device)
 
     # Load loss functions
-    print('Initializing loss function')
-    #criterion_masks = torch.nn.CrossEntropyLoss()
-    criterion_masks = torch.nn.BCEWithLogitsLoss()
+    #print('Initializing loss function')
+    criterions = {'masks':torch.nn.BCEWithLogitsLoss(),
+                  'depth':torch.nn.BCEWithLogitsLoss(),
+                  'scales':torch.nn.BCEWithLogitsLoss(),
+                  'quat':torch.nn.BCEWithLogitsLoss()}
 
     # Specify optimizer
-    print('Specifying optimizer')
+    #print('Specifying optimizer')
     optimizer = torch.optim.Adam(net.parameters(), lr=1e-4, weight_decay=1e-5)
 
-    # Training loop
-
-    for epoch in range(1, num_epoch+1):
-
-        # Signaling epoch
-        #print(f'Entering epoch: {epoch}')
-
-        # Keepting track of training and validation loss
-        train_loss = 0.0
-        valid_loss = 0.0
-
-        #***********************************
-        #             TRAINING
-        #***********************************
-
-        # Set model to train 
-        net.train()
-
-        # Feed training input
-        #print('Entering training loop') 
-        for i, sample in enumerate(train_loader):
-
-            # Deconstructing dictionary for simple usage
-            color_img, masks, coords, scales, quaternions, norm_factors = [data.to(device) for data in sample.values()]
-            
-            # clearing gradients
-            optimizer.zero_grad()
-
-            # Forward pass
-            masks_pred = net(color_img)
-
-            # calculate loss with both the input and output
-            masks_loss = criterion_masks(masks_pred, masks)
-            
-            # total loss
-            loss = masks_loss 
-
-            # compute gradient of the loss
-            loss.backward()
-
-            # backpropagate the loss
-            optimizer.step()
-
-            # update training loss
-            train_loss += loss.item()
-
-        #***********************************
-        #           VALIDATE MODEL
-        #***********************************
-
-        # Set model to eval
-        net.eval()
-
-        # Feed validating input
-        #print('Entering validation loop')
-        for i, sample in enumerate(valid_loader):
-
-            # Deconstructing dictionary for simple usage
-            color_img, masks, coords, scales, quaternions, norm_factors = [data.to(device) for data in sample.values()]
-
-            # Forward pass
-            masks_pred = net(color_img)
-
-            # calculate loss with both the input and output
-            masks_loss = criterion_masks(masks_pred, masks)
-
-            # total loss 
-            loss = masks_loss
-
-            # Calculate valid loss
-            valid_loss += loss.item()
-
-        # calculate average loss
-        train_loss = train_loss/(len(train_loader.sampler))
-        valid_loss = valid_loss/(len(valid_loader.sampler))
-
-        #***********************************
-        #             REPORT
-        #***********************************
-        print('Epoch: {} \ttrain_loss: {:.6f} \tvalid_loss: {:.6f}'.format(epoch, train_loss, valid_loss))
-
-        # Report training and validation loss
-
-        #***********************************
-        #             SAVE MODEL
-        #***********************************
-
-        # Save model if validation loss is minimum
-        torch.save(net.state_dict(), PATH)
-
-    return None
+    return net, criterions, optimizer, train_loader, valid_loader, tensorboard_writer
 
 #-------------------------------------------------------------------------------
 # Main Code
 
 if __name__ == '__main__':
 
-    train(10, model_path)
+    train(num_epoch=5)
