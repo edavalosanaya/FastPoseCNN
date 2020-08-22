@@ -37,14 +37,6 @@ constants = EasyDict()
 
 constants.INTRINSICS = np.array([[577.5, 0, 319.5], [0., 577.5, 239.5], [0., 0., 1.]]) # CAMERA intrinsics
 
-
-constants.DATA_NAMES = ['bottle',
-                        'bowl',
-                        'camera',
-                        'can',
-                        'laptop',
-                        'mug']
-
 constants.SYNSET_NAMES = ['BG', #0
                           'bottle', #1
                           'bowl', #2
@@ -53,6 +45,15 @@ constants.SYNSET_NAMES = ['BG', #0
                           'laptop',#5
                           'mug'#6
                           ]
+
+constants.SYNSET_COLORS = [(0,0,0), # background (black)
+                           (237,27,36), # bottle (red)
+                           (247,143,30), # bowl (orange)
+                           (254,242,0), # camera (yellow)
+                           (1,168,96), # can (green)
+                           (1,86,164), # laptop (blue)
+                           (166,68,153) # mug (purple)
+                           ]
 
 constants.CLASS_MAP = {
     'bottle': 'bottle',

@@ -16,12 +16,15 @@ import torch.nn
 import torch.optim
 import torch.utils
 import torch.utils.tensorboard
+import torchvision
 
 # How to view tensorboard in the Lambda machine
 """
 Do the following in Lamda machine: 
 
     tensorboard --logdir=logs --port 6006 --host=localhost
+
+    tensorboard --logdir=model_lib/logs --port 6006 --host=localhost
 
 Then run this on the local machine
 
@@ -34,6 +37,7 @@ Then open this on your browser
 """
 
 import numpy as np
+import cv2
 
 # Local Imports
 root = next(path for path in pathlib.Path(os.path.abspath(__file__)).parents if path.name == 'FastPoseCNN')
@@ -41,6 +45,7 @@ sys.path.append(str(root))
 
 import tools.project as project
 import tools.dataset
+import tools.visualize
 from model_lib.fastposecnn import FastPoseCNN as Net
 
 #-------------------------------------------------------------------------------
@@ -67,14 +72,22 @@ def training_loop(epoch_info, net, criterions, optimizer, dataloader, backpropag
             # Forward pass
             outputs = net(color_image)
 
+            #A = outputs.shape
+            #print(f'shape: {A}')
+
+            #B = torch.unique(masks)
+            #print(f'target unique: {B}')
+
             # calculate loss with both the input and output
-            loss_mask = criterions['masks'](outputs[0], masks)
+            loss_mask = criterions['masks'](outputs, masks)
+            """
             loss_depth = criterions['depth'](outputs[1], depth_image)
             loss_scale = criterions['scales'](outputs[2], scales_img)
             loss_quat = criterions['quat'](outputs[3], quat_img)
-            
+            #"""
+
             # total loss
-            loss = loss_mask + loss_depth + loss_scale + loss_quat
+            loss = loss_mask #+ loss_depth + loss_scale + loss_quat
 
             if backpropagate: # only for training
                 # compute gradient of the loss
@@ -93,7 +106,7 @@ def train(*,num_epoch):
     net, criterions, optimizer, train_loader, valid_loader, tensorboard_writer = setup()
 
     # Epoch Loop
-    for epoch in range(1, num_epoch+1):
+    for epoch in range(1, num_epoch+2):
 
         # Signaling epoch
         #print(f'Entering epoch: {epoch}')
@@ -137,10 +150,9 @@ def train(*,num_epoch):
         color_image, depth_image, zs, masks, coord_map, scales_img, quat_img = random_sample
         outputs = net(color_image)
 
-        #test_run_summary_image = tools.data_manipulation.make_test_run_summary_image(color_image, outputs[0])
-        #cv2.imwrite(str(project.cfg.TEST_OUTPUT / 'test_run_summary_image_{}.png'.format(epoch)), test_run_summary_image)
-
-        # Adding images into tensorboard
+        title = f'Summary'
+        summary_image = tools.visualize.make_summary_image(title, random_sample, outputs)
+        tensorboard_writer.add_image(title, summary_image, epoch, dataformats='HWC')
 
         #***********************************************************************
         #                             TERMINAL REPORT
@@ -165,7 +177,7 @@ def train(*,num_epoch):
 
     return None
 
-def setup(val_split=0.2, dataset_max_size=10, batch_size=2, num_workers=0):
+def setup(val_split=0.2, dataset_max_size=10, batch_size=10, num_workers=0):
 
     # Model filename
     model_name = datetime.datetime.now().strftime('%d-%m-%y--%H-%M') + '-fastposecnn'
@@ -180,7 +192,7 @@ def setup(val_split=0.2, dataset_max_size=10, batch_size=2, num_workers=0):
 
     # Loading dataset
     print('Loading dataset')
-    dataset = tools.dataset.NOCSDataset(camera_dataset, dataset_max_size=dataset_max_size)
+    dataset = tools.dataset.NOCSDataset(camera_dataset)#, dataset_max_size=dataset_max_size)
 
     # Splitting dataset to train and validation
     #print('Creating dataset split (train/validation)')
@@ -226,7 +238,7 @@ def setup(val_split=0.2, dataset_max_size=10, batch_size=2, num_workers=0):
 
     # Load loss functions
     #print('Initializing loss function')
-    criterions = {'masks':torch.nn.BCEWithLogitsLoss(),
+    criterions = {'masks':torch.nn.NLLLoss(),
                   'depth':torch.nn.BCEWithLogitsLoss(),
                   'scales':torch.nn.BCEWithLogitsLoss(),
                   'quat':torch.nn.BCEWithLogitsLoss()}
@@ -242,4 +254,4 @@ def setup(val_split=0.2, dataset_max_size=10, batch_size=2, num_workers=0):
 
 if __name__ == '__main__':
 
-    train(num_epoch=5)
+    train(num_epoch=50)

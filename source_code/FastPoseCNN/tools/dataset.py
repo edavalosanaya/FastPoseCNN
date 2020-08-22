@@ -405,6 +405,7 @@ class NOCSDataset(torch.utils.data.Dataset):
             data (dictionary): Contains all the information pertaining to that
             color image.
         """
+
         abc123.disable_print(DEBUG)
 
         # Getting the data set ID and obtaining the corresponding file paths for the
@@ -423,8 +424,6 @@ class NOCSDataset(torch.utils.data.Dataset):
         coord_map = cv2.imread(str(coord_path), cv2.IMREAD_UNCHANGED)[:, :, :3]
         coord_map = coord_map[:, :, (2, 1, 0)]
         depth_image = cv2.imread(str(depth_path), cv2.IMREAD_UNCHANGED)
-
-        #print(f'original coord_map.shape: {coord_map.shape}')
 
         # Loading data
         print('Loading JSON data')
@@ -470,10 +469,16 @@ class NOCSDataset(torch.utils.data.Dataset):
         """
 
         # Creating data into multi-label structure
-        #num_classes = len(project.constants.SYNSET_NAMES) - 1 # Removing BG
-        num_classes = len(project.constants.DATA_NAMES)
+        num_classes = len(project.constants.SYNSET_NAMES)
+        #num_classes = len(project.constants.DATA_NAMES)
         class_ids = list(instance_dict.values())
         h, w = mask_cdata.shape
+
+        # Changing from BGR to RGB
+        #"""
+        color_image = cv2.cvtColor(color_image, cv2.COLOR_BGR2RGB)
+        coord_map = cv2.cvtColor(coord_map, cv2.COLOR_BGR2RGB)
+        #"""
 
         # Shifting color channel to the beginning to match PyTorch's format
         color_image = np.moveaxis(color_image, -1, 0)
@@ -481,7 +486,7 @@ class NOCSDataset(torch.utils.data.Dataset):
         depth_image = np.expand_dims(depth_image, axis=0)
 
         zs = np.zeros([1, h, w], dtype=np.float32)
-        masks = np.zeros([1, h, w], dtype=np.float32)
+        masks = np.zeros([h, w], dtype=np.float32)
         quat_img = np.zeros([4, h, w], dtype=np.float32)
         scales_img = np.zeros([3, h, w], dtype=np.float32)
 
@@ -496,30 +501,32 @@ class NOCSDataset(torch.utils.data.Dataset):
             for cnt in contour:
                 cv2.drawContours(instance_mask, [cnt],0,1,-1)
 
+            #abc123.enable_print(False)
+            assert c_id > 0 and c_id < len(project.constants.SYNSET_NAMES), f'Invalid class id: {c_id}'
+            #print(c_id)
+            #abc123.disable_print(False)
+            
             # Converting the instances in the mask to classes
-            masks[:,:] += instance_mask * c_id
+            #masks += instance_mask * c_id
+            masks[instance_mask] = c_id
             zs[:,:] += instance_mask * np.linalg.inv(RTs[e_id])[2,3] * 1000
 
             # Storing quaterions
-            #pdb.set_trace()
+            
             quaternion = quaternions[e_id,:]
-            for i in range(h):
-                for j in range(w):
-                    if instance_mask[i,j] != 0:
-                        quat_img[:,i,j] = quaternion
+            for i in range(4): # real, i, j, and k component
+                quat_img[i,:,:] = np.where(instance_mask != 0, quaternion[i], 0)
 
             # Storing scales
             scale = scales[e_id,:] / norm_factors[e_id]
-            for i in range(h):
-                for j in range(w):
-                    if instance_mask[i,j] != 0:
-                        scales_img[:,i,j] = scale
+            for i in range(3): # real, i, j, and k component
+                scales_img[i,:,:] = np.where(instance_mask != 0, scale[i], 0)
 
         # Perform numpy to PyTorch conversion
         color_image = self.numpy_to_torch(color_image)
         depth_image = self.numpy_to_torch(depth_image)
         zs = self.numpy_to_torch(zs)
-        masks = self.numpy_to_torch(masks)
+        masks = self.numpy_to_torch(masks, dtype=torch.LongTensor)
         coord_map = self.numpy_to_torch(coord_map)
         scales_img = self.numpy_to_torch(scales_img)
         quat_img = self.numpy_to_torch(quat_img)
@@ -527,15 +534,17 @@ class NOCSDataset(torch.utils.data.Dataset):
         # Enabling print again
         abc123.enable_print(DEBUG)
 
+        #print(torch.unique(masks))
+
         # Always return tuple
         return color_image, depth_image, zs, masks, coord_map, scales_img, quat_img
 
-    def numpy_to_torch(self, numpy_object):
+    def numpy_to_torch(self, numpy_object, dtype=torch.FloatTensor):
         """
         Moves the numpy object to a PyTorch FloatTensor
         """
 
-        torch_object = torch.from_numpy(numpy_object).float()
+        torch_object = torch.from_numpy(numpy_object).type(dtype)
 
         if torch.cuda.is_available():
             torch_object = torch_object.cuda()

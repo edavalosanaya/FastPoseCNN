@@ -20,6 +20,7 @@ import model_lib.layers as L
 import tools.project as project
 import tools.dataset
 import tools.data_manipulation
+import tools.visualize
 
 #-------------------------------------------------------------------------------
 # File Constants
@@ -37,24 +38,52 @@ class Encoder(nn.Module):
 
         factor = 2 if bilinear else 1
 
-        self.in_conv = L.DoubleConv(in_channels, 64)
-        self.down1 = L.Down(planes[0], planes[1])
-        self.down2 = L.Down(planes[1], planes[2])
-        self.down3 = L.Down(planes[2], planes[3])
-        self.down4 = L.Down(planes[3], planes[4]//factor)
+        self.layers = nn.ModuleDict({})
+        for id, plane in enumerate(planes):
+            
+            if id == 0: # Initial layer
+                self.layers.update(nn.ModuleDict({f'L{id}': L.DoubleConv(in_channels, planes[0])}))
+
+            elif id == len(planes)-1: # Last Layer
+                self.layers.update(nn.ModuleDict({f'L{id}': L.Down(planes[id-1], planes[id]//factor)}))
+            
+            else:
+                self.layers.update(nn.ModuleDict({f'L{id}': L.Down(planes[id-1], planes[id])}))
 
     def forward(self, x):
 
-        x1 = self.in_conv(x)
-        x2 = self.down1(x1)
-        x3 = self.down2(x2)
-        x4 = self.down3(x3)
-        x5 = self.down4(x4)
+        xs = nn.ParameterList([])
 
-        return x1, x2, x3, x4, x5
+        for layer_name in self.layers.keys():
+            x = nn.Parameter(self.layers[layer_name](x))
+            xs.append(x)
+
+        return xs
 
 #-------------------------------------------------------------------------------
 # Decoders
+
+class GenericDecoder(nn.Module):
+
+    def __init__(self, in_channels, out_channels, planes, bilinear=True):
+        super().__init__()
+
+        factor = 2 if bilinear else 1
+
+        reversed_planes = planes.copy()
+        reversed_planes.reverse()
+
+        self.layers = nn.ModuleDict({})
+        for id, plane in enumerate(reversed_planes):
+
+            if id == len(planes)-1: # Last Layer (DEFAULT BUT NOT REQUIRED TO BE USED)
+                self.layers.update(nn.ModuleDict({f'Last': L.OutConv(reversed_planes[id], out_channels)}))
+
+            elif id == len(planes)-2: # Second to Last Layer
+                self.layers.update(nn.ModuleDict({f'L{id}': L.Up(reversed_planes[id], reversed_planes[id+1] * factor)}))
+            
+            else:
+                self.layers.update(nn.ModuleDict({f'L{id}': L.Up(reversed_planes[id], reversed_planes[id+1])}))
 
 class MaskDecoder(nn.Module):
 
@@ -63,21 +92,18 @@ class MaskDecoder(nn.Module):
 
         factor = 2 if bilinear else 1
 
-        self.up1_mask = L.Up(planes[4], planes[3], bilinear)
-        self.up2_mask = L.Up(planes[3], planes[2], bilinear)
-        self.up3_mask = L.Up(planes[2], planes[1], bilinear)
-        self.up4_mask = L.Up(planes[1], planes[0] * factor, bilinear)
-        self.out_conv_mask = L.OutConv(planes[0], out_channels)
+        self.generic_decoder = GenericDecoder(in_channels, out_channels, planes, bilinear)
+        self.soft_max = nn.Softmax2d()
 
     def forward(self, x):
 
-        x1, x2, x3, x4, x5 = x # Breaking up tuple
+        out = x[-1]
 
-        x_mask = self.up1_mask(x5, x4)
-        x_mask = self.up2_mask(x_mask, x3)
-        x_mask = self.up3_mask(x_mask, x2)
-        x_mask = self.up4_mask(x_mask, x1)
-        logits_mask = self.out_conv_mask(x_mask)
+        for layer_id, x_id in enumerate(range(-2, -len(x)-1, -1)):
+            out = self.generic_decoder.layers[f'L{layer_id}'](out, x[x_id])
+
+        # Last Layer
+        logits_mask = self.soft_max(self.generic_decoder.layers['Last'](out))
 
         return logits_mask
 
@@ -88,21 +114,17 @@ class QuatDecoder(nn.Module):
 
         factor = 2 if bilinear else 1
 
-        self.up1_quat = L.Up(planes[4], planes[3], bilinear)
-        self.up2_quat = L.Up(planes[3], planes[2], bilinear)
-        self.up3_quat = L.Up(planes[2], planes[1], bilinear)
-        self.up4_quat = L.Up(planes[1], planes[0] * factor, bilinear)
-        self.out_conv_quat = L.OutConv(planes[0], out_channels)
+        self.generic_decoder = GenericDecoder(in_channels, out_channels, planes, bilinear)
 
     def forward(self, x):
 
-        x1, x2, x3, x4, x5 = x # Breaking up tuple
+        out = x[-1]
 
-        x_quat = self.up1_quat(x5, x4)
-        x_quat = self.up2_quat(x_quat, x3)
-        x_quat = self.up3_quat(x_quat, x2)
-        x_quat = self.up4_quat(x_quat, x1)
-        x_quat = self.out_conv_quat(x_quat)
+        for layer_id, x_id in enumerate(range(-2, -len(x)-1, -1)):
+            out = self.generic_decoder.layers[f'L{layer_id}'](out, x[x_id])
+
+        # Last Layer
+        x_quat = self.generic_decoder.layers['Last'](out)
 
         return x_quat
 
@@ -113,21 +135,17 @@ class ScaleDecoder(nn.Module):
 
         factor = 2 if bilinear else 1
 
-        self.up1_scale = L.Up(planes[4], planes[3], bilinear)
-        self.up2_scale = L.Up(planes[3], planes[2], bilinear)
-        self.up3_scale = L.Up(planes[2], planes[1], bilinear)
-        self.up4_scale = L.Up(planes[1], planes[0] * factor, bilinear)
-        self.out_conv_scale = L.OutConv(planes[0], out_channels)
+        self.generic_decoder = GenericDecoder(in_channels, out_channels, planes, bilinear)
 
     def forward(self, x):
 
-        x1, x2, x3, x4, x5 = x # Breaking up tuple
+        out = x[-1]
 
-        x_scale = self.up1_scale(x5, x4)
-        x_scale = self.up2_scale(x_scale, x3)
-        x_scale = self.up3_scale(x_scale, x2)
-        x_scale = self.up4_scale(x_scale, x1)
-        x_scale = self.out_conv_scale(x_scale)
+        for layer_id, x_id in enumerate(range(-2, -len(x)-1, -1)):
+            out = self.generic_decoder.layers[f'L{layer_id}'](out, x[x_id])
+
+        # Last Layer
+        x_scale = self.generic_decoder.layers['Last'](out)
 
         return x_scale
 
@@ -138,21 +156,17 @@ class DepthDecoder(nn.Module):
 
         factor = 2 if bilinear else 1
 
-        self.up1_depth = L.Up(planes[4], planes[3], bilinear)
-        self.up2_depth = L.Up(planes[3], planes[2], bilinear)
-        self.up3_depth = L.Up(planes[2], planes[1], bilinear)
-        self.up4_depth = L.Up(planes[1], planes[0] * factor, bilinear)
-        self.out_conv_depth = L.OutConv(planes[0], out_channels)
+        self.generic_decoder = GenericDecoder(in_channels, out_channels, planes, bilinear)
 
     def forward(self, x):
 
-        x1, x2, x3, x4, x5 = x # Breaking up tuple
+        out = x[-1]
 
-        x_depth = self.up1_depth(x5, x4)
-        x_depth = self.up2_depth(x_depth, x3)
-        x_depth = self.up3_depth(x_depth, x2)
-        x_depth = self.up4_depth(x_depth, x1)
-        x_depth = self.out_conv_depth(x_depth)
+        for layer_id, x_id in enumerate(range(-2, -len(x)-1, -1)):
+            out = self.generic_decoder.layers[f'L{layer_id}'](out, x[x_id])
+
+        # Last Layer
+        x_depth = self.generic_decoder.layers['Last'](out)
 
         return x_depth
 
@@ -161,7 +175,7 @@ class DepthDecoder(nn.Module):
 
 class FastPoseCNN(nn.Module):
 
-    def __init__(self, in_channels=3, planes=[64,128,256,512,1024], bilinear=True):
+    def __init__(self, in_channels=3, num_classes=len(project.constants.SYNSET_NAMES), planes=[64,128,256,512,1024], bilinear=True):
         super().__init__()
         
         """
@@ -177,8 +191,9 @@ class FastPoseCNN(nn.Module):
         self.encoder = Encoder(in_channels, planes, bilinear)
 
         # Mask Decoder
-        self.mask_decoder = MaskDecoder(in_channels, 1, planes, bilinear)
+        self.mask_decoder = MaskDecoder(in_channels, num_classes, planes, bilinear)
 
+        """
         # Quaternion Decoders (real, i, j, and k) components
         self.quat_decoder = nn.ModuleDict({
             'real': QuatDecoder(in_channels, 1, planes, bilinear),
@@ -196,6 +211,7 @@ class FastPoseCNN(nn.Module):
 
         # Depth decoder
         self.depth_decoder = DepthDecoder(in_channels, 1, planes, bilinear)
+        #"""
 
     def forward(self, x):
 
@@ -214,6 +230,7 @@ class FastPoseCNN(nn.Module):
         # Mask
         logits_mask = self.mask_decoder(xs)
 
+        """
         # Depth
         logits_depth = self.depth_decoder(xs)
 
@@ -237,8 +254,9 @@ class FastPoseCNN(nn.Module):
 
         out_tuple = (quat_out['real'], quat_out['i-com'], quat_out['j-com'], quat_out['k-com'])
         logits_quat = torch.cat(out_tuple, dim=1)
+        #"""
 
-        return logits_mask, logits_depth, logits_scale, logits_quat
+        return logits_mask #, logits_depth, logits_scale, logits_quat
 
 #-------------------------------------------------------------------------------
 # Functions
@@ -262,7 +280,7 @@ if __name__ == '__main__':
 
     # Selecting a criterions
     print('Selecing criterions')
-    criterions = {'masks':torch.nn.BCEWithLogitsLoss(),
+    criterions = {'masks':torch.nn.NLLLoss(),
                   'depth':torch.nn.BCEWithLogitsLoss(),
                   'scales':torch.nn.BCEWithLogitsLoss(),
                   'quat':torch.nn.BCEWithLogitsLoss()}
@@ -298,15 +316,26 @@ if __name__ == '__main__':
     print('Forward pass')
     outputs = net(color_image)
 
+    """
     for output, output_type in zip(outputs, ['mask', 'depth_image', 'scales_img', 'quat_img']):
         print(f'Output: {output_type}')
         print(f'max: {torch.max(output)} min: {torch.min(output)} mean: {torch.mean(output)}')
+    #"""
+
+    # Visualizing output
+    pred = torch.argmax(outputs, dim=1)[0]
+    vis_pred = tools.visualize.get_visualized_mask(pred)
+    numpy_vis_pred = tools.visualize.torch_to_numpy([vis_pred])[0]
+    out_path = project.cfg.TEST_OUTPUT / 'segmentation_output.png'
+    cv2.imwrite(str(out_path), numpy_vis_pred)
 
     # Loss propagate
-    loss_mask = criterions['masks'](outputs[0], masks)
+    loss_mask = criterions['masks'](outputs, masks)
+    """
     loss_depth = criterions['depth'](outputs[1], depth_image)
     loss_scale = criterions['scales'](outputs[2], scales_img)
     loss_quat = criterions['quat'](outputs[3], quat_img)
+    #"""
     print('Successful backprogagation')
 
 
