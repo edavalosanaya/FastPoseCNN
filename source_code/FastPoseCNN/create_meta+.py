@@ -14,9 +14,6 @@ sys.path.append(str(root))
 
 import project
 
-# Helper-functions imports
-import abc123
-
 # data-category imports
 import json_tools
 import data_manipulation
@@ -43,9 +40,6 @@ def get_image_paths_in_dir(dir_path, max_size=None):
     Output:
         total_path_list (list): A list of all collected color images
     """
-
-    abc123.disable_print(DEBUG)
-    print("Getting all image paths inside dataset path given")
 
     total_path_list = [] # [[color, depth], ...]
     
@@ -84,9 +78,6 @@ def get_image_paths_in_dir(dir_path, max_size=None):
     # Trimming excess if dataset_max_size is set
     if max_size != None:
         total_path_list = total_path_list[:max_size]
-
-    print(f"total_path_list length: {len(total_path_list)}")
-    abc123.enable_print(DEBUG)
 
     return total_path_list
 

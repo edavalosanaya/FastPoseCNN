@@ -6,6 +6,7 @@ import pdb
 
 import cv2
 import numpy as np
+import skimage.io
 
 # Torch imports
 import torch
@@ -93,7 +94,6 @@ class MaskDecoder(nn.Module):
         factor = 2 if bilinear else 1
 
         self.generic_decoder = GenericDecoder(in_channels, out_channels, planes, bilinear)
-        self.soft_max = nn.Softmax2d()
 
     def forward(self, x):
 
@@ -103,7 +103,7 @@ class MaskDecoder(nn.Module):
             out = self.generic_decoder.layers[f'L{layer_id}'](out, x[x_id])
 
         # Last Layer
-        logits_mask = self.soft_max(self.generic_decoder.layers['Last'](out))
+        logits_mask = self.generic_decoder.layers['Last'](out)
 
         return logits_mask
 
@@ -267,20 +267,16 @@ class FastPoseCNN(nn.Module):
 if __name__ == '__main__':
 
     # Loading dataset
-    print('Loading dataset')
     dataset = tools.dataset.NOCSDataset(camera_dataset, dataset_max_size=10)
 
     # Creating data loaders
-    print('Creating dataloader')
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=1, num_workers=0)
 
     # Creating model
-    print('Loading NN model')
     net = FastPoseCNN(in_channels=3, bilinear=True)
 
     # Selecting a criterions
-    print('Selecing criterions')
-    criterions = {'masks':torch.nn.NLLLoss(),
+    criterions = {'masks':torch.nn.CrossEntropyLoss(),
                   'depth':torch.nn.BCEWithLogitsLoss(),
                   'scales':torch.nn.BCEWithLogitsLoss(),
                   'quat':torch.nn.BCEWithLogitsLoss()}
@@ -292,14 +288,12 @@ if __name__ == '__main__':
     #    print(f'Using {torch.cuda.device_count()} GPUs!')
     #    net = torch.nn.DataParallel(net)
     
-    print(f'Moving net to device: {device}')
+    # Moving net to device
     net.to(device)
 
     # Loading input
-    print('Loading single sample')
     sample = next(iter(dataloader))
     color_image, depth_image, zs, masks, coord_map, scales_img, quat_img = sample
-    print('Finished loading sample')
 
     # Model filename
     model_name = 'fastposecnn-design-test'
@@ -316,18 +310,17 @@ if __name__ == '__main__':
     print('Forward pass')
     outputs = net(color_image)
 
-    """
-    for output, output_type in zip(outputs, ['mask', 'depth_image', 'scales_img', 'quat_img']):
-        print(f'Output: {output_type}')
-        print(f'max: {torch.max(output)} min: {torch.min(output)} mean: {torch.mean(output)}')
-    #"""
-
     # Visualizing output
     pred = torch.argmax(outputs, dim=1)[0]
     vis_pred = tools.visualize.get_visualized_mask(pred)
     numpy_vis_pred = tools.visualize.torch_to_numpy([vis_pred])[0]
     out_path = project.cfg.TEST_OUTPUT / 'segmentation_output.png'
-    cv2.imwrite(str(out_path), numpy_vis_pred)
+    skimage.io.imsave(str(out_path), numpy_vis_pred)
+
+    # Testing summary image
+    summary_image = tools.visualize.make_summary_image('Summary', sample, outputs)
+    out_path = project.cfg.TEST_OUTPUT / 'summary_image.png'
+    skimage.io.imsave(str(out_path), summary_image)
 
     # Loss propagate
     loss_mask = criterions['masks'](outputs, masks)

@@ -21,11 +21,11 @@ import matplotlib.pyplot as plt
 import torch
 
 # Local Imports
-import abc123
+
 
 #-------------------------------------------------------------------------------
 # File Constants
-DEBUG = False
+
 
 #-------------------------------------------------------------------------------
 # Classes
@@ -249,7 +249,6 @@ def transform_2d_quantized_projections_to_3d_camera_coords(cartesian_projections
         cartesian camera coordinates: [3, N] (N number of 3D points)
     """
     
-    abc123.disable_print(DEBUG)
 
     # Including the Z component into the projection (2D to 3D)
     cartesian_projections_2d = cartesian_projections_2d.astype(np.float32)
@@ -257,20 +256,14 @@ def transform_2d_quantized_projections_to_3d_camera_coords(cartesian_projections
     cartesian_projections_2d[1, :] = cartesian_projections_2d[1, :] * (z/1000)
     
     homogeneous_projections_2d = np.vstack([cartesian_projections_2d, z/1000])
-    print(f'homogeneous_projections_2d: \n{homogeneous_projections_2d}\n')
 
     cartesian_world_coordinates_3d = np.linalg.inv(intrinsics) @ homogeneous_projections_2d
-    print(f'cartesian_world_coordinates_3d: \n{cartesian_world_coordinates_3d}\n')
 
     homogeneous_world_coordinates_3d = cartesian_2_homogeneous_coord(cartesian_world_coordinates_3d)
-    print(f'homogeneous_world_coordinates_3d: \n{homogeneous_world_coordinates_3d}\n')
 
     homogeneous_camera_coordinates_3d = RT @ homogeneous_world_coordinates_3d
-    print(f'homogeneous_camera_coordinates_3d: \n{homogeneous_camera_coordinates_3d}\n')
 
     cartesian_camera_coordinated_3d = homogeneous_2_cartesian_coord(homogeneous_camera_coordinates_3d)
-
-    abc123.enable_print(DEBUG)
 
     return cartesian_camera_coordinated_3d
 
@@ -293,11 +286,8 @@ def transform_3d_camera_coords_to_2d_quantized_projections(cartesian_camera_coor
     Output:
     """
 
-    abc123.disable_print(DEBUG)
-
     # Converting cartesian 3D coordinates to homogeneous 3D coordinates
     homogeneous_camera_coordinates_3d = cartesian_2_homogeneous_coord(cartesian_camera_coordinates_3d)
-    print(f'homo camera coordinates: \n{homogeneous_camera_coordinates_3d}\n')
 
     # Creating proper K matrix (including Pu, Pv, Uo, Vo, and f)
     K_matrix = np.hstack([intrinsics, np.zeros((intrinsics.shape[0], 1), dtype=np.float32)])
@@ -315,23 +305,18 @@ def transform_3d_camera_coords_to_2d_quantized_projections(cartesian_camera_coor
     # METHOD 2
     # Obtaining the homogeneous world coordinates 3d
     homogeneous_world_coordinates_3d = np.linalg.inv(RT) @ homogeneous_camera_coordinates_3d
-    print(f'homo world_coordinates: {homogeneous_world_coordinates_3d}')
 
     # Convert homogeneous world coordinates 3d to homogeneous 2d projections
     homogeneous_projections_2d = K_matrix @ homogeneous_world_coordinates_3d
-    print(f'homo projections: {homogeneous_projections_2d}')
 
     # Converting the homogeneous projection into a cartesian projection
     cartesian_projections_2d = homogeneous_2_cartesian_coord(homogeneous_projections_2d)
-    print(f'cartesian projections: \n{cartesian_projections_2d}\n')
 
     # Converting projections from float32 into int32 (quantizing to from continuous to integers)
     cartesian_projections_2d = cartesian_projections_2d.astype(np.int32)
 
     # Transposing cartesian_projections_2d to have matrix in row major fashion
     cartesian_projections_2d = cartesian_projections_2d.transpose()
-
-    abc123.enable_print(DEBUG)
 
     return cartesian_projections_2d
 
@@ -356,28 +341,18 @@ def create_translation_vector(cartesian_projections_2d_xy_origin, z, intrinsics)
         translation vector: [3, 1]
     """
 
-    abc123.disable_print(DEBUG)
-
-    # Checking inputs
-    print(f'cartesian_projections_2d_xy_origin: \n{cartesian_projections_2d_xy_origin}\n')
-    print(f'z: {z}')
-
     # Including the Z component into the projection (2D to 3D)
     cartesian_projections_2d_xy_origin = cartesian_projections_2d_xy_origin.astype(np.float32)
     cartesian_projections_2d_xy_origin[0, :] = cartesian_projections_2d_xy_origin[0, :] * (z/1000)
     cartesian_projections_2d_xy_origin[1, :] = cartesian_projections_2d_xy_origin[1, :] * (z/1000)
 
     homogeneous_projections_2d_xyz_origin = np.vstack([cartesian_projections_2d_xy_origin, z/1000])
-    print(f'homogeneous_projections_2d_xyz_origin: \n{homogeneous_projections_2d_xyz_origin}\n')
 
     # Converting projectins to world 3D coordinates
     cartesian_world_coordinates_3d_xyz_origin = np.linalg.inv(intrinsics) @ homogeneous_projections_2d_xyz_origin
-    print(f'cartesian_world_coordinates_3d_xyz_origin: \n{cartesian_world_coordinates_3d_xyz_origin}\n')
 
     # The cartesian world coordinates of the origin are the translation vector
     translation_vector = cartesian_world_coordinates_3d_xyz_origin
-
-    abc123.enable_print(DEBUG)
 
     return translation_vector
 
@@ -420,37 +395,22 @@ def RT_2_quat(RT, normalize=True):
         normalizing factor: [1,]
     """
 
-    # Verbose
-    abc123.disable_print(DEBUG)
-
-    print(f'RT before normalization: \n{RT}\n')
-
     # normalizing
     if normalize:
         normalizing_factor = np.amax(RT)
-        print(f'normalizing_factor: {normalizing_factor}')
         RT[:3, :] = RT[:3, :] / normalizing_factor
     else:
         normalizing_factor = 1
-
-    # Testing quaternion representation
-    print(f'original RT matrix: \n{RT}\n')
 
     # Rotation Matrix
     rotation_matrix = RT[:3, :3]
 
     smart_rotation_object = scipy.spatial.transform.Rotation.from_matrix(rotation_matrix)
-    print(f'registered original rotation matrix: \n{smart_rotation_object.as_matrix()}\n')
-    print(f'det(registed_original_rotation_matrix) = {np.linalg.det(smart_rotation_object.as_matrix())}\n')
 
     quaternion = smart_rotation_object.as_quat()
-    print(f'constructed quaternion: \n{quaternion}\n')
 
     # Translation Matrix
     translation_vector = RT[:3, -1].reshape((-1, 1))
-
-    # Returning print to enabled
-    abc123.enable_print(DEBUG)
 
     return quaternion, translation_vector, normalizing_factor
 
@@ -571,20 +531,14 @@ def fix_quaternion_T(intrinsics, original_RT, quat_RT, normalizing_factor):
         quat_RT, hopefully a fixed RT: [4,4]
     """
 
-    # Verbose
-    abc123.disable_print(DEBUG)
-
     # Creating a xyz axis and converting 3D coordinates into 2D projections
     xyz_axis = 0.3*np.array([[0, 0, 0], [0, 0, 1], [0, 1, 0], [1, 0, 0]]).transpose()
     perfect_projected_axes = transform_3d_camera_coords_to_2d_quantized_projections(xyz_axis, original_RT, intrinsics)
 
     norm_xyz_axis = xyz_axis / normalizing_factor
     quat_projected_axes = transform_3d_camera_coords_to_2d_quantized_projections(norm_xyz_axis, quat_RT, intrinsics)
-    abc123.disable_print(DEBUG)
 
     baseline_error = get_new_RT_error(perfect_projected_axes, quat_projected_axes)
-
-    print(f'baseline_error: {baseline_error}')
 
     step_size = 0.000001 # 0.01
     test_RT = quat_RT.copy()
@@ -593,7 +547,6 @@ def fix_quaternion_T(intrinsics, original_RT, quat_RT, normalizing_factor):
 
     for i in range(100): # only 100 iterations allowed
 
-        print("%"*50)
         errors = np.zeros((3, 2), np.int)
 
         # try each dimension
@@ -604,12 +557,9 @@ def fix_quaternion_T(intrinsics, original_RT, quat_RT, normalizing_factor):
 
                 test_RT[xyz,-1] = operation(quat_RT[xyz,-1], step_size)
                 test_projected_axes = transform_3d_camera_coords_to_2d_quantized_projections(norm_xyz_axis, test_RT, intrinsics)
-                abc123.disable_print(DEBUG)
 
                 error = get_new_RT_error(perfect_projected_axes, test_projected_axes)
                 errors[xyz, operation_index] = error
-
-        print(errors)
 
         # Process error
         if np.amin(errors) > baseline_error:
@@ -635,15 +585,9 @@ def fix_quaternion_T(intrinsics, original_RT, quat_RT, normalizing_factor):
         else:
             past_error = errors.copy()
 
-    # Returning printing
-    abc123.enable_print(DEBUG)
-
     return quat_RT
 
 def fix_quat_RT_matrix(intrinsics, original_RT, quat_RT, pts=None):
-
-    # Verbose
-    #abc123.disable_print(DEBUG)
 
     # Creating an xyz axis and converting 3D coordinates into 2D projections
     if isinstance(pts, type(None)):
@@ -651,7 +595,6 @@ def fix_quat_RT_matrix(intrinsics, original_RT, quat_RT, pts=None):
     
     perfect_projected_pts = transform_3d_camera_coords_to_2d_quantized_projections(pts, original_RT, intrinsics)
     quat_projected_pts = transform_3d_camera_coords_to_2d_quantized_projections(pts, quat_RT, intrinsics)
-    #abc123.disable_print(DEBUG)
 
     # Noting the base error
     baseline_error = get_new_RT_error(perfect_projected_pts, quat_projected_pts)

@@ -132,6 +132,15 @@ def make_summary_image(title, random_sample, outputs):
     # Select one sample from the batch
     color_image = color_image[0]
     mask = masks[0]
+
+    # Testing mask
+    """
+    pdb.set_trace()
+    mask = torch.where(mask != 0, torch.tensor([255]).cuda(), torch.tensor([0]).cuda())
+    out_path = project.cfg.TEST_OUTPUT / 'test_mask.png'
+    torchvision.utils.save_image(mask.type(torch.FloatTensor), out_path)
+    #"""
+
     vis_gt_mask = get_visualized_mask(mask)
 
     gt_images = [color_image, vis_gt_mask]
@@ -173,9 +182,6 @@ def make_summary_image(title, random_sample, outputs):
     # matplotlib
     fig.tight_layout(rect=[0, 0.03, 1, 0.95])
     fig.suptitle(title)
-
-    # To remove the huge white borders
-    #ax.margins(0, 0)
 
     # Creating the image
     image_from_plot = get_img_from_fig(fig)
@@ -225,13 +231,16 @@ if __name__ == "__main__":
     color_images = test_sample[0]
     masks = test_sample[3]
 
+    # Create similar to the nets output
+    outputs = torch.stack((masks,masks,masks,masks,masks,masks,masks),dim=1)
+
     # Testing test run image
     #"""
     epoch = 1
     num_epoch = 100
     title = f'Input and Outputs: Epoch {epoch}/{num_epoch}'
     
-    summary_image = make_summary_image(title, test_sample, masks)
+    summary_image = make_summary_image(title, test_sample, outputs)
     summary_image = cv2.cvtColor(summary_image, cv2.COLOR_RGB2BGR)
     out_path = project.cfg.TEST_OUTPUT / 'summary_image.png'
     cv2.imwrite(str(out_path), summary_image)
