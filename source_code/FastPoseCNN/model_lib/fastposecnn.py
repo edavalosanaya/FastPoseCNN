@@ -18,16 +18,16 @@ root = next(path for path in pathlib.Path(os.path.abspath(__file__)).parents if 
 sys.path.append(str(root))
 
 import model_lib.layers as L
-import tools.project as project
-import tools.dataset
-import tools.data_manipulation
-import tools.visualize
+import project
+import dataset
+import data_manipulation
+import visualize
 
 #-------------------------------------------------------------------------------
 # File Constants
 
 test_image = project.cfg.DATASET_DIR / 'NOCS' / 'camera' / 'val' / '00000' / '0000_color.png'
-camera_dataset = root.parents[1] / 'datasets' / 'NOCS' / 'camera' / 'val'
+CAMERA_DATASET = root.parents[1] / 'datasets' / 'NOCS' / 'camera' / 'val'
 
 #-------------------------------------------------------------------------------
 # Encoder
@@ -182,6 +182,9 @@ class FastPoseCNN(nn.Module):
         This function is for creating all the layers and block of FastPoseCNN
         """
 
+        # Saving model name
+        self.name = 'fastposecnn'
+
         # Saving input arguments
         self.in_channels = in_channels
         self.bilinear = bilinear
@@ -266,70 +269,33 @@ class FastPoseCNN(nn.Module):
 
 if __name__ == '__main__':
 
-    # Loading dataset
-    dataset = tools.dataset.NOCSDataset(camera_dataset, dataset_max_size=10)
+    # This is an simple test case, not for training
 
-    # Creating data loaders
-    dataloader = torch.utils.data.DataLoader(dataset, batch_size=1, num_workers=0)
+    # Loading complete dataset
+    complete_dataset = dataset.NOCSDataset(CAMERA_DATASET, 100)
 
-    # Creating model
-    net = FastPoseCNN(in_channels=3, bilinear=True)
+    # Splitting dataset to train and validation
+    dataset_num = len(complete_dataset)
+    split = 0.2
+    train_length, valid_length = int(dataset_num*(1-split)), int(dataset_num*split)
 
-    # Selecting a criterions
+    train_dataset, valid_dataset = torch.utils.data.random_split(complete_dataset,
+                                                                [train_length, valid_length])
+
+    # Specifying the criterions
     criterions = {'masks':torch.nn.CrossEntropyLoss(),
                   'depth':torch.nn.BCEWithLogitsLoss(),
                   'scales':torch.nn.BCEWithLogitsLoss(),
                   'quat':torch.nn.BCEWithLogitsLoss()}
 
-    # Creating correct environment
-    
-    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-    #if torch.cuda.device_count() > 1:
-    #    print(f'Using {torch.cuda.device_count()} GPUs!')
-    #    net = torch.nn.DataParallel(net)
-    
-    # Moving net to device
-    net.to(device)
+    # Creating a Trainer
+    my_trainer = trainer.Trainer(FastPoseCNN(in_channels=3, bilinear=True), 
+                                 train_dataset,
+                                 valid_dataset,
+                                 criterions)
 
-    # Loading input
-    sample = next(iter(dataloader))
-    color_image, depth_image, zs, masks, coord_map, scales_img, quat_img = sample
-
-    # Model filename
-    model_name = 'fastposecnn-design-test'
-    model_save_filepath = str(project.cfg.SAVED_MODEL_DIR / (model_name + '.pth') )
-    model_logs_dir = str(project.cfg.LOGS / model_name)
-
-    # Creating tensorboard object
-    tensorboard_writer = torch.utils.tensorboard.SummaryWriter(model_logs_dir)
-
-    # Saving graph model to Tensorboard
-    #tensorboard_writer.add_graph(net, color_image)
-
-    # Forward pass
-    print('Forward pass')
-    outputs = net(color_image)
-
-    # Visualizing output
-    pred = torch.argmax(outputs, dim=1)[0]
-    vis_pred = tools.visualize.get_visualized_mask(pred)
-    numpy_vis_pred = tools.visualize.torch_to_numpy([vis_pred])[0]
-    out_path = project.cfg.TEST_OUTPUT / 'segmentation_output.png'
-    skimage.io.imsave(str(out_path), numpy_vis_pred)
-
-    # Testing summary image
-    summary_image = tools.visualize.make_summary_image('Summary', sample, outputs)
-    out_path = project.cfg.TEST_OUTPUT / 'summary_image.png'
-    skimage.io.imsave(str(out_path), summary_image)
-
-    # Loss propagate
-    loss_mask = criterions['masks'](outputs, masks)
-    """
-    loss_depth = criterions['depth'](outputs[1], depth_image)
-    loss_scale = criterions['scales'](outputs[2], scales_img)
-    loss_quat = criterions['quat'](outputs[3], quat_img)
-    #"""
-    print('Successful backprogagation')
+    # Testing Neural Network
+    my_trainer.test_forward()
 
 
 

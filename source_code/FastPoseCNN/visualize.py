@@ -10,6 +10,7 @@ import cv2
 import numpy as np
 import PIL
 import io
+import random
 
 import torch
 import torchvision
@@ -126,12 +127,12 @@ def torch_to_numpy(imgs):
 
 def make_summary_image(title, random_sample, outputs):
 
-    # Desconstructing the random sample
-    color_image, depth_image, zs, masks, coord_map, scales_img, quat_img = random_sample
+    batch_size = random_sample['color_image'].shape[0]
+    random_choice = random.choice(list(range(batch_size)))
 
     # Select one sample from the batch
-    color_image = color_image[0]
-    mask = masks[0]
+    color_image = random_sample['color_image'][random_choice]
+    mask = random_sample['masks'][random_choice]
 
     # Testing mask
     """
@@ -196,7 +197,10 @@ def get_visualized_mask(mask, PIL_transform=False):
         for i in range(3):
             X = torch.tensor(class_color[i]).cuda()
             Y = torch.tensor(0).cuda()
-            colorized_mask[i,:,:] += torch.where(mask == class_id, X, Y)
+            if len(mask.shape) == 2:
+                colorized_mask[i,:,:] += torch.where(mask == class_id, X, Y)
+            elif len(mask.shape) == 3:
+                colorized_mask[i,:,:] += torch.where(mask[0,:,:] == class_id, X, Y)
 
     if PIL_transform:
         img = torchvision.transforms.ToPILImage()(colorized_mask).convert("RGB")

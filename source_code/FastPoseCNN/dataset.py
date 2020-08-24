@@ -16,6 +16,7 @@ import torch
 import torchvision
 import torch.utils
 import torch.utils.tensorboard
+import torchvision.transforms.functional
 
 # Local Imports
 
@@ -26,7 +27,6 @@ import json_tools
 import data_manipulation
 import project
 import draw
-import np_transforms
 
 #-------------------------------------------------------------------------------
 # File Constants
@@ -46,7 +46,7 @@ class NOCSDataset(torch.utils.data.Dataset):
     # Functions required for torch.utils.data.Dataset to work
     ############################################################################
 
-    def __init__(self, dataset_path, dataset_max_size=None, transform=None):
+    def __init__(self, dataset_path, dataset_max_size=None, device='automatic'):
         """
         Args:
             dataset_path: (string or pathlib object): Path to the dataset
@@ -59,7 +59,6 @@ class NOCSDataset(torch.utils.data.Dataset):
 
         # Saving the dataset path and transform
         self.dataset_path = dataset_path
-        self.transform = transform
 
         # Determing the paths of the all the color images inside the dataset_path
         self.color_image_path_list = self.get_image_paths_in_dir(self.dataset_path, dataset_max_size)
@@ -67,17 +66,11 @@ class NOCSDataset(torch.utils.data.Dataset):
         # Saving the size of the dataset
         self.dataset_size = len(self.color_image_path_list)
 
-        # Transformations
-        self.transforms = trf = np_transforms.Compose([
-            np_transforms.Scale(size=(256, 256)),
-            np_transforms.RandomCrop(size=(224, 224)),
-            np_transforms.RandomVerticalFlip(prob=0.5),
-            np_transforms.RandomHorizontalFlip(prob=0.5),
-            np_transforms.RotateImage(angles=(-15, 15)),
-            np_transforms.ToTensor(),
-        ])
-        
-        return None
+        # Selecting device
+        if device == 'automatic':
+            self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+        else:
+            self.device = device
 
     def __len__(self):
         """
@@ -101,9 +94,13 @@ class NOCSDataset(torch.utils.data.Dataset):
 
         # Loading data
         sample = self.get_data_sample(self.color_image_path_list[idx])
+        
+        # Convert all numpy arrays into PyTorch Tensors (with correct dtypes)
+        sample = self.numpy_sample_to_torch(sample) 
 
-        if self.transform:
-            sample = self.transform(sample) 
+        # Moving sample to GPU if possible
+        for key in sample.keys():
+            sample[key] = sample[key].to(self.device)
 
         return sample
 
@@ -234,12 +231,13 @@ class NOCSDataset(torch.utils.data.Dataset):
         h, w = mask_cdata.shape
 
         # Shifting color channel to the beginning to match PyTorch's format
+        #depth_image = np.expand_dims(depth_image, axis=0)
         color_image = np.moveaxis(color_image, -1, 0)
         coord_map = np.moveaxis(coord_map, -1, 0)
-        depth_image = np.expand_dims(depth_image, axis=0)
 
         zs = np.zeros([1, h, w], dtype=np.float32)
         masks = np.zeros([h, w], dtype=np.float32)
+        #masks = np.zeros([1,h,w], dtype=np.float32)
         quat_img = np.zeros([4, h, w], dtype=np.float32)
         scales_img = np.zeros([3, h, w], dtype=np.float32)
 
@@ -255,49 +253,49 @@ class NOCSDataset(torch.utils.data.Dataset):
                 cv2.drawContours(instance_mask, [cnt],0,1,-1)
 
             assert c_id > 0 and c_id < len(project.constants.SYNSET_NAMES), f'Invalid class id: {c_id}'
-            #print(c_id)
             
             # Converting the instances in the mask to classes
             masks = np.where(instance_mask == 1, c_id, masks)
-            zs[:,:] += instance_mask * np.linalg.inv(RTs[e_id])[2,3] * 1000
+            #zs[:,:] += instance_mask * np.linalg.inv(RTs[e_id])[2,3] * 1000
+            zs = np.where(instance_mask == 1, np.linalg.inv(RTs[e_id])[2,3] * 1000, zs)
 
             # Storing quaterions
-            
             quaternion = quaternions[e_id,:]
             for i in range(4): # real, i, j, and k component
-                quat_img[i,:,:] = np.where(instance_mask != 0, quaternion[i], 0)
+                quat_img[i,:,:] = np.where(instance_mask != 0, quaternion[i], quat_img[i,:,:])
 
             # Storing scales
             scale = scales[e_id,:] / norm_factors[e_id]
             for i in range(3): # real, i, j, and k component
-                scales_img[i,:,:] = np.where(instance_mask != 0, scale[i], 0)
+                scales_img[i,:,:] = np.where(instance_mask != 0, scale[i], scales_img[i,:,:])
 
-        # Performing image transformations
-        #pdb.set_trace() # Test image transformations
+        sample = {'color_image': color_image,
+                  'depth_image': depth_image,
+                  'zs': zs,
+                  'masks': masks,
+                  'coord_map': coord_map,
+                  'scales_img': scales_img,
+                  'quat_img': quat_img}
 
-        # Perform numpy to PyTorch conversion
-        color_image = self.numpy_to_torch(color_image)
-        depth_image = self.numpy_to_torch(depth_image)
-        zs = self.numpy_to_torch(zs)
-        masks = self.numpy_to_torch(masks, dtype=torch.LongTensor)
-        coord_map = self.numpy_to_torch(coord_map)
-        scales_img = self.numpy_to_torch(scales_img)
-        quat_img = self.numpy_to_torch(quat_img)
+        return sample 
 
-        # Always return tuple
-        return color_image, depth_image, zs, masks, coord_map, scales_img, quat_img
-
-    def numpy_to_torch(self, numpy_object, dtype=torch.FloatTensor):
+    def numpy_sample_to_torch(self, sample):
         """
         Moves the numpy object to a PyTorch FloatTensor
         """
 
-        torch_object = torch.from_numpy(numpy_object).type(dtype)
+        # Transform to tensor
+        for key in sample.keys():
+            sample[key] = torch.from_numpy(sample[key])
 
-        if torch.cuda.is_available():
-            torch_object = torch_object.cuda()
+        # Making all inputs and outputs float expect of classification tasks (masks)
+        for key in sample.keys():
+            if key == 'masks':
+                sample[key] = sample[key].type(torch.LongTensor)
+            else:
+                sample[key] = sample[key].type(torch.FloatTensor)
 
-        return torch_object
+        return sample
 
     ############################################################################
     # Additional functionalitity
@@ -336,17 +334,21 @@ if __name__ == '__main__':
     test_sample = dataset[0]
 
     #print(test_sample)
-
+    """
     for item in test_sample:
         print(item.shape)
     #"""
 
     # Testing built-in dataset (Working)
     #"""
-    dataloader = torch.utils.data.DataLoader(dataset, batch_size=2, shuffle=True)
+    dataloader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=True)
 
     sample = next(iter(dataloader))
 
+    #print(sample)
+
+    pdb.set_trace()
+    """
     for item in sample:
         print(item.shape)
 

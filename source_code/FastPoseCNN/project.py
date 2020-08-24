@@ -12,8 +12,7 @@ Path Config
 
 cfg = EasyDict()
 
-cfg.TOOL_DIR = pathlib.Path(os.path.abspath(__file__)).parent
-cfg.ROOT_DIR = cfg.TOOL_DIR.parent
+cfg.ROOT_DIR = pathlib.Path(os.path.dirname(os.path.abspath(__file__)))
 cfg.SRC_DIR = cfg.ROOT_DIR.parent
 cfg.BEDROCK_DIR = cfg.SRC_DIR.parent
 
@@ -30,7 +29,7 @@ for key,value in cfg.items():
 """
 
 """
-Data constantsants
+Data constants
 """
 
 constants = EasyDict()
