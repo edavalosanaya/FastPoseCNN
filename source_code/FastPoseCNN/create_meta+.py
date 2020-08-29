@@ -2,13 +2,13 @@ import os
 import sys
 import pathlib
 import tqdm
+import pdb
 
 import cv2
 import numpy as np
 from pyquaternion import Quaternion
 
 # local Imports (new source code)
-
 root = next(path for path in pathlib.Path(os.path.abspath(__file__)).parents if path.name == 'FastPoseCNN')
 sys.path.append(str(root))
 
@@ -21,13 +21,22 @@ import data_manipulation
 # visual-category imports
 import draw
 
+# ! from matplotlib.mlab import PCA -> matplotlib==2.2.2
+
 #-------------------------------------------------------------------------------
 # File Constants
 
 DEBUG = False
+FAULTY_IMAGES = []
 
 #-------------------------------------------------------------------------------
 # Small Helper Functions
+
+def disable_print():
+    sys.stdout = open(os.devnull, 'w')
+
+def enable_print():
+    sys.stdout = sys.__stdout__
 
 def get_image_paths_in_dir(dir_path, max_size=None):
     """
@@ -208,11 +217,17 @@ def get_original_information(color_image, obj_model_dir):
         sys.path.append(str(root.parents[1] / 'networks' / 'NOCS_CVPR2019'))
         import utils as nocs_utils
 
+        # Disable print
+        disable_print()
+
         RTs, _, _, _ = nocs_utils.align(class_ids, masks, coords, depth_image, project.constants.INTRINSICS,
                                         project.constants.SYNSET_NAMES, ".", None)
 
+        # Enable print
+        enable_print()
+
         data = {'RTs': RTs}
-        json_tools.save_to_json(RT_json_path, data)
+        #json_tools.save_to_json(RT_json_path, data)
 
     return class_ids, bboxes, masks, coords, RTs, scores, scales, instance_dict
 
@@ -562,91 +577,111 @@ def test_new_data_organization():
 
 def create_new_dataset(dataset_path, obj_model_dir):
 
-    all_color_images = get_image_paths_in_dir(dataset_path, max_size=1)
+    global FAULTY_IMAGES
 
-    for color_image in tqdm.tqdm(all_color_images):
+    all_color_images = get_image_paths_in_dir(dataset_path, max_size=None)
 
-        # Obtain the ground truth data for the image
-        class_ids, bboxes, masks, coords, RTs, scores, scales, instance_dict = get_original_information(color_image, obj_model_dir)
+    print(f'dataset size: {len(all_color_images)}')
 
-        new_RTs = []
-        old_RTs = []
-        normalizing_factors = []
-        quaternions = []
-        norm_scales = np.zeros(scales.shape)
-        translation_vectors = []
+    for color_image in tqdm.tqdm(all_color_images, bar_format='{l_bar}{bar:40}{r_bar}{bar:-10b}'):
 
-        # Convert RT into quaternion
-        for i, RT in enumerate(RTs):
+        disable_print()
 
-            # Making RT match the following scheme
-            """
-            CAMERA SPACE --- inverse RT ---> WORLD SPACE
-            WORLD SPACE  ---     RT     ---> CAMERA SPACE
-            """
-            RT = np.linalg.inv(RT)
+        try:
+            # Obtain the ground truth data for the image
+            class_ids, bboxes, masks, coords, RTs, scores, scales, instance_dict = get_original_information(color_image, obj_model_dir)
 
-            # Obtaining the 3D objects that will be drawn
-            xyz_axis = 0.3*np.array([[0, 0, 0], [0, 0, 1], [0, 1, 0], [1, 0, 0]]).transpose()
-            bbox_3d = data_manipulation.get_3d_bbox(scales[i,:],0)
+            new_RTs = []
+            old_RTs = []
+            normalizing_factors = []
+            quaternions = []
+            norm_scales = np.zeros(scales.shape)
+            translation_vectors = []
 
-            perfect_projected_axes = data_manipulation.transform_3d_camera_coords_to_2d_quantized_projections(xyz_axis, RT, project.constants.INTRINSICS)
+            # Convert RT into quaternion
+            for i, RT in enumerate(RTs):
 
-            # Converting transformation matrix into quaterion with translation vector
-            quaternion, translation_vector, normalizing_factor = data_manipulation.RT_2_quat(RT.copy(), normalize=True)
+                # Making RT match the following scheme
+                """
+                CAMERA SPACE --- inverse RT ---> WORLD SPACE
+                WORLD SPACE  ---     RT     ---> CAMERA SPACE
+                """
+                RT = np.linalg.inv(RT)
+
+                # Obtaining the 3D objects that will be drawn
+                xyz_axis = 0.3*np.array([[0, 0, 0], [0, 0, 1], [0, 1, 0], [1, 0, 0]]).transpose()
+                bbox_3d = data_manipulation.get_3d_bbox(scales[i,:],0)
+
+                perfect_projected_axes = data_manipulation.transform_3d_camera_coords_to_2d_quantized_projections(xyz_axis, RT, project.constants.INTRINSICS)
+
+                # Converting transformation matrix into quaterion with translation vector
+                quaternion, translation_vector, normalizing_factor = data_manipulation.RT_2_quat(RT.copy(), normalize=True)
+                
+                # Need to fix the translation vector, to account for the orthogonalization of the rotation matrix
+                new_RT = data_manipulation.quat_2_RT_given_T_in_camera(quaternion, translation_vector)
+
+                # Method 1 (low accuracy)
+                #new_RT = data_manipulation.fix_quaternion_T(project.constants.INTRINSICS, RT, new_RT, normalizing_factor)
+                
+                # Method 2 (high accuracy)
+                projected_origin = perfect_projected_axes[0,:].reshape((-1, 1))
+                #origin_z = (np.linalg.inv(new_RT)[2, 3] * 1000)
+                origin_z = (np.linalg.inv(new_RT)[2, 3] * 1000)
+
+
+                new_translation_vector = data_manipulation.create_translation_vector(projected_origin, origin_z, project.constants.INTRINSICS)
+                new_RT = data_manipulation.quat_2_RT_given_T_in_world(quaternion, new_translation_vector)
+
+                # Need to fix the rotation matrix, to account for the small error introducted by the orthogonalization of the rotation matrix
+                #new_RT = data_manipulation.fix_quat_RT_matrix(project.constants.INTRINSICS, RT, new_RT, pts=bbox_3d)
+
+                # Saving parameters
+                old_RTs.append(RT)
+                new_RTs.append(new_RT)
+                quaternions.append(quaternion)
+                translation_vectors.append(new_translation_vector)
+                normalizing_factors.append(normalizing_factor)
+                norm_scales[i,:] = scales[i,:] / normalizing_factor
             
-            # Need to fix the translation vector, to account for the orthogonalization of the rotation matrix
-            new_RT = data_manipulation.quat_2_RT_given_T_in_camera(quaternion, translation_vector)
-
-            # Method 1 (low accuracy)
-            #new_RT = data_manipulation.fix_quaternion_T(project.constants.INTRINSICS, RT, new_RT, normalizing_factor)
+            # Checking output
             
-            # Method 2 (high accuracy)
-            projected_origin = perfect_projected_axes[0,:].reshape((-1, 1))
-            #origin_z = (np.linalg.inv(new_RT)[2, 3] * 1000)
-            origin_z = (np.linalg.inv(new_RT)[2, 3] * 1000)
+            """
+            image = cv2.imread(str(color_image), cv2.IMREAD_UNCHANGED)
+            output = draw.draw_detections(image, project.constants.INTRINSICS, None, None, class_ids,
+                                                None, None, old_RTs, None, scales, [1 for i in range(len(old_RTs))],
+                                                (0,0,255), False, False, True)
+            output = draw.draw_detections(output, project.constants.INTRINSICS, None, None, class_ids,
+                                                None, None, new_RTs, None, scales, normalizing_factors,
+                                                (255,0,0), False, False, True)
+            
 
+            output = draw.draw_quat_detections(image, project.constants.INTRINSICS, quaternions, translation_vectors, norm_scales)
 
-            new_translation_vector = data_manipulation.create_translation_vector(projected_origin, origin_z, project.constants.INTRINSICS)
-            new_RT = data_manipulation.quat_2_RT_given_T_in_world(quaternion, new_translation_vector)
+            
 
-            # Need to fix the rotation matrix, to account for the small error introducted by the orthogonalization of the rotation matrix
-            #new_RT = data_manipulation.fix_quat_RT_matrix(project.constants.INTRINSICS, RT, new_RT, pts=bbox_3d)
+            #cv2.imwrite(f'test.png', output)
+            #cv2.imshow('output', output)
+            #cv2.waitKey(0)
+            #cv2.destroyAllWindows
+            #sys.exit(0)
 
-            # Saving parameters
-            old_RTs.append(RT)
-            new_RTs.append(new_RT)
-            quaternions.append(quaternion)
-            translation_vectors.append(new_translation_vector)
-            normalizing_factors.append(normalizing_factor)
-            norm_scales[i,:] = scales[i,:] / normalizing_factor
-        
-        # Checking output
-        
-        image = cv2.imread(str(color_image), cv2.IMREAD_UNCHANGED)
-        output = draw.draw_detections(image, project.constants.INTRINSICS, None, None, class_ids,
-                                             None, None, old_RTs, None, scales, [1 for i in range(len(old_RTs))],
-                                             (0,0,255), False, False, True)
-        output = draw.draw_detections(output, project.constants.INTRINSICS, None, None, class_ids,
-                                             None, None, new_RTs, None, scales, normalizing_factors,
-                                             (255,0,0), False, False, True)
-        
+            """
+            
+            # Saving output into a meta+.json
+            data = {'instance_dict': instance_dict, 'scales': scales, 'RTs': new_RTs, 'norm_factors': normalizing_factors, 'quaternions': quaternions}
+            data_id = color_image.name.replace('_color.png', '')
+            new_meta_filepath = color_image.parent / f'{data_id}_meta+.json'
+            json_tools.save_to_json(new_meta_filepath, data)
 
-        output = draw.draw_quat_detections(image, project.constants.INTRINSICS, quaternions, translation_vectors, norm_scales)
+        except:
+            FAULTY_IMAGES.append(color_image)
+            continue
 
+        enable_print()
 
-        cv2.imwrite(f'test.png', output)
-        #cv2.imshow('output', output)
-        cv2.waitKey(0)
-        cv2.destroyAllWindows
-        sys.exit(0)
-        
-        
-        # Saving output into a meta+.json
-        data = {'instance_dict': instance_dict, 'scales': scales, 'RTs': new_RTs, 'norm_factors': normalizing_factors, 'quaternions': quaternions}
-        data_id = color_image.name.replace('_color.png', '')
-        new_meta_filepath = color_image.parent / f'{data_id}_meta+.json'
-        json_tools.save_to_json(new_meta_filepath, data)
+    if len(FAULTY_IMAGES):
+        data = {'faulty images': FAULTY_IMAGES}
+        json_tools.save_to_json('faulty_images.json', data)
 
     return None
 
@@ -674,8 +709,8 @@ def load_new_dataset(dataset_path, obj_model_dir):
 # Constants
 
 # Obtaining information paths
-camera_dataset = root.parents[1] / 'datasets' / 'NOCS' / 'camera' / 'val'
-obj_model_dir = root.parents[1] / 'networks' / 'NOCS_CVPR2019' / 'data' / 'obj_models' / 'val'
+camera_dataset = root.parents[1] / 'datasets' / 'NOCS' / 'camera' / 'train'
+obj_model_dir = root.parents[1] / 'networks' / 'NOCS_CVPR2019' / 'data' / 'obj_models' / 'train'
 
 #-------------------------------------------------------------------------------
 # Main Code

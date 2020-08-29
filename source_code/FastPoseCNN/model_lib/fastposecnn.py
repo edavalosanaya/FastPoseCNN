@@ -175,7 +175,8 @@ class DepthDecoder(nn.Module):
 
 class FastPoseCNN(nn.Module):
 
-    def __init__(self, in_channels=3, num_classes=len(project.constants.SYNSET_NAMES), planes=[64,128,256,512,1024], bilinear=True):
+    def __init__(self, in_channels=3, num_classes=len(project.constants.SYNSET_NAMES),
+                 filter_factor=1, planes=[64,128,256,512,1024], bilinear=True):
         super().__init__()
         
         """
@@ -188,7 +189,7 @@ class FastPoseCNN(nn.Module):
         # Saving input arguments
         self.in_channels = in_channels
         self.bilinear = bilinear
-        self.planes = planes
+        self.planes = [plane / filter_factor for plane in planes]
 
         # Encoder Phase
         self.encoder = Encoder(in_channels, planes, bilinear)
@@ -215,6 +216,8 @@ class FastPoseCNN(nn.Module):
         # Depth decoder
         self.depth_decoder = DepthDecoder(in_channels, 1, planes, bilinear)
         #"""
+
+        self.head_softmax = nn.Softmax(dim=1)
 
     def forward(self, x):
 
@@ -259,7 +262,13 @@ class FastPoseCNN(nn.Module):
         logits_quat = torch.cat(out_tuple, dim=1)
         #"""
 
-        return logits_mask #, logits_depth, logits_scale, logits_quat
+        # Converts logits to pred
+        pred_mask = torch.argmax(self.head_softmax(logits_mask), dim=1)
+
+        # Detach the predicted mask
+        pred_mask = pred_mask.detach()
+
+        return logits_mask, pred_mask
 
 #-------------------------------------------------------------------------------
 # Functions

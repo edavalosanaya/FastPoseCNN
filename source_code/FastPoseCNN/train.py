@@ -15,6 +15,7 @@ import torch.optim
 import torch.utils
 import torch.utils.tensorboard
 import torchvision
+import kornia # pytorch tensor data augmentation
 
 # How to view tensorboard in the Lambda machine
 """
@@ -49,7 +50,8 @@ import model_lib
 #-------------------------------------------------------------------------------
 # File Constants
 
-CAMERA_DATASET = project.cfg.DATASET_DIR / 'NOCS' / 'camera' / 'val'
+CAMERA_TRAIN_DATASET = project.cfg.DATASET_DIR / 'NOCS' / 'camera' / 'train'
+CAMERA_VALID_DATASET = project.cfg.DATASET_DIR / 'NOCS' / 'camera' / 'val'
 
 #-------------------------------------------------------------------------------
 # Functions
@@ -60,32 +62,36 @@ CAMERA_DATASET = project.cfg.DATASET_DIR / 'NOCS' / 'camera' / 'val'
 if __name__ == '__main__':
 
     # Loading complete dataset
-    complete_dataset = dataset.NOCSDataset(CAMERA_DATASET, 100)
+    train_dataset = dataset.NOCSDataset(CAMERA_TRAIN_DATASET, 1000)
+    valid_dataset = dataset.NOCSDataset(CAMERA_VALID_DATASET, 100)
 
     # Splitting dataset to train and validation
+    """
     dataset_num = len(complete_dataset)
-    print(dataset_num)
     split = 0.2
     train_length, valid_length = int(dataset_num*(1-split)), int(dataset_num*split)
 
     train_dataset, valid_dataset = torch.utils.data.random_split(complete_dataset,
                                                                 [train_length, valid_length])
-
+    """    
     # Specifying the criterions
+    """
     criterions = {'masks':torch.nn.CrossEntropyLoss(),
                   'depth':torch.nn.BCEWithLogitsLoss(),
                   'scales':torch.nn.BCEWithLogitsLoss(),
                   'quat':torch.nn.BCEWithLogitsLoss()}
+    """
+    criterions = {'masks': kornia.losses.DiceLoss()}
 
     # Creating a Trainer
-    model = model_lib.unet(n_classes = len(project.constants.SYNSET_NAMES))
-    #model = model_lib.FastPoseCNN(in_channels=3, bilinear=True)
+    #model = model_lib.unet(n_classes = len(project.constants.SYNSET_NAMES))
+    model = model_lib.FastPoseCNN(in_channels=3, bilinear=True, filter_factor=4)
 
     my_trainer = trainer.Trainer(model, 
                                  train_dataset,
                                  valid_dataset,
                                  criterions,
-                                 batch_size=1)
+                                 batch_size=10)
 
     # Fitting Trainer
-    my_trainer.fit(5)
+    my_trainer.fit(10)

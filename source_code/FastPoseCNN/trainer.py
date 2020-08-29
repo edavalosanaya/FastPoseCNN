@@ -29,10 +29,29 @@ import dataset
 import model_lib
 import visualize
 
+# How to view tensorboard in the Lambda machine
+"""
+Do the following in Lamda machine: 
+
+    tensorboard --logdir=logs --port 6006 --host=localhost
+
+    tensorboard --logdir=model_lib/logs --port 6006 --host=localhost
+
+Then run this on the local machine
+
+    ssh -NfL 6006:localhost:6006 edavalos@dp.stmarytx.edu
+
+Then open this on your browser
+
+    http://localhost:6006
+
+"""
+
 #-------------------------------------------------------------------------------
 # File Constants
 
-CAMERA_DATASET = project.cfg.DATASET_DIR / 'NOCS' / 'camera' / 'val'
+CAMERA_TRAIN_DATASET = project.cfg.DATASET_DIR / 'NOCS' / 'camera' / 'train'
+CAMERA_VALID_DATASET = project.cfg.DATASET_DIR / 'NOCS' / 'camera' / 'val'
 
 #-------------------------------------------------------------------------------
 # Classes
@@ -55,19 +74,6 @@ class Trainer():
         # Load model
         self.model = model
         self.model_name = self.model.name
-
-        # Saving model name and logs
-        self.run_name = datetime.datetime.now().strftime('%d-%m-%y--%H-%M') + '-' + self.model.name
-        self.run_save_filepath = str(project.cfg.SAVED_MODEL_DIR / (self.run_name + '.pth') )
-        self.run_logs_dir = str(project.cfg.LOGS / self.run_name)
-
-        # Creating a special model logs directory
-        if os.path.exists(self.run_logs_dir) is False:
-            os.mkdir(self.run_logs_dir)
-
-        # Creating tensorboard object
-        # Info here: https://pytorch.org/docs/master/tensorboard.html
-        self.tensorboard_writer = torch.utils.tensorboard.SummaryWriter(self.run_logs_dir)
         
         # Using multiple GPUs if avaliable
         self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
@@ -93,13 +99,109 @@ class Trainer():
         
         self.transform = transform
 
+    def loop(self, dataloader, backpropagate=True):
+
+        # Initialize metrics
+        self.per_sample_metrics['loss'] = 0.0
+        
+        self.per_sample_metrics['P'] = torch.zeros(len(project.constants.SYNSET_NAMES), device=self.device)
+        self.per_sample_metrics['N'] = torch.zeros(len(project.constants.SYNSET_NAMES), device=self.device)
+
+        self.per_sample_metrics['TP'] = torch.zeros(len(project.constants.SYNSET_NAMES), device=self.device)
+        self.per_sample_metrics['TN'] = torch.zeros(len(project.constants.SYNSET_NAMES), device=self.device)
+        
+        self.per_sample_metrics['FP'] = torch.zeros(len(project.constants.SYNSET_NAMES), device=self.device)
+        self.per_sample_metrics['FN'] = torch.zeros(len(project.constants.SYNSET_NAMES), device=self.device)
+
+        self.per_sample_metrics['accuracy'] = torch.zeros(len(project.constants.SYNSET_NAMES), device=self.device)
+        self.per_sample_metrics['precision'] = torch.zeros(len(project.constants.SYNSET_NAMES), device=self.device)
+        self.per_sample_metrics['recall'] = torch.zeros(len(project.constants.SYNSET_NAMES), device=self.device)
+
+        # Overating overall all samples in the epoch
+        for sample in tqdm.tqdm(dataloader, desc = f'{self.epoch}/{self.num_epoch}'):
+
+            # clearing gradients
+            self.optimizer.zero_grad()
+
+            # Forward pass
+            logits_masks, pred_masks = self.model(sample['color_image'])
+
+            # calculate loss with both the input and output
+            loss_mask = self.criterions['masks'](logits_masks, sample['masks'])
+            """
+            loss_depth = self.criterions['depth'](outputs[1], depth_image)
+            loss_scale = self.criterions['scales'](outputs[2], scales_img)
+            loss_quat = self.criterions['quat'](outputs[3], quat_img)
+            #"""
+
+            # total loss
+            loss = loss_mask #+ loss_depth + loss_scale + loss_quat
+
+            if backpropagate: # only for training
+                # compute gradient of the loss
+                loss.backward()
+
+                # backpropagate the loss
+                self.optimizer.step()
+
+            # Update per_sample metrics
+            self.per_sample_metrics['loss'] += loss.item()
+            
+            # Per sample in batch
+            for pred_mask, mask in zip(pred_masks, sample['masks']):
+                # Per class inside the mask
+                for class_id in torch.unique(mask):
+
+                    # Selecting the class' target and prediction mask
+                    target_class_mask = sample['masks'] == class_id
+                    pred_class_mask = pred_mask == class_id
+                    
+                    # Positive & Negative
+                    self.per_sample_metrics['P'][class_id] += torch.sum(target_class_mask)
+                    self.per_sample_metrics['N'][class_id] += torch.sum(~target_class_mask)
+
+                    # True
+                    self.per_sample_metrics['TP'][class_id] += torch.sum(torch.logical_and(target_class_mask, pred_class_mask))
+                    self.per_sample_metrics['TN'][class_id] += torch.sum(torch.logical_and(~target_class_mask, ~pred_class_mask))
+
+                    # False
+                    self.per_sample_metrics['FP'][class_id] += torch.sum(torch.logical_and(pred_class_mask, ~target_class_mask))
+                    self.per_sample_metrics['FN'][class_id] += torch.sum(torch.logical_and(~pred_class_mask, target_class_mask))
+
+        # Update per_batch metrics
+        if backpropagate: # Training
+            mode = 'train'
+        else:
+            mode = 'valid'
+            
+        # Calculating the average of all the classes
+        self.per_sample_metrics['accuracy'] = torch.div(self.per_sample_metrics['TP'], self.per_sample_metrics['P'])
+        self.per_sample_metrics['precision'] = torch.div(self.per_sample_metrics['TP'], self.per_sample_metrics['TP'] + self.per_sample_metrics['FP'])
+        self.per_sample_metrics['recall'] = torch.div(self.per_sample_metrics['TP'], self.per_sample_metrics['TP'] + self.per_sample_metrics['FN'])
+        
+        # Saving per batch metrics NOTE: [1:] is to ignore the background
+        average_accuracy = float(torch.mean(self.per_sample_metrics['accuracy'][1:]))
+        average_precision = float(torch.mean(self.per_sample_metrics['precision'][1:]))
+        average_recall = float(torch.mean(self.per_sample_metrics['recall'][1:]))
+        average_loss = float(self.per_sample_metrics['loss'] / len(dataloader))
+
+        self.per_epoch_metrics[mode]['accuracy'].append(average_accuracy)
+        self.per_epoch_metrics[mode]['precision'].append(average_precision) 
+        self.per_epoch_metrics[mode]['recall'].append(average_recall)
+        self.per_epoch_metrics[mode]['loss'].append(average_loss)
+
+        torch.cuda.empty_cache()
+
     def fit(self, num_epoch):
 
         # Saving num_epoch
         self.num_epoch = num_epoch
 
         # Tracked metrics
-        self.tracked_metrics = {'loss/train': [], 'loss/valid': []}
+        self.per_epoch_metrics = {'train':{'loss': [], 'accuracy': [], 'precision': [], 'recall': []},
+                                  'valid':{'loss': [], 'accuracy': [], 'precision': [], 'recall': []}}
+        self.per_sample_metrics = {'loss': None, 'P': None, 'N': None, 'TP': None, 'TN': None, 'FP': None, 'FN': None,
+                                   'accuracy': None, 'precision': None, 'recall': None}
 
         # Epoch Loop
         for self.epoch in range(1, self.num_epoch+1):
@@ -131,14 +233,27 @@ class Trainer():
             #                             DATA PROCESSING
             #*******************************************************************
 
-            # Foward propagating random sample
-            random_sample = iter(self.valid_dataloader).next()
-            with torch.no_grad():
-                outputs = self.model(random_sample['color_image'])
+            # If epoch is the first, then initialize tensorboard right before the 
+            # first time we write to the tensorboard
+            if self.epoch == 1:
+                self.initialize_tensorboard()
 
-            # Creating summary image to visualize the learning of the model
-            summary_image = visualize.make_summary_image('Summary', random_sample, outputs)
-            self.tensorboard_writer.add_image('summary', summary_image, self.epoch, dataformats='HWC')
+            # Calculate the global set (len(train_dataset) * epoch)
+            global_step = len(self.train_dataset) * self.epoch
+
+            # Foward propagating random sample
+            for mode_name, dataloader in zip(['train', 'valid'],[self.train_dataset, self.valid_dataset]):
+                
+                # Randomly selecting a sample from the dataset
+                random_sample = dataloader.get_random_sample(batched=True)
+
+                # Obtaining the output of the neural network 
+                with torch.no_grad():
+                    logits_masks, pred_masks = self.model(random_sample['color_image'])
+
+                # Creating a matplotlib figure illustrating the inputs vs outputs
+                summary_fig = visualize.make_summary_figure(random_sample, pred_masks)
+                self.tensorboard_writer.add_figure(f'{mode_name}/summary', summary_fig, global_step)
 
             #*******************************************************************
             #                             TERMINAL REPORT
@@ -146,8 +261,11 @@ class Trainer():
 
             # Priting the metrics for the epoch to the terminal
             print(f'Epoch: {self.epoch}\t', end ='')
-            for metric_name, metric_values in self.tracked_metrics.items():
-                print(f'{metric_name}: {metric_values[-1]:.6f}\t', end='')
+            for mode in self.per_epoch_metrics.keys():
+                print(f'{mode}\t', end ='')
+                for metric_name, metric_values in self.per_epoch_metrics[mode].items():
+                    print(f'{metric_name}: {metric_values[-1]:.3f}\t', end='')
+                print('\n\t\t', end='')
             print()
 
             #*******************************************************************
@@ -155,8 +273,9 @@ class Trainer():
             #*******************************************************************
 
             # Writing the metrics for the epoch to TensorBoard
-            for metric_name, metric_values in self.tracked_metrics.items():
-                self.tensorboard_writer.add_scalar(metric_name, metric_values[-1], self.epoch)
+            for mode in self.per_epoch_metrics.keys():
+                for metric_name, metric_values in self.per_epoch_metrics[mode].items():
+                    self.tensorboard_writer.add_scalar(f'{metric_name}/{mode}', metric_values[-1], global_step)
 
             #***********************************************************************
             #                               SAVE MODEL
@@ -174,12 +293,13 @@ class Trainer():
                        'batch_size': self.batch_size,
                        'criterions': repr(self.criterions),
                        'optimizer': repr(self.optimizer),
-                       'train dataset size': len(self.train_dataloader),
-                       'valid dataset size': len(self.valid_dataloader)}
+                       'train dataset size': len(self.train_dataset),
+                       'valid dataset size': len(self.valid_dataset)}
 
+        """
         # Obtaining the best metrics to report at the end
         best_metrics = {}
-        for metric_name, metric_values in self.tracked_metrics.items():
+        for metric_name, metric_values in self.per_epoch_metrics.items():
             
             new_metric_name = metric_name.capitalize()
 
@@ -191,54 +311,13 @@ class Trainer():
         # Converge hparams and best metrics to avoid the add_scalars aspect of
         # the add_hparams function
         run_hparams.update(best_metrics)
+        """
 
         # Writing to tensorboard the hparams
         self.tensorboard_writer.add_hparams(run_hparams, {})
 
         # Removing ugly additional tensorboard folder
         self.remove_folder_in_tensorboard_report()
-
-    def loop(self, dataloader, backpropagate=True):
-
-        running_loss = 0.0
-
-        for sample in tqdm.tqdm(dataloader, desc = f'{self.epoch}/{self.num_epoch}'):
-
-            # clearing gradients
-            self.optimizer.zero_grad()
-
-            # Forward pass
-            outputs = self.model(sample['color_image'])
-
-            # calculate loss with both the input and output
-            loss_mask = self.criterions['masks'](outputs, sample['masks'])
-            """
-            loss_depth = self.criterions['depth'](outputs[1], depth_image)
-            loss_scale = self.criterions['scales'](outputs[2], scales_img)
-            loss_quat = self.criterions['quat'](outputs[3], quat_img)
-            #"""
-
-            # total loss
-            loss = loss_mask #+ loss_depth + loss_scale + loss_quat
-
-            if backpropagate: # only for training
-                # compute gradient of the loss
-                loss.backward()
-
-                # backpropagate the loss
-                self.optimizer.step()
-
-            # update loss
-            running_loss += loss.item()
-
-        # Updating tracked metrics
-
-        if backpropagate: # Training
-            self.tracked_metrics['loss/train'].append(running_loss / len(dataloader))
-        else: # validation
-            self.tracked_metrics['loss/valid'].append(running_loss / len(dataloader))
-
-        torch.cuda.empty_cache()
 
     def test_forward(self):
 
@@ -293,6 +372,21 @@ class Trainer():
                 # Then delete the ugly folder >:(
                 os.rmdir(str(child))           
 
+    def initialize_tensorboard(self):
+
+        # Saving model name and logs
+        self.run_name = datetime.datetime.now().strftime('%d-%m-%y--%H-%M') + '-' + self.model_name
+        self.run_save_filepath = str(project.cfg.SAVED_MODEL_DIR / (self.run_name + '.pth') )
+        self.run_logs_dir = str(project.cfg.LOGS / self.run_name)
+
+        # Creating a special model logs directory
+        if os.path.exists(self.run_logs_dir) is False:
+            os.mkdir(self.run_logs_dir)
+
+        # Creating tensorboard object
+        # Info here: https://pytorch.org/docs/master/tensorboard.html
+        self.tensorboard_writer = torch.utils.tensorboard.SummaryWriter(self.run_logs_dir)
+
 #-------------------------------------------------------------------------------
 # Functions
 
@@ -304,15 +398,18 @@ if __name__ == '__main__':
     # This is an simple test case, not for training
 
     # Loading complete dataset
-    complete_dataset = dataset.NOCSDataset(CAMERA_DATASET, 10)
+    train_dataset = dataset.NOCSDataset(CAMERA_TRAIN_DATASET, 100)
+    valid_dataset = dataset.NOCSDataset(CAMERA_VALID_DATASET, 25)
 
     # Splitting dataset to train and validation
+    """
     dataset_num = len(complete_dataset)
     split = 0.2
     train_length, valid_length = int(dataset_num*(1-split)), int(dataset_num*split)
 
     train_dataset, valid_dataset = torch.utils.data.random_split(complete_dataset,
                                                                 [train_length, valid_length])
+    """                                                    
 
     # Specifying the criterions
     """
@@ -324,11 +421,15 @@ if __name__ == '__main__':
     #criterions = {'masks': model_lib.loss.GDiceLoss(apply_nonlin = torch.nn.Identity())}
     criterions = {'masks': kornia.losses.DiceLoss()}
 
+    # Model
+    model = model_lib.FastPoseCNN(in_channels=3, bilinear=True, filter_factor=4)
+
     # Creating a Trainer
-    my_trainer = Trainer(model_lib.FastPoseCNN(in_channels=3, bilinear=True), 
+    my_trainer = Trainer(model, 
                          train_dataset,
                          valid_dataset,
-                         criterions)
+                         criterions,
+                         batch_size=2)
 
     # Fitting Trainer
-    my_trainer.fit(2)
+    my_trainer.fit(5)

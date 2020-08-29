@@ -301,7 +301,7 @@ class NOCSDataset(torch.utils.data.Dataset):
     # Additional functionalitity
     ############################################################################
 
-    def get_random_sample(self, from_this_idx=None):
+    def get_random_sample(self, from_this_idx=None, batched=False):
 
         if from_this_idx:
             random_idx = random.choice(from_this_idx)
@@ -309,7 +309,11 @@ class NOCSDataset(torch.utils.data.Dataset):
             random_idx = random.choice(range(self.dataset_size))
         
         # Loading data
-        sample = self.get_data_sample(self.color_image_path_list[random_idx])
+        sample = self.__getitem__(random_idx)
+
+        if batched:
+            for key in sample.keys():
+                sample[key] = torch.unsqueeze(sample[key], 0)
 
         return sample
 
@@ -332,6 +336,7 @@ if __name__ == '__main__':
     #"""
     print("\n\nTesting dataset loading\n\n")
     test_sample = dataset[0]
+    #test_sample = dataset.get_random_sample(batched=True)
 
     #print(test_sample)
     """
