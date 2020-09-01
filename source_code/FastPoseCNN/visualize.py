@@ -15,6 +15,9 @@ import random
 import torch
 import torchvision
 
+import matplotlib
+if os.environ.get('DISPLAY', '') == '':
+    matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 # Local Imports
@@ -93,17 +96,6 @@ def collapse_multichannel_quat_or_scales(multi_c_image):
 #-------------------------------------------------------------------------------
 # Main Visualization Functions
 
-def get_img_from_fig(fig, dpi=180):
-    buf = io.BytesIO()
-    fig.savefig(buf, format="png", dpi=dpi)
-    buf.seek(0)
-    img_arr = np.frombuffer(buf.getvalue(), dtype=np.uint8)
-    buf.close()
-    img = cv2.imdecode(img_arr, 1)
-    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-
-    return img
-
 def torch_to_numpy(imgs):
 
     formatted_images = []
@@ -124,70 +116,6 @@ def torch_to_numpy(imgs):
         formatted_images.append(new_img)
 
     return formatted_images
-
-def make_summary_image(title, random_sample, outputs):
-
-    batch_size = random_sample['color_image'].shape[0]
-    random_choice = random.choice(list(range(batch_size)))
-
-    # Select one sample from the batch
-    color_image = random_sample['color_image'][random_choice]
-    mask = random_sample['masks'][random_choice]
-
-    # Testing mask
-    """
-    pdb.set_trace()
-    mask = torch.where(mask != 0, torch.tensor([255]).cuda(), torch.tensor([0]).cuda())
-    out_path = project.cfg.TEST_OUTPUT / 'test_mask.png'
-    torchvision.utils.save_image(mask.type(torch.FloatTensor), out_path)
-    #"""
-
-    vis_gt_mask = get_visualized_mask(mask)
-
-    gt_images = [color_image, vis_gt_mask]
-
-    # Then creating matplotlib figure with all the images like this 
-    # https://www.tensorflow.org/tensorboard/image_summaries
-
-    # Converting probabilities to classes
-    pred = torch.argmax(outputs, dim=1)[0]
-
-    # Converting classes into colors
-    vis_pred_mask = get_visualized_mask(pred)
-    vis_pred_output = [vis_pred_mask]
-
-    # Formatting the torch images into numpy images with the right H,W,C layout
-    formatted_gt_images = torch_to_numpy(gt_images)
-    formatted_pred_images = torch_to_numpy(vis_pred_output)
-
-    # Now creating single image with all the formatted images using this example: 
-    # https://stackoverflow.com/questions/46615554/how-to-display-multiple-images-in-one-figure-correctly/46616645
-    
-    col = len(formatted_gt_images)
-
-    fig, axs = plt.subplots(2, col)
-
-    for i, gt_img in enumerate(formatted_gt_images):
-        axs[0, i].imshow(gt_img)
-        axs[0, i].axis('off')
-
-    axs[1, 0].axis('off')
-
-    for j, pred_img in enumerate(formatted_pred_images):
-        axs[1, j+1].imshow(pred_img)
-        axs[1, j+1].axis('off')
-
-    # Now saving saving figure as an image
-    # Using this method: https://stackoverflow.com/a/57988387/13231446
-
-    # matplotlib
-    fig.tight_layout(rect=[0, 0.03, 1, 0.95])
-    fig.suptitle(title)
-
-    # Creating the image
-    image_from_plot = get_img_from_fig(fig)
-
-    return image_from_plot
 
 def make_summary_figure(random_sample, pred_masks):
 

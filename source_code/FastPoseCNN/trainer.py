@@ -65,6 +65,12 @@ class Trainer():
         self.train_dataset = train_dataset
         self.valid_dataset = valid_dataset
 
+        # For using multple CPUs for fast dataloaders
+        # More information can be found in the following link:
+        # https://github.com/pytorch/pytorch/issues/40403
+        if num_workers > 0:
+            torch.multiprocessing.set_start_method('spawn') # good solution !!!!
+
         # Create data loaders
         self.train_dataloader = torch.utils.data.DataLoader(self.train_dataset, batch_size=batch_size,
                                                             num_workers=num_workers)
@@ -157,16 +163,41 @@ class Trainer():
                     pred_class_mask = pred_mask == class_id
                     
                     # Positive & Negative
-                    self.per_sample_metrics['P'][class_id] += torch.sum(target_class_mask)
-                    self.per_sample_metrics['N'][class_id] += torch.sum(~target_class_mask)
+                    self.per_sample_metrics['P'][class_id] = torch.sum(target_class_mask)
+                    self.per_sample_metrics['N'][class_id] = torch.sum(~target_class_mask)
 
                     # True
-                    self.per_sample_metrics['TP'][class_id] += torch.sum(torch.logical_and(target_class_mask, pred_class_mask))
-                    self.per_sample_metrics['TN'][class_id] += torch.sum(torch.logical_and(~target_class_mask, ~pred_class_mask))
+                    self.per_sample_metrics['TP'][class_id] = torch.sum(torch.logical_and(target_class_mask, pred_class_mask))
+                    self.per_sample_metrics['TN'][class_id] = torch.sum(torch.logical_and(~target_class_mask, ~pred_class_mask))
 
                     # False
-                    self.per_sample_metrics['FP'][class_id] += torch.sum(torch.logical_and(pred_class_mask, ~target_class_mask))
-                    self.per_sample_metrics['FN'][class_id] += torch.sum(torch.logical_and(~pred_class_mask, target_class_mask))
+                    self.per_sample_metrics['FP'][class_id] = torch.sum(torch.logical_and(pred_class_mask, ~target_class_mask))
+                    self.per_sample_metrics['FN'][class_id] = torch.sum(torch.logical_and(~pred_class_mask, target_class_mask))
+
+                    # Calculating accuracy, precision, recall
+                    accuracy = self.per_sample_metrics['TP'][class_id] / self.per_sample_metrics['P'][class_id]
+                    
+                    if self.per_sample_metrics['accuracy'][class_id] == 0:
+                        self.per_sample_metrics['accuracy'][class_id] = accuracy
+                    else:
+                        self.per_sample_metrics['accuracy'][class_id] += accuracy
+                        self.per_sample_metrics['accuracy'][class_id] /= 2
+
+                    precision = self.per_sample_metrics['TP'][class_id] / (self.per_sample_metrics['TP'][class_id] + self.per_sample_metrics['FP'][class_id])
+
+                    if self.per_sample_metrics['precision'][class_id] == 0:
+                        self.per_sample_metrics['precision'][class_id] = precision
+                    else:
+                        self.per_sample_metrics['precision'][class_id] += precision
+                        self.per_sample_metrics['precision'][class_id] /= 2
+
+                    recall = self.per_sample_metrics['TP'][class_id] / (self.per_sample_metrics['TP'][class_id] + self.per_sample_metrics['FN'][class_id])
+
+                    if self.per_sample_metrics['recall'][class_id] == 0:
+                        self.per_sample_metrics['recall'][class_id] = recall
+                    else:
+                        self.per_sample_metrics['recall'][class_id] += recall
+                        self.per_sample_metrics['recall'][class_id] /= 2
 
         # Update per_batch metrics
         if backpropagate: # Training
@@ -174,11 +205,13 @@ class Trainer():
         else:
             mode = 'valid'
             
+        """
         # Calculating the average of all the classes
         self.per_sample_metrics['accuracy'] = torch.div(self.per_sample_metrics['TP'], self.per_sample_metrics['P'])
         self.per_sample_metrics['precision'] = torch.div(self.per_sample_metrics['TP'], self.per_sample_metrics['TP'] + self.per_sample_metrics['FP'])
         self.per_sample_metrics['recall'] = torch.div(self.per_sample_metrics['TP'], self.per_sample_metrics['TP'] + self.per_sample_metrics['FN'])
-        
+        """
+
         # Saving per batch metrics NOTE: [1:] is to ignore the background
         average_accuracy = float(torch.mean(self.per_sample_metrics['accuracy'][1:]))
         average_precision = float(torch.mean(self.per_sample_metrics['precision'][1:]))
@@ -398,18 +431,8 @@ if __name__ == '__main__':
     # This is an simple test case, not for training
 
     # Loading complete dataset
-    train_dataset = dataset.NOCSDataset(CAMERA_TRAIN_DATASET, 100)
-    valid_dataset = dataset.NOCSDataset(CAMERA_VALID_DATASET, 25)
-
-    # Splitting dataset to train and validation
-    """
-    dataset_num = len(complete_dataset)
-    split = 0.2
-    train_length, valid_length = int(dataset_num*(1-split)), int(dataset_num*split)
-
-    train_dataset, valid_dataset = torch.utils.data.random_split(complete_dataset,
-                                                                [train_length, valid_length])
-    """                                                    
+    train_dataset = dataset.NOCSDataset(CAMERA_TRAIN_DATASET, 100, balance=True)
+    valid_dataset = dataset.NOCSDataset(CAMERA_VALID_DATASET, 25)                                               
 
     # Specifying the criterions
     """
@@ -418,18 +441,22 @@ if __name__ == '__main__':
                   'scales':torch.nn.BCEWithLogitsLoss(),
                   'quat':torch.nn.BCEWithLogitsLoss()}
     #"""
+    #criterions = {'masks': torch.nn.CrossEntropyLoss()}
     #criterions = {'masks': model_lib.loss.GDiceLoss(apply_nonlin = torch.nn.Identity())}
     criterions = {'masks': kornia.losses.DiceLoss()}
 
     # Model
-    model = model_lib.FastPoseCNN(in_channels=3, bilinear=True, filter_factor=4)
+    #model = model_lib.FastPoseCNN(in_channels=3, bilinear=True, filter_factor=4)
+    model = model_lib.UNetWrapper(in_channels=3, n_classes=len(project.constants.SYNSET_NAMES),
+                                  padding=True, wf=4, depth=4)
 
     # Creating a Trainer
     my_trainer = Trainer(model, 
                          train_dataset,
                          valid_dataset,
                          criterions,
-                         batch_size=2)
+                         batch_size=2,
+                         num_workers=4)
 
     # Fitting Trainer
     my_trainer.fit(5)

@@ -1,128 +1,130 @@
-# Credit to meetshah1995
-# link: https://github.com/meetshah1995/pytorch-semseg/blob/master/ptsemseg/models/unet.py
+# Adapted from https://discuss.pytorch.org/t/unet-implementation/426
 
-# Corrections for unetUp via
-# link: https://github.com/meetshah1995/pytorch-semseg/issues/191#issuecomment-557950791
+# Source from here:
+# https://github.com/jvanvugt/pytorch-unet
+
+import torch
+from torch import nn
+import torch.nn.functional as F
 
 
-import os
-import sys
-import pathlib
+class UNet(nn.Module):
+    def __init__(
+        self,
+        in_channels=1,
+        n_classes=2,
+        depth=5,
+        wf=6,
+        padding=False,
+        batch_norm=False,
+        up_mode='upconv',
+    ):
+        """
+        Implementation of
+        U-Net: Convolutional Networks for Biomedical Image Segmentation
+        (Ronneberger et al., 2015)
+        https://arxiv.org/abs/1505.04597
 
-import pdb
+        Using the default arguments will yield the exact version used
+        in the original paper
 
-import torch 
-import torch.nn as nn
+        Args:
+            in_channels (int): number of input channels
+            n_classes (int): number of output channels
+            depth (int): depth of the network
+            wf (int): number of filters in the first layer is 2**wf
+            padding (bool): if True, apply padding such that the input shape
+                            is the same as the output.
+                            This may introduce artifacts
+            batch_norm (bool): Use BatchNorm after layers with an
+                               activation function
+            up_mode (str): one of 'upconv' or 'upsample'.
+                           'upconv' will use transposed convolutions for
+                           learned upsampling.
+                           'upsample' will use bilinear upsampling.
+        """
+        super(UNet, self).__init__()
+        assert up_mode in ('upconv', 'upsample')
+        self.padding = padding
+        self.depth = depth
+        prev_channels = in_channels
+        self.down_path = nn.ModuleList()
+        for i in range(depth):
+            self.down_path.append(
+                UNetConvBlock(prev_channels, 2 ** (wf + i), padding, batch_norm)
+            )
+            prev_channels = 2 ** (wf + i)
 
-# Local Imports
-root = next(path for path in pathlib.Path(os.path.abspath(__file__)).parents if path.name == 'FastPoseCNN')
-sys.path.append(str(root))
+        self.up_path = nn.ModuleList()
+        for i in reversed(range(depth - 1)):
+            self.up_path.append(
+                UNetUpBlock(prev_channels, 2 ** (wf + i), up_mode, padding, batch_norm)
+            )
+            prev_channels = 2 ** (wf + i)
 
-from layers import unetConv2, unetUp
+        self.last = nn.Conv2d(prev_channels, n_classes, kernel_size=1)
 
-import dataset
-import trainer
-import project
+    def forward(self, x):
+        blocks = []
+        for i, down in enumerate(self.down_path):
+            x = down(x)
+            if i != len(self.down_path) - 1:
+                blocks.append(x)
+                x = F.max_pool2d(x, 2)
 
-#-------------------------------------------------------------------------------
-# Constant
+        for i, up in enumerate(self.up_path):
+            x = up(x, blocks[-i - 1])
 
-CAMERA_DATASET = root.parents[1] / 'datasets' / 'NOCS' / 'camera' / 'val'
+        return self.last(x)
 
-#-------------------------------------------------------------------------------
-# Model
 
-class unet(nn.Module):
-    def __init__(self, feature_scale=4, n_classes=21, is_deconv=True, in_channels=3, is_batchnorm=True):
-        super(unet, self).__init__()
-        self.is_deconv = is_deconv
-        self.in_channels = in_channels
-        self.is_batchnorm = is_batchnorm
-        self.feature_scale = feature_scale
+class UNetConvBlock(nn.Module):
+    def __init__(self, in_size, out_size, padding, batch_norm):
+        super(UNetConvBlock, self).__init__()
+        block = []
 
-        self.name = 'unet'
+        block.append(nn.Conv2d(in_size, out_size, kernel_size=3, padding=int(padding)))
+        block.append(nn.ReLU())
+        if batch_norm:
+            block.append(nn.BatchNorm2d(out_size))
 
-        filters = [64, 128, 256, 512, 1024]
-        filters = [int(x / self.feature_scale) for x in filters]
+        block.append(nn.Conv2d(out_size, out_size, kernel_size=3, padding=int(padding)))
+        block.append(nn.ReLU())
+        if batch_norm:
+            block.append(nn.BatchNorm2d(out_size))
 
-        # downsampling
-        self.conv1 = unetConv2(self.in_channels, filters[0], self.is_batchnorm)
-        self.maxpool1 = nn.MaxPool2d(kernel_size=2)
+        self.block = nn.Sequential(*block)
 
-        self.conv2 = unetConv2(filters[0], filters[1], self.is_batchnorm)
-        self.maxpool2 = nn.MaxPool2d(kernel_size=2)
+    def forward(self, x):
+        out = self.block(x)
+        return out
 
-        self.conv3 = unetConv2(filters[1], filters[2], self.is_batchnorm)
-        self.maxpool3 = nn.MaxPool2d(kernel_size=2)
 
-        self.conv4 = unetConv2(filters[2], filters[3], self.is_batchnorm)
-        self.maxpool4 = nn.MaxPool2d(kernel_size=2)
+class UNetUpBlock(nn.Module):
+    def __init__(self, in_size, out_size, up_mode, padding, batch_norm):
+        super(UNetUpBlock, self).__init__()
+        if up_mode == 'upconv':
+            self.up = nn.ConvTranspose2d(in_size, out_size, kernel_size=2, stride=2)
+        elif up_mode == 'upsample':
+            self.up = nn.Sequential(
+                nn.Upsample(mode='bilinear', scale_factor=2),
+                nn.Conv2d(in_size, out_size, kernel_size=1),
+            )
 
-        self.center = unetConv2(filters[3], filters[4], self.is_batchnorm)
+        self.conv_block = UNetConvBlock(in_size, out_size, padding, batch_norm)
 
-        # upsampling
-        self.up_concat4 = unetUp(filters[4], filters[3], self.is_deconv)
-        self.up_concat3 = unetUp(filters[3], filters[2], self.is_deconv)
-        self.up_concat2 = unetUp(filters[2], filters[1], self.is_deconv)
-        self.up_concat1 = unetUp(filters[1], filters[0], self.is_deconv)
+    def center_crop(self, layer, target_size):
+        _, _, layer_height, layer_width = layer.size()
+        diff_y = (layer_height - target_size[0]) // 2
+        diff_x = (layer_width - target_size[1]) // 2
+        return layer[
+            :, :, diff_y : (diff_y + target_size[0]), diff_x : (diff_x + target_size[1])
+        ]
 
-        # final conv (without any concat)
-        self.final = nn.Conv2d(filters[0], n_classes, 1)
+    def forward(self, x, bridge):
+        up = self.up(x)
+        crop1 = self.center_crop(bridge, up.shape[2:])
+        out = torch.cat([up, crop1], 1)
+        out = self.conv_block(out)
 
-    def forward(self, inputs):
-
-        conv1 = self.conv1(inputs)
-        maxpool1 = self.maxpool1(conv1)
-
-        conv2 = self.conv2(maxpool1)
-        maxpool2 = self.maxpool2(conv2)
-
-        conv3 = self.conv3(maxpool2)
-        maxpool3 = self.maxpool3(conv3)
-
-        conv4 = self.conv4(maxpool3)
-        maxpool4 = self.maxpool4(conv4)
-
-        center = self.center(maxpool4)
-
-        up4 = self.up_concat4(conv4, center)
-        up3 = self.up_concat3(conv3, up4)
-        up2 = self.up_concat2(conv2, up3)
-        up1 = self.up_concat1(conv1, up2)
-
-        final = self.final(up1)
-
-        return final
-
-#-------------------------------------------------------------------------------
-# File Main
-
-if __name__ == '__main__':
-    
-    # This is an simple test case, not for training
-
-    # Loading complete dataset
-    complete_dataset = dataset.NOCSDataset(CAMERA_DATASET, 100)
-
-    # Splitting dataset to train and validation
-    dataset_num = len(complete_dataset)
-    split = 0.2
-    train_length, valid_length = int(dataset_num*(1-split)), int(dataset_num*split)
-
-    train_dataset, valid_dataset = torch.utils.data.random_split(complete_dataset,
-                                                                [train_length, valid_length])
-
-    # Specifying the criterions
-    criterions = {'masks':torch.nn.CrossEntropyLoss(),
-                  'depth':torch.nn.BCEWithLogitsLoss(),
-                  'scales':torch.nn.BCEWithLogitsLoss(),
-                  'quat':torch.nn.BCEWithLogitsLoss()}
-
-    # Creating a Trainer
-    my_trainer = trainer.Trainer(unet(n_classes = len(project.constants.SYNSET_NAMES)), 
-                                 train_dataset,
-                                 valid_dataset,
-                                 criterions)
-
-    # Testing Neural Network
-    my_trainer.test_forward()
+        return out

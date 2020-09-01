@@ -61,37 +61,29 @@ CAMERA_VALID_DATASET = project.cfg.DATASET_DIR / 'NOCS' / 'camera' / 'val'
 
 if __name__ == '__main__':
 
+    """
     # Loading complete dataset
-    train_dataset = dataset.NOCSDataset(CAMERA_TRAIN_DATASET, 1000)
+    train_dataset = dataset.NOCSDataset(CAMERA_TRAIN_DATASET, 1000, balance=True)
     valid_dataset = dataset.NOCSDataset(CAMERA_VALID_DATASET, 100)
 
-    # Splitting dataset to train and validation
-    """
-    dataset_num = len(complete_dataset)
-    split = 0.2
-    train_length, valid_length = int(dataset_num*(1-split)), int(dataset_num*split)
-
-    train_dataset, valid_dataset = torch.utils.data.random_split(complete_dataset,
-                                                                [train_length, valid_length])
-    """    
     # Specifying the criterions
-    """
-    criterions = {'masks':torch.nn.CrossEntropyLoss(),
-                  'depth':torch.nn.BCEWithLogitsLoss(),
-                  'scales':torch.nn.BCEWithLogitsLoss(),
-                  'quat':torch.nn.BCEWithLogitsLoss()}
-    """
-    criterions = {'masks': kornia.losses.DiceLoss()}
+    #criterions = {'masks': kornia.losses.DiceLoss()}
+    criterions = {'masks': torch.nn.CrossEntropyLoss()}
 
     # Creating a Trainer
-    #model = model_lib.unet(n_classes = len(project.constants.SYNSET_NAMES))
-    model = model_lib.FastPoseCNN(in_channels=3, bilinear=True, filter_factor=4)
+    #model = model_lib.unet(n_classes = len(project.constants.SYNSET_NAMES), feature_scale=4)
+    #model = model_lib.FastPoseCNN(in_channels=3, bilinear=True, filter_factor=4)
+    model = model_lib.UNetWrapper(in_channels=3, n_classes=len(project.constants.SYNSET_NAMES),
+                                  padding=True, wf=4, depth=4)
 
     my_trainer = trainer.Trainer(model, 
                                  train_dataset,
                                  valid_dataset,
                                  criterions,
-                                 batch_size=10)
+                                 batch_size=4,
+                                 num_workers=4)
 
     # Fitting Trainer
     my_trainer.fit(10)
+    """
+    

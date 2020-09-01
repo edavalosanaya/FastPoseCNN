@@ -16,6 +16,9 @@ import scipy.linalg
 import sklearn.preprocessing
 import scipy.spatial.transform
 
+import matplotlib
+if os.environ.get('DISPLAY', '') == '':
+    matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 import torch

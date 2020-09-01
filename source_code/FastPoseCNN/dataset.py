@@ -46,7 +46,8 @@ class NOCSDataset(torch.utils.data.Dataset):
     # Functions required for torch.utils.data.Dataset to work
     ############################################################################
 
-    def __init__(self, dataset_path, dataset_max_size=None, device='automatic'):
+    def __init__(self, dataset_path, dataset_max_size=None, device='automatic',
+                 balance=None):
         """
         Args:
             dataset_path: (string or pathlib object): Path to the dataset
@@ -72,6 +73,9 @@ class NOCSDataset(torch.utils.data.Dataset):
         else:
             self.device = device
 
+        # Selecting balance (cropping)
+        self.balance = balance
+
     def __len__(self):
         """
         Returns the size of the datasekt
@@ -94,6 +98,10 @@ class NOCSDataset(torch.utils.data.Dataset):
 
         # Loading data
         sample = self.get_data_sample(self.color_image_path_list[idx])
+
+        # Balancing of dataset
+        if self.balance:
+            sample = self.balance_sample(sample)
         
         # Convert all numpy arrays into PyTorch Tensors (with correct dtypes)
         sample = self.numpy_sample_to_torch(sample) 
@@ -236,8 +244,8 @@ class NOCSDataset(torch.utils.data.Dataset):
         coord_map = np.moveaxis(coord_map, -1, 0)
 
         zs = np.zeros([1, h, w], dtype=np.float32)
-        masks = np.zeros([h, w], dtype=np.float32)
-        #masks = np.zeros([1,h,w], dtype=np.float32)
+        masks = np.zeros([h, w], dtype=np.uint8)
+        #masks = np.zeros([1,h,w], dtype=np.uint8)
         quat_img = np.zeros([4, h, w], dtype=np.float32)
         scales_img = np.zeros([3, h, w], dtype=np.float32)
 
@@ -250,7 +258,7 @@ class NOCSDataset(torch.utils.data.Dataset):
             instance_mask = instance_mask.astype(np.uint8)
             _, contour, hei = cv2.findContours(instance_mask, cv2.RETR_TREE ,cv2.CHAIN_APPROX_SIMPLE)
             for cnt in contour:
-                cv2.drawContours(instance_mask, [cnt],0,1,-1)
+                cv2.drawContours(instance_mask,[cnt],0,1,-1)
 
             assert c_id > 0 and c_id < len(project.constants.SYNSET_NAMES), f'Invalid class id: {c_id}'
             
@@ -298,6 +306,101 @@ class NOCSDataset(torch.utils.data.Dataset):
         return sample
 
     ############################################################################
+    # Augmentations
+    ############################################################################
+    
+    def balance_sample(self, sample):
+
+        # First determing if there is an object in the image
+        if len(np.unique(sample['masks'])) == 1:
+            # If only background, just crop the size of the image match the size
+            sample = self.crop_sample(sample)
+            return sample
+
+        # Selecting a random class, while not selecting the background
+        selected_class = np.random.choice(np.unique(sample['masks'])[1:])
+
+        # Create a mask specific to the selected class
+        class_mask = (sample['masks'] == selected_class) * 1
+        class_mask = class_mask.astype(np.uint8)
+
+        try:
+            # In the case of multiple objects within the same class, we find the contours
+            _, cnts, hei = cv2.findContours(class_mask, cv2.RETR_TREE ,cv2.CHAIN_APPROX_SIMPLE)
+
+            # If multple contours (multiple objects), select one randomly
+            rand_choice = random.choice(range(len(cnts)))
+            cnt = cnts[rand_choice]
+
+            # Find the centroid of the contour
+            M = cv2.moments(cnt)
+            cX = int(M["m10"] / M["m00"])
+            cY = int(M["m01"] / M["m00"])
+            centroid = (cX, cY)
+        except:
+            centroid = None
+
+        # Crop the sample given the center and crop_size
+        cropped_sample = self.crop_sample(sample, center=centroid)
+
+        return cropped_sample
+
+    def crop_sample(self, sample, center=None, crop_size=128):
+
+        # Creating a container for the output
+        cropped_sample = {}
+
+        # H,W of the images
+        _, h, w = sample['color_image'].shape
+
+        # No center is provided, then assume the center of the image
+        if center is None:
+            center = (w // 2, h // 2)
+
+        # Obtaing half of the crop_size
+        hcs = crop_size // 2 # half crop size
+
+        # Determing the left, right, top and bottom of the image
+        left = center[0] - hcs
+        right = center[0] + hcs
+        top = center[1] - hcs
+        bottom = center[1] + hcs
+
+        # Check if the left, right, top and bottom are outside the image
+        left_pad = right_pad = top_pad = bottom_pad = 0
+
+        if left < 0:
+            left_pad = -left
+            left = 0
+        if right > w:
+            right_pad = right - w
+            right = w
+        if top < 0:
+            top_pad = -top
+            top = 0
+        if bottom > h:
+            bottom_pad = bottom - h
+            bottom = h 
+
+        """
+        if left_pad != 0 or right_pad != 0 or top_pad != 0 or bottom_pad != 0:
+            pdb.set_trace()
+        """
+
+        # Crop the images in the sample
+        for key in sample.keys():
+            if len(sample[key].shape) == 2:
+                crop = sample[key][top:bottom,left:right]
+                crop_and_pad = np.pad(crop, ((top_pad,bottom_pad),(left_pad, right_pad)), mode='constant')
+                cropped_sample[key] = crop_and_pad
+            elif len(sample[key].shape) == 3:
+                crop = sample[key][:,top:bottom,left:right]
+                crop_and_pad = np.pad(crop, ((0,0),(top_pad,bottom_pad),(left_pad, right_pad)), mode='constant')
+                cropped_sample[key] = crop_and_pad
+
+        return cropped_sample
+
+    ############################################################################
     # Additional functionalitity
     ############################################################################
 
@@ -329,7 +432,7 @@ if __name__ == '__main__':
     # For randomly splitting datasets: https://pytorch.org/docs/stable/data.html#torch.utils.data.random_split
 
     print('Loading dataset')
-    dataset = NOCSDataset(camera_dataset, dataset_max_size=10)
+    dataset = NOCSDataset(camera_dataset, dataset_max_size=10, balance=True)
     print('Finished loading dataset')
 
     # Testing custom Dataset (Working)

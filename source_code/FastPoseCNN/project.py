@@ -34,6 +34,9 @@ Data constants
 
 constants = EasyDict()
 
+#-------------------------------------------------------------------------------
+# NOCS Dataset Constants
+
 constants.INTRINSICS = np.array([[577.5, 0, 319.5], [0., 577.5, 239.5], [0., 0., 1.]]) # CAMERA intrinsics
 
 constants.SYNSET_NAMES = ['BG', #0
@@ -60,3 +63,18 @@ constants.CLASS_MAP = {
     'cup':'mug',
     'laptop': 'laptop',
 }
+
+#-------------------------------------------------------------------------------
+# PASCAL VOC Dataset Constants
+
+constants.VOC_COLORMAP = [[0, 0, 0], [128, 0, 0], [0, 128, 0], [128, 128, 0],
+                          [0, 0, 128], [128, 0, 128], [0, 128, 128], [128, 128, 128],
+                          [64, 0, 0], [192, 0, 0], [64, 128, 0], [192, 128, 0],
+                          [64, 0, 128], [192, 0, 128], [64, 128, 128], [192, 128, 128],
+                          [0, 64, 0], [128, 64, 0], [0, 192, 0], [128, 192, 0],
+                          [0, 64, 128]]
+
+constants.VOC_CLASSES = ['background', 'aeroplane', 'bicycle', 'bird', 'boat',
+                         'bottle', 'bus', 'car', 'cat', 'chair', 'cow',
+                         'diningtable', 'dog', 'horse', 'motorbike', 'person',
+                         'potted plant', 'sheep', 'sofa', 'train', 'tv/monitor']
