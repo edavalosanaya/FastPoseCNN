@@ -217,8 +217,6 @@ class FastPoseCNN(nn.Module):
         self.depth_decoder = DepthDecoder(in_channels, 1, planes, bilinear)
         #"""
 
-        self.head_softmax = nn.Softmax(dim=1)
-
     def forward(self, x):
 
         ########################################################################
@@ -262,13 +260,7 @@ class FastPoseCNN(nn.Module):
         logits_quat = torch.cat(out_tuple, dim=1)
         #"""
 
-        # Converts logits to pred
-        pred_mask = torch.argmax(self.head_softmax(logits_mask), dim=1)
-
-        # Detach the predicted mask
-        pred_mask = pred_mask.detach()
-
-        return logits_mask, pred_mask
+        return logits_mask
 
 #-------------------------------------------------------------------------------
 # Functions

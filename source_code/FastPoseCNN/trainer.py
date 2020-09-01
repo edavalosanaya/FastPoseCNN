@@ -22,6 +22,8 @@ import kornia # pytorch tensor data augmentation
 
 import numpy as np
 
+import segmentation_models_pytorch as smp
+
 # Local imports
 
 import project
@@ -53,47 +55,38 @@ Then open this on your browser
 CAMERA_TRAIN_DATASET = project.cfg.DATASET_DIR / 'NOCS' / 'camera' / 'train'
 CAMERA_VALID_DATASET = project.cfg.DATASET_DIR / 'NOCS' / 'camera' / 'val'
 
+VOC_DATASET = project.cfg.DATASET_DIR / 'VOC2012'
+
 #-------------------------------------------------------------------------------
 # Classes
 
 class Trainer():
 
-    def __init__(self, model, train_dataset, valid_dataset, criterions, 
-                 batch_size=2, num_workers=0, transform=None):
+    def __init__(self, model, datasets, dataloaders, criterion, optimizer, device, 
+                 n_classes, batch_size=2, num_workers=0, transform=None):
 
         # Saving dataset into model
-        self.train_dataset = train_dataset
-        self.valid_dataset = valid_dataset
-
-        # For using multple CPUs for fast dataloaders
-        # More information can be found in the following link:
-        # https://github.com/pytorch/pytorch/issues/40403
-        if num_workers > 0:
-            torch.multiprocessing.set_start_method('spawn') # good solution !!!!
+        self.train_dataset = datasets[0]
+        self.valid_dataset = datasets[1]
 
         # Create data loaders
-        self.train_dataloader = torch.utils.data.DataLoader(self.train_dataset, batch_size=batch_size,
-                                                            num_workers=num_workers)
-        self.valid_dataloader = torch.utils.data.DataLoader(self.valid_dataset, batch_size=batch_size,
-                                                            num_workers=num_workers)
+        self.train_dataloader = dataloaders[0]
+        self.valid_dataloader = dataloaders[1]
 
         # Load model
         self.model = model
-        self.model_name = self.model.name
         
-        # Using multiple GPUs if avaliable
-        self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-        if torch.cuda.device_count() > 1:
-            print(f'Using {torch.cuda.device_count()} GPUs!')
-            self.model = torch.nn.DataParallel(self.model)
-        
-        self.model.to(self.device)
+        # Obtain the model name
+        try:
+            self.model_name = self.model.name
+        except:
+            self.model_name = 'no-name-net'
 
         # Load loss functions
-        self.criterions = criterions
+        self.criterion = criterion
 
         # Specify optimizer
-        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=1e-4, weight_decay=1e-5)
+        self.optimizer = optimizer
 
         # Saving optional parameters
         self.batch_size = batch_size
@@ -105,23 +98,29 @@ class Trainer():
         
         self.transform = transform
 
+        # Saving the selected device
+        self.device = device
+
+        # Saving the number of classes
+        self.n_classes = n_classes
+
     def loop(self, dataloader, backpropagate=True):
 
         # Initialize metrics
         self.per_sample_metrics['loss'] = 0.0
         
-        self.per_sample_metrics['P'] = torch.zeros(len(project.constants.SYNSET_NAMES), device=self.device)
-        self.per_sample_metrics['N'] = torch.zeros(len(project.constants.SYNSET_NAMES), device=self.device)
+        self.per_sample_metrics['P'] = torch.zeros(self.n_classes, device=self.device)
+        self.per_sample_metrics['N'] = torch.zeros(self.n_classes, device=self.device)
 
-        self.per_sample_metrics['TP'] = torch.zeros(len(project.constants.SYNSET_NAMES), device=self.device)
-        self.per_sample_metrics['TN'] = torch.zeros(len(project.constants.SYNSET_NAMES), device=self.device)
+        self.per_sample_metrics['TP'] = torch.zeros(self.n_classes, device=self.device)
+        self.per_sample_metrics['TN'] = torch.zeros(self.n_classes, device=self.device)
         
-        self.per_sample_metrics['FP'] = torch.zeros(len(project.constants.SYNSET_NAMES), device=self.device)
-        self.per_sample_metrics['FN'] = torch.zeros(len(project.constants.SYNSET_NAMES), device=self.device)
+        self.per_sample_metrics['FP'] = torch.zeros(self.n_classes, device=self.device)
+        self.per_sample_metrics['FN'] = torch.zeros(self.n_classes, device=self.device)
 
-        self.per_sample_metrics['accuracy'] = torch.zeros(len(project.constants.SYNSET_NAMES), device=self.device)
-        self.per_sample_metrics['precision'] = torch.zeros(len(project.constants.SYNSET_NAMES), device=self.device)
-        self.per_sample_metrics['recall'] = torch.zeros(len(project.constants.SYNSET_NAMES), device=self.device)
+        self.per_sample_metrics['accuracy'] = torch.zeros(self.n_classes, device=self.device)
+        self.per_sample_metrics['precision'] = torch.zeros(self.n_classes, device=self.device)
+        self.per_sample_metrics['recall'] = torch.zeros(self.n_classes, device=self.device)
 
         # Overating overall all samples in the epoch
         for sample in tqdm.tqdm(dataloader, desc = f'{self.epoch}/{self.num_epoch}'):
@@ -130,15 +129,10 @@ class Trainer():
             self.optimizer.zero_grad()
 
             # Forward pass
-            logits_masks, pred_masks = self.model(sample['color_image'])
+            logits_masks = self.model(sample['color_image'])
 
             # calculate loss with both the input and output
-            loss_mask = self.criterions['masks'](logits_masks, sample['masks'])
-            """
-            loss_depth = self.criterions['depth'](outputs[1], depth_image)
-            loss_scale = self.criterions['scales'](outputs[2], scales_img)
-            loss_quat = self.criterions['quat'](outputs[3], quat_img)
-            #"""
+            loss_mask = self.criterion(logits_masks, sample['masks'])
 
             # total loss
             loss = loss_mask #+ loss_depth + loss_scale + loss_quat
@@ -152,6 +146,9 @@ class Trainer():
 
             # Update per_sample metrics
             self.per_sample_metrics['loss'] += loss.item()
+
+            # Calculate the pred masks
+            pred_masks = torch.argmax(logits_masks, dim=1)
             
             # Per sample in batch
             for pred_mask, mask in zip(pred_masks, sample['masks']):
@@ -282,7 +279,10 @@ class Trainer():
 
                 # Obtaining the output of the neural network 
                 with torch.no_grad():
-                    logits_masks, pred_masks = self.model(random_sample['color_image'])
+                    logits_masks = self.model(random_sample['color_image'])
+
+                # Calculate the pred masks
+                pred_masks = torch.argmax(logits_masks, dim=1)
 
                 # Creating a matplotlib figure illustrating the inputs vs outputs
                 summary_fig = visualize.make_summary_figure(random_sample, pred_masks)
@@ -428,35 +428,87 @@ class Trainer():
 
 if __name__ == '__main__':
 
-    # This is an simple test case, not for training
-
-    # Loading complete dataset
-    train_dataset = dataset.NOCSDataset(CAMERA_TRAIN_DATASET, 100, balance=True)
-    valid_dataset = dataset.NOCSDataset(CAMERA_VALID_DATASET, 25)                                               
-
-    # Specifying the criterions
+    #***************************************************************************
+    # Loading dataset 
+    #***************************************************************************
     """
-    criterions = {'masks':torch.nn.CrossEntropyLoss(),
-                  'depth':torch.nn.BCEWithLogitsLoss(),
-                  'scales':torch.nn.BCEWithLogitsLoss(),
-                  'quat':torch.nn.BCEWithLogitsLoss()}
+    # NOCS
+    train_dataset = dataset.NOCSDataset(CAMERA_TRAIN_DATASET, 1000, balance=True)
+    valid_dataset = dataset.NOCSDataset(CAMERA_VALID_DATASET, 100)
+    n_classes = len(project.constants.SYNSET_NAMES)
     #"""
+    
+    # VOC
+    crop_size = (320, 480)
+    train_dataset = dataset.VOCSegDataset(True, crop_size, VOC_DATASET)
+    valid_dataset = dataset.VOCSegDataset(False, crop_size, VOC_DATASET)
+    datasets = train_dataset, valid_dataset
+    n_classes = len(project.constants.VOC_CLASSES)
+
+    #***************************************************************************
+    # Creating dataloaders 
+    #***************************************************************************
+    # Dataloader parameters
+    batch_size = 4
+    num_workers = 0
+
+    # For using multple CPUs for fast dataloaders
+    # More information can be found in the following link:
+    # https://github.com/pytorch/pytorch/issues/40403
+    if num_workers > 0:
+        torch.multiprocessing.set_start_method('spawn') # good solution !!!!
+
+    train_dataloader = torch.utils.data.DataLoader(train_dataset, num_workers=num_workers,
+                                                   batch_size=batch_size, shuffle=True)
+    valid_dataloader = torch.utils.data.DataLoader(valid_dataset, num_workers=num_workers,
+                                                   batch_size=batch_size, shuffle=True)
+    dataloaders = train_dataloader, valid_dataloader
+
+    #***************************************************************************
+    # Specifying criterions 
+    #***************************************************************************
+    #criterions = {'masks': kornia.losses.DiceLoss()}
     #criterions = {'masks': torch.nn.CrossEntropyLoss()}
-    #criterions = {'masks': model_lib.loss.GDiceLoss(apply_nonlin = torch.nn.Identity())}
-    criterions = {'masks': kornia.losses.DiceLoss()}
+    criterion = torch.nn.CrossEntropyLoss()
+    #criterion = kornia.losses.DiceLoss()
 
-    # Model
+    #***************************************************************************
+    # Loading model
+    #***************************************************************************
+    #model = model_lib.unet(n_classes = self.n_classes, feature_scale=4)
     #model = model_lib.FastPoseCNN(in_channels=3, bilinear=True, filter_factor=4)
-    model = model_lib.UNetWrapper(in_channels=3, n_classes=len(project.constants.SYNSET_NAMES),
-                                  padding=True, wf=4, depth=4)
+    #model = model_lib.UNetWrapper(in_channels=3, n_classes=self.n_classes,
+    #                              padding=True, wf=4, depth=4)
+    model = smp.Unet('resnet34', encoder_weights='imagenet', classes=n_classes)
 
-    # Creating a Trainer
+    # Using multiple GPUs if avaliable
+    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    if torch.cuda.device_count() > 1:
+        print(f'Using {torch.cuda.device_count()} GPUs!')
+        model = torch.nn.DataParallel(model)
+    
+    model.to(device)
+
+    #***************************************************************************
+    # Selecting optimizer
+    optimizer = torch.optim.Adam(model.parameters(), lr=3e-3, weight_decay=1e-5)
+    #***************************************************************************
+
+    #***************************************************************************
+    # Selecting Trainer 
+    #***************************************************************************
+    epoch=10
+    
+    # Creating trainer
     my_trainer = Trainer(model, 
-                         train_dataset,
-                         valid_dataset,
-                         criterions,
-                         batch_size=2,
+                         datasets,
+                         dataloaders,
+                         criterion,
+                         optimizer,
+                         device,
+                         n_classes,
+                         batch_size=4,
                          num_workers=4)
 
     # Fitting Trainer
-    my_trainer.fit(5)
+    my_trainer.fit(epoch)

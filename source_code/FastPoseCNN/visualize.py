@@ -11,6 +11,7 @@ import numpy as np
 import PIL
 import io
 import random
+import skimage.io
 
 import torch
 import torchvision
@@ -191,12 +192,60 @@ def get_visualized_masks(masks, PIL_transform=False):
     return colorized_masks
     
 #-------------------------------------------------------------------------------
+# PASCAL Functions
+# From this link: 
+# https://d2l.ai/chapter_computer-vision/semantic-segmentation-and-dataset.html
+
+def read_voc_images(voc_dir, is_train=True):
+    """Read all VOC feature and label images."""
+
+    txt_fname = os.path.join(voc_dir, 'ImageSets', 'Segmentation',
+                             'train.txt' if is_train else 'val.txt')
+    with open(txt_fname, 'r') as f:
+        images = f.read().split()
+    features, labels = [], []
+    for i, fname in enumerate(images):
+        features.append(skimage.io.imread(os.path.join(
+            voc_dir, 'JPEGImages', f'{fname}.jpg')))
+        labels.append(skimage.io.imread(os.path.join(
+            voc_dir, 'SegmentationClass', f'{fname}.png')))
+    return features, labels
+
+def build_colormap2label():
+    """Build an RGB color to label mapping for segmentation."""
+    colormap2label = np.zeros(256 ** 3)
+
+    for i, colormap in enumerate(project.constants.VOC_COLORMAP):
+        colormap2label[(colormap[0]*256 + colormap[1])*256 + colormap[2]] = i
+    
+    return colormap2label
+
+def voc_label_indices(colormap, colormap2label):
+    """Map an RGB color to a label."""
+
+    colormap = colormap.astype(np.int32)
+    
+    idx = ((colormap[:, :, 0] * 256 + colormap[:, :, 1]) * 256
+           + colormap[:, :, 2])
+    
+    return colormap2label[idx]
+
+def voc_rand_crop(feature, label, height, width):
+    """Randomly crop for both feature and label images."""
+    from mxnet import image
+
+    feature, rect = image.random_crop(feature, (width, height))
+    label = image.fixed_crop(label, *rect)
+    
+    return feature, label
+
+#-------------------------------------------------------------------------------
 # File's Main
 
 if __name__ == "__main__":
 
     # Loading a test dataset
-    dataset = dataset.NOCSDataset(CAMERA_DATASET, dataset_max_size=5)
+    dataset = dataset.NOCSDataset(CAMERA_DATASET, dataset_max_size=2)
 
     # Creating a dataloader to include the batch dimension
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=True)
@@ -209,19 +258,7 @@ if __name__ == "__main__":
     masks = test_sample[3]
 
     # Create similar to the nets output
-    outputs = torch.stack((masks,masks,masks,masks,masks,masks,masks),dim=1)
-
-    # Testing test run image
-    #"""
-    epoch = 1
-    num_epoch = 100
-    title = f'Input and Outputs: Epoch {epoch}/{num_epoch}'
-    
-    summary_image = make_summary_image(title, test_sample, outputs)
-    summary_image = cv2.cvtColor(summary_image, cv2.COLOR_RGB2BGR)
-    out_path = project.cfg.TEST_OUTPUT / 'summary_image.png'
-    cv2.imwrite(str(out_path), summary_image)
-    #"""
+    outputs = torch.stack((masks,masks),dim=1)
 
 
 

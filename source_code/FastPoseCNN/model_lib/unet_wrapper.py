@@ -14,7 +14,6 @@ class UNetWrapper(nn.Module):
         self.input_batchnorm = nn.BatchNorm2d(kwargs['in_channels'])
         self.unet = UNet(**kwargs)
         self.final = nn.Sigmoid()
-        self.head_softmax = nn.Softmax(dim=1)
 
         self._init_weights()
 
@@ -34,11 +33,5 @@ class UNetWrapper(nn.Module):
         
         logits_mask = self.final(logits_mask)
 
-        # Converts logits to pred
-        pred_mask = torch.argmax(self.head_softmax(logits_mask), dim=1)
-
-        # Detach the predicted mask
-        pred_mask = pred_mask.detach()
-
-        return logits_mask, pred_mask
+        return logits_mask
         

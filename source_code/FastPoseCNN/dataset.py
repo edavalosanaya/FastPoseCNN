@@ -27,11 +27,13 @@ import json_tools
 import data_manipulation
 import project
 import draw
+import visualize
 
 #-------------------------------------------------------------------------------
 # File Constants
 
-camera_dataset = root.parents[1] / 'datasets' / 'NOCS' / 'camera' / 'val'
+camera_dataset = project.cfg.DATASET_DIR / 'NOCS' / 'camera' / 'val'
+voc_dir = project.cfg.DATASET_DIR / 'VOC2012'
 
 #-------------------------------------------------------------------------------
 # Collective Data Classes
@@ -420,16 +422,73 @@ class NOCSDataset(torch.utils.data.Dataset):
 
         return sample
 
+class VOCSegDataset(torch.utils.data.Dataset):
+    """A customized dataset to load VOC dataset."""
+
+    def __init__(self, is_train, crop_size, voc_dir):
+        
+        self.rgb_mean = np.array([0.485, 0.456, 0.406])
+        self.rgb_std = np.array([0.229, 0.224, 0.225])
+        self.crop_size = crop_size
+        
+        features, labels = visualize.read_voc_images(voc_dir, is_train=is_train)
+        self.features = [self.normalize_image(feature)
+                         for feature in self.filter(features)]
+        
+        self.labels = self.filter(labels)
+        
+        self.colormap2label = visualize.build_colormap2label()
+        
+        print('read ' + str(len(self.features)) + ' examples')
+
+    def normalize_image(self, img):
+        return (img.astype('float32') / 255 - self.rgb_mean) / self.rgb_std
+
+    def filter(self, imgs):
+        return [img for img in imgs if (
+            img.shape[0] >= self.crop_size[0] and
+            img.shape[1] >= self.crop_size[1])]
+
+    def __getitem__(self, idx):
+        feature, label = visualize.voc_rand_crop(self.features[idx], self.labels[idx],
+                                                 *self.crop_size)
+        feature = feature.transpose(2,0,1)
+        label = visualize.voc_label_indices(label, self.colormap2label)
+
+        # Convert from numpy to tensor
+        feature = torch.from_numpy(feature).type(torch.FloatTensor)
+        label = torch.from_numpy(label).type(torch.LongTensor)
+
+        # Moving tensors to cuda if possible
+        device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+        feature = feature.to(device)
+        label = label.to(device)
+
+        sample = {'color_image': feature,
+                  'masks': label}
+        
+        return sample
+
+    def __len__(self):
+        return len(self.features)
+
+    def get_random_sample(self, batched=True):
+
+        random_idx = random.choice(range(len(self)))
+
+        # Loading data
+        sample = self.__getitem__(random_idx)
+
+        if batched:
+            for key in sample.keys():
+                sample[key] = torch.unsqueeze(sample[key], 0)
+
+        return sample
+
 #-------------------------------------------------------------------------------
 # Functions
 
-#-------------------------------------------------------------------------------
-# Main Code
-
-if __name__ == '__main__':
-    # For testing the dataset
-
-    # For randomly splitting datasets: https://pytorch.org/docs/stable/data.html#torch.utils.data.random_split
+def test_nocs_dataset():
 
     print('Loading dataset')
     dataset = NOCSDataset(camera_dataset, dataset_max_size=10, balance=True)
@@ -462,4 +521,42 @@ if __name__ == '__main__':
 
     #"""
 
-        
+def test_voc_dataset():
+
+    # Creating train and valid dataset
+    crop_size = (320, 480)
+    voc_train = VOCSegDataset(True, crop_size, voc_dir)
+    voc_valid = VOCSegDataset(False, crop_size, voc_dir)
+
+    # Create dataloader
+    batch_size = 4
+    train_dataloader = torch.utils.data.DataLoader(voc_train, batch_size=batch_size, shuffle=True)
+    valid_dataloader = torch.utils.data.DataLoader(voc_valid, batch_size=batch_size, shuffle=True)
+    
+    """
+    # Test train dataloader output
+    for X, Y in train_dataloader:
+        print(X.shape)
+        print(Y.shape)
+        print(torch.unique(Y[0]))
+        torchvision.utils.save_image(X[0], 'voc_train_input.png')
+        torchvision.utils.save_image(Y[0], 'voc_train_label.png')
+        break
+
+    for X, Y in valid_dataloader:
+        print(X.shape)
+        print(Y.shape)
+        print(torch.unique(Y[0]))
+        torchvision.utils.save_image(X[0], 'voc_valid_input.png')
+        torchvision.utils.save_image(Y[0], 'voc_valid_label.png')
+        break
+    #"""
+
+#-------------------------------------------------------------------------------
+# Main Code
+
+if __name__ == '__main__':
+    # For testing the dataset
+    #test_nocs_dataset()
+    test_voc_dataset()
+
