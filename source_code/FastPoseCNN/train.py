@@ -62,11 +62,6 @@ import model_lib
 #-------------------------------------------------------------------------------
 # File Constants
 
-CAMERA_TRAIN_DATASET = project.cfg.DATASET_DIR / 'NOCS' / 'camera' / 'train'
-CAMERA_VALID_DATASET = project.cfg.DATASET_DIR / 'NOCS' / 'camera' / 'val'
-
-VOC_DATASET = project.cfg.DATASET_DIR / 'VOC2012'
-
 #-------------------------------------------------------------------------------
 # Functions
 

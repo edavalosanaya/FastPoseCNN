@@ -467,7 +467,8 @@ class VOCSegDataset(torch.utils.data.Dataset):
         sample = {'color_image': feature,
                   'masks': label}
         
-        return sample
+        #return sample
+        return feature, label
 
     def __len__(self):
         return len(self.features)
@@ -484,6 +485,8 @@ class VOCSegDataset(torch.utils.data.Dataset):
                 sample[key] = torch.unsqueeze(sample[key], 0)
 
         return sample
+
+
 
 #-------------------------------------------------------------------------------
 # Functions

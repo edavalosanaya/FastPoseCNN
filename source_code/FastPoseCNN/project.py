@@ -22,12 +22,16 @@ cfg.SAVED_MODEL_DIR = cfg.NETS_DIR / 'saved_model_logs'
 cfg.LOGS = cfg.NETS_DIR / 'logs'
 cfg.TEST_OUTPUT = cfg.ROOT_DIR / 'tests_output'
 
-"""
-for key,value in cfg.items():
-    if 'DIR' in key:
-        sys.path.append(value)
-"""
+# Specific datasets
+# NOCS
+cfg.CAMERA_TRAIN_DATASET = cfg.DATASET_DIR / 'NOCS' / 'camera' / 'train'
+cfg.CAMERA_VALID_DATASET = cfg.DATASET_DIR / 'NOCS' / 'camera' / 'val'
 
+# VOC
+cfg.VOC_DATASET = cfg.DATASET_DIR / 'VOC2012'
+
+# CAMVID
+cfg.CAMVID_DATSET = cfg.DATASET_DIR / 'CAMVID'
 """
 Data constants
 """
@@ -39,7 +43,7 @@ constants = EasyDict()
 
 constants.INTRINSICS = np.array([[577.5, 0, 319.5], [0., 577.5, 239.5], [0., 0., 1.]]) # CAMERA intrinsics
 
-constants.SYNSET_NAMES = ['BG', #0
+constants.SYNSET_NAMES = ['bg', #0
                           'bottle', #1
                           'bowl', #2
                           'camera', #3
@@ -78,3 +82,10 @@ constants.VOC_CLASSES = ['background', 'aeroplane', 'bicycle', 'bird', 'boat',
                          'bottle', 'bus', 'car', 'cat', 'chair', 'cow',
                          'diningtable', 'dog', 'horse', 'motorbike', 'person',
                          'potted plant', 'sheep', 'sofa', 'train', 'tv/monitor']
+
+#-------------------------------------------------------------------------------
+# CAMVID Dataset Constants
+
+constants.CAMVID_CLASSES = ['sky', 'building', 'pole', 'road', 'pavement', 
+                            'tree', 'signsymbol', 'fence', 'car', 
+                            'pedestrian', 'bicyclist', 'unlabelled']
