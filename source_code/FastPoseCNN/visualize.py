@@ -118,48 +118,23 @@ def torch_to_numpy(imgs):
 
     return formatted_images
 
-def make_summary_figure(random_sample, pred_masks):
-
-    #pdb.set_trace()
-    # Randomly selecting a sample from the batch
-    batch_size = random_sample['color_image'].shape[0]
-    random_choice = random.choice(list(range(batch_size)))
-
-    # Select one sample from the batch
-    color_image = random_sample['color_image'][random_choice]
-    mask = random_sample['masks'][random_choice]
-    vis_gt_mask = get_visualized_mask(mask)
-    gt_images = [color_image, vis_gt_mask]
-
-    # Predicted output of the neural network
-    pred_mask = pred_masks[random_choice]
-    vis_pred_mask = get_visualized_mask(pred_mask)
-    pred_images = [vis_pred_mask]
-
-    # Convert torch into numpy
-    formatted_gt_images = torch_to_numpy(gt_images)
-    formatted_pred_images = torch_to_numpy(pred_images)
+def make_summary_figure(colormap=None, **images):
 
     # Initializing the figure and axs
-    col = len(gt_images)
-    fig, axs = plt.subplots(2, col)
+    fig = plt.figure(figsize=(16,5))
+    n = len(images)
 
-    # Inputting the ground truth images into the subplot 
-    for i, gt_img in enumerate(formatted_gt_images):
-        axs[0, i].imshow(gt_img)
-        axs[0, i].axis('off')
-
-    # remove the non-utilized slot of the subplot
-    axs[1, 0].axis('off')
-
-    # Inputting the predicted images into the subplot 
-    for j, pred_img in enumerate(formatted_pred_images):
-        axs[1, j+1].imshow(pred_img)
-        axs[1, j+1].axis('off')
+    for i, (name, image) in enumerate(images.items()):
+        plt.subplot(1, n, i + 1)
+        plt.xticks([])
+        plt.yticks([])
+        plt.title(' '.join(name.split('_')).title())
+        if len(image.shape) == 2 and colormap is not None:
+            plt.imshow(image, cmap=colormap)
+        else:
+            plt.imshow(image)
 
     # Overall figure configurations
-    fig.tight_layout(rect=[0, 0.03, 1, 0.95])
-    fig.suptitle('Summary')
 
     return fig    
 

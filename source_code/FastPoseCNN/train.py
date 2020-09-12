@@ -2,6 +2,8 @@ import os
 import sys
 import pathlib
 import warnings
+import collections
+import datetime
 
 import pdb
 
@@ -17,6 +19,7 @@ import torch.utils.tensorboard
 import torchvision
 import kornia # pytorch tensor data augmentation
 
+"""
 import fastai
 import fastai.learner
 import fastai.optimizer
@@ -26,6 +29,14 @@ import fastai.vision
 
 import fastai.data
 import fastai.data.core
+"""
+
+import catalyst
+import catalyst.dl
+import catalyst.contrib.nn
+import catalyst.dl.callbacks
+
+import sklearn.model_selection
 
 import segmentation_models_pytorch as smp
 
@@ -58,9 +69,37 @@ import dataset
 import visualize
 import trainer
 import model_lib
+import transforms
+#import custom_callbacks
 
 #-------------------------------------------------------------------------------
 # File Constants
+
+# Run hyperparameters
+IS_ALCHEMY_USED = False
+IS_FP16_USED = False
+
+DATASET_NAME = 'CARVANA'
+BATCH_SIZE = 4
+NUM_WORKERS = 0
+
+LEARNING_RATE = 0.001
+ENCODER_LEARNING_RATE = 0.0005
+
+NUM_EPOCHS=3
+DEVICE = catalyst.utils.get_device()
+
+# Alchemy Setup
+if IS_ALCHEMY_USED:
+    MONITORING_PARAMS = {
+        "token": "16511fcaebab915c1f3a00fea3b1485e", # insert your personal token here
+        "project": "segmentation_example",
+        "group": "first_trials",
+        "experiment": "first_experiment",
+    }
+    assert MONITORING_PARAMS["token"] is not None
+else:
+    MONITORING_PARAMS = None
 
 #-------------------------------------------------------------------------------
 # Functions
@@ -83,6 +122,7 @@ def use_custom_trainer(epoch, datasets, dataloaders, criterion, model, optimizer
 
 def use_fastai_learner(epoch, datasets, dataloaders, criterion, model, optimizer, device):
 
+    """
     # Creating fastai dataloaders
     fastai_dataloaders = fastai.data.core.DataLoaders(dataloaders[0], dataloaders[1])
 
@@ -96,85 +136,276 @@ def use_fastai_learner(epoch, datasets, dataloaders, criterion, model, optimizer
 
     # Fitting Learner
     my_learner.fit(epoch)
+    """
 
 def acc_voc(pred, target):
     foreground = (target != 0)
     return (torch.argmax(pred, dim=1)[foreground] == target[foreground]).float().mean()
 
 #-------------------------------------------------------------------------------
-# Main Code
+# Helper Functions
 
-if __name__ == '__main__':
+def load_dataset(DATASET_NAME='VOC'):
 
     #***************************************************************************
     # Loading dataset 
     #***************************************************************************
-    """
+    
     # NOCS
-    train_dataset = dataset.NOCSDataset(CAMERA_TRAIN_DATASET, 1000, balance=True)
-    valid_dataset = dataset.NOCSDataset(CAMERA_VALID_DATASET, 100)
-    n_classes = len(project.constants.SYNSET_NAMES)
-    #"""
+    if DATASET_NAME == 'NOCS':
+        train_dataset = dataset.NOCSDataset(project.cfg.CAMERA_TRAIN_DATASET, 1000, balance=True)
+        valid_dataset = dataset.NOCSDataset(project.cfg.CAMERA_VALID_DATASET, 100)
+        n_classes = len(project.constants.SYNSET_NAMES)
+        
+        datasets = {'train': train_dataset,
+                    'valid': valid_dataset}
     
     # VOC
-    crop_size = (320, 480)
-    train_dataset = dataset.VOCSegDataset(True, crop_size, VOC_DATASET)
-    valid_dataset = dataset.VOCSegDataset(False, crop_size, VOC_DATASET)
-    datasets = train_dataset, valid_dataset
-    n_classes = len(project.constants.VOC_CLASSES)
+    if DATASET_NAME == 'VOC':
+        crop_size = (320, 480)
+        train_dataset = dataset.VOCSegDataset(True, crop_size, project.cfg.VOC_DATASET)
+        valid_dataset = dataset.VOCSegDataset(False, crop_size, project.cfg.VOC_DATASET)
+        datasets = train_dataset, valid_dataset
+        n_classes = len(project.constants.VOC_CLASSES)
+
+        datasets = {'train': train_dataset,
+                    'valid': valid_dataset}
+
+    # CAMVID
+    if DATASET_NAME == 'CAMVID':
+        train_dataset = dataset.CAMVIDDataset(
+            project.cfg.CAMVID_DATASET,
+            train_valid_test='train', 
+            classes=project.constants.CAMVID_CLASSES,
+            augmentation=transforms.get_training_augmentation(), 
+            preprocessing=transforms.get_preprocessing(preprocessing_fn)
+        )
+
+        valid_dataset = dataset.CAMVIDDataset(
+            project.cfg.CAMVID_DATASET,
+            train_valid_test='val',
+            classes=project.constants.CAMVID_CLASSES,
+            augmentation=transforms.get_validation_augmentation(), 
+            preprocessing=transforms.get_preprocessing(preprocessing_fn)
+        )
+
+        test_dataset = dataset.CAMVIDDataset(
+            project.cfg.CAMVID_DATASET,
+            train_valid_test='test',
+            classes=project.constants.CAMVID_CLASSES,
+            augmentation=transforms.get_validation_augmentation(), 
+            preprocessing=transforms.get_preprocessing(preprocessing_fn),
+        )
+
+        test_dataset_vis = dataset.CAMVIDDataset(
+            project.cfg.CAMVID_DATASET,
+            train_valid_test='test',
+            classes=project.constants.CAMVID_CLASSES
+        )
+
+        datasets = {'train': train_dataset,
+                    'valid': valid_dataset,
+                    'test': test_dataset,
+                    'visual_test': test_dataset_vis}
+
+    # CARVANA
+    if DATASET_NAME == 'CARVANA':
+
+        train_image_path = pathlib.Path(project.cfg.CARVANA_DATASET) / 'train'
+        train_mask_path = pathlib.Path(project.cfg.CARVANA_DATASET) / 'train_masks'
+        test_image_path = pathlib.Path(project.cfg.CARVANA_DATASET) / 'test'
+
+        ALL_IMAGES = sorted(train_image_path.glob("*.jpg"))
+        ALL_MASKS = sorted(train_mask_path.glob("*.gif"))
+
+        indices = np.arange(len(ALL_IMAGES))
+        valid_size=0.2
+        random_state = 42
+
+        # Let's divide the data set into train and valid parts.
+        train_indices, valid_indices = sklearn.model_selection.train_test_split(
+            indices, test_size=valid_size, random_state=random_state, shuffle=True
+        )
+
+        np_images = np.array(ALL_IMAGES)
+        np_masks = np.array(ALL_MASKS)
+
+        # Creates our train dataset
+        train_dataset = dataset.CARVANADataset(
+            images = np_images[train_indices].tolist(),
+            masks = np_masks[train_indices].tolist(),
+            transforms = transforms.train_transforms
+        )
+
+        # Creates our valid dataset
+        valid_dataset = dataset.CARVANADataset(
+            images = np_images[valid_indices].tolist(),
+            masks = np_masks[valid_indices].tolist(),
+            transforms = transforms.valid_transforms
+        )
+
+        datasets = {'train': train_dataset,
+                    'valid': valid_dataset}
+
+    return datasets
+
+def get_loaders(datasets, batch_size, num_workers):
+
+    loaders = collections.OrderedDict()
+
+    for DATASET_NAME, dataset in datasets.items():
+        loader = torch.utils.data.DataLoader(dataset, num_workers=num_workers,
+                                             batch_size=batch_size, shuffle=True)
+
+        loaders[DATASET_NAME] = loader
+
+    return loaders
+
+#-------------------------------------------------------------------------------
+# Main Code
+
+if __name__ == '__main__':
+
+    # Load datasets
+    datasets = load_dataset(DATASET_NAME)
 
     #***************************************************************************
-    # Creating dataloaders 
+    #* Creating dataloaders 
     #***************************************************************************
-    # Dataloader parameters
-    batch_size = 4
-    num_workers = 0
 
     # For using multple CPUs for fast dataloaders
     # More information can be found in the following link:
     # https://github.com/pytorch/pytorch/issues/40403
-    if num_workers > 0:
+    if NUM_WORKERS > 0:
         torch.multiprocessing.set_start_method('spawn') # good solution !!!!
 
-    train_dataloader = torch.utils.data.DataLoader(train_dataset, num_workers=num_workers,
-                                                   batch_size=batch_size, shuffle=True)
-    valid_dataloader = torch.utils.data.DataLoader(valid_dataset, num_workers=num_workers,
-                                                   batch_size=batch_size, shuffle=True)
-    dataloaders = train_dataloader, valid_dataloader
+    loaders = get_loaders(datasets, BATCH_SIZE, NUM_WORKERS)
 
     #***************************************************************************
-    # Specifying criterions 
-    #***************************************************************************
-    #criterions = {'masks': kornia.losses.DiceLoss()}
-    #criterions = {'masks': torch.nn.CrossEntropyLoss()}
-    criterion = torch.nn.CrossEntropyLoss()
-    #criterion = kornia.losses.DiceLoss()
-
-    #***************************************************************************
-    # Loading model
+    #* Loading model
     #***************************************************************************
     #model = model_lib.unet(n_classes = len(project.constants.SYNSET_NAMES), feature_scale=4)
     #model = model_lib.FastPoseCNN(in_channels=3, bilinear=True, filter_factor=4)
     #model = model_lib.UNetWrapper(in_channels=3, n_classes=len(project.constants.SYNSET_NAMES),
     #                              padding=True, wf=4, depth=4)
-    model = smp.Unet('resnet34', encoder_weights='imagenet', classes=n_classes)
+    #model = smp.Unet('resnet34', encoder_weights='imagenet', classes=n_classes)
+    model = smp.FPN(encoder_name='resnext50_32x4d', classes=1)
+    model = torch.nn.DataParallel(model)
+    model.to(DEVICE)
+    model_name = 'FPN(resnext50_32x4d)'
 
-    # Using multiple GPUs if avaliable
-    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-    if torch.cuda.device_count() > 1:
-        print(f'Using {torch.cuda.device_count()} GPUs!')
-        model = torch.nn.DataParallel(model)
+    #***************************************************************************
+    #* Selecting optimizer and learning rate scheduler
+    #***************************************************************************
+
+    # Since we use a pre-trained encoder, we will reduce the learning rate on it.
+    layerwise_params = {"encoder*": dict(lr=ENCODER_LEARNING_RATE, weight_decay=0.00003)}
+
+    # This function removes weight_decay for biases and applies our layerwise_params
+    model_params = catalyst.utils.process_model_params(model, layerwise_params=layerwise_params)
+
+    # Catalyst has new SOTA optimizers out of box
+    base_optimizer = catalyst.contrib.nn.RAdam(model_params, lr=LEARNING_RATE, weight_decay=0.0003)
+    optimizer = catalyst.contrib.nn.Lookahead(base_optimizer)
+
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.25, patience=2)
+
+    if IS_FP16_USED:
+        fp16_params = dict(opt_level='01')
+    else:
+        fp16_params = None
+
+    #***************************************************************************
+    #* Initialize Runner 
+    #***************************************************************************
+
+    runner = catalyst.dl.SupervisedRunner(device=DEVICE, input_key='image', input_target_key='mask')
+
+    #***************************************************************************
+    #* Specifying criterions 
+    #***************************************************************************
     
-    model.to(device)
+    criterion = {
+        'dice': catalyst.contrib.nn.DiceLoss(),
+        'iou': catalyst.contrib.nn.IoULoss(),
+        'bce': torch.nn.BCEWithLogitsLoss()
+    }
 
     #***************************************************************************
-    # Selecting optimizer
-    optimizer = torch.optim.Adam(model.parameters(), lr=3e-3, weight_decay=1e-5)
+    #* Create Callbacks 
     #***************************************************************************
 
+    callbacks = [
+        # Each criterion is calculated separately.
+        catalyst.dl.callbacks.CriterionCallback(
+            input_key="mask",
+            prefix="loss_dice",
+            criterion_key="dice"
+        ),
+        catalyst.dl.callbacks.CriterionCallback(
+            input_key="mask",
+            prefix="loss_iou",
+            criterion_key="iou"
+        ),
+        catalyst.dl.callbacks.CriterionCallback(
+            input_key="mask",
+            prefix="loss_bce",
+            criterion_key="bce"
+        ),
+
+        # And only then we aggregate everything into one loss.
+        catalyst.dl.callbacks.MetricAggregationCallback(
+            prefix="loss",
+            mode="weighted_sum", # can be "sum", "weighted_sum" or "mean"
+            # because we want weighted sum, we need to add scale for each loss
+            metrics={"loss_dice": 1.0, "loss_iou": 1.0, "loss_bce": 0.8},
+        ),
+
+        # metrics
+        catalyst.dl.callbacks.DiceCallback(input_key="mask"),
+        catalyst.dl.callbacks.IouCallback(input_key="mask"),
+
+        # Visualize mask
+        custom_callbacks.MyCustomCallback()
+
+    ]
+
+    if IS_ALCHEMY_USED:
+        from catalyst.dl import AlchemyLogger
+        callbacks.append(AlchemyLogger(**MONITORING_PARAMS))
+
+    # Create tensorboard folder
+    now = datetime.datetime.now().strftime('%d-%m-%y--%H-%M')
+    run_name = f'{DATASET_NAME}-{model_name}-{now}'
+    run_logdir = project.cfg.LOGS / run_name
+
+    if run_logdir.exists() is False:
+        os.mkdir(str(run_logdir))
+
     #***************************************************************************
-    # Selecting Trainer 
+    #* Training 
     #***************************************************************************
-    epoch=10
-    use_custom_trainer(epoch, datasets, dataloaders, criterion, model, optimizer, device, n_classes)
-    #use_fastai_learner(epoch, datasets, dataloaders, criterion, model, optimizer, device)
+
+    print('Training')
+
+    runner.train(
+        model=model,
+        criterion=criterion,
+        optimizer=optimizer,
+        scheduler=scheduler,
+        # our dataloaders
+        loaders=loaders,
+        # We can specify the callbacks list for the experiment;
+        callbacks=callbacks,
+        # path to save logs
+        logdir=str(run_logdir),
+        num_epochs=NUM_EPOCHS,
+        # save our best checkpoint by IoU metric
+        main_metric="iou",
+        # IoU needs to be maximized.
+        minimize_metric=False,
+        # for FP16. It uses the variable from the very first cell
+        fp16=fp16_params,
+        # prints train logs
+        verbose=True,
+    )

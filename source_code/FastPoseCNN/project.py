@@ -6,9 +6,9 @@ from easydict import EasyDict
 
 import numpy as np
 
-"""
-Path Config
-"""
+################################################################################
+# Path Config
+################################################################################
 
 cfg = EasyDict()
 
@@ -31,10 +31,14 @@ cfg.CAMERA_VALID_DATASET = cfg.DATASET_DIR / 'NOCS' / 'camera' / 'val'
 cfg.VOC_DATASET = cfg.DATASET_DIR / 'VOC2012'
 
 # CAMVID
-cfg.CAMVID_DATSET = cfg.DATASET_DIR / 'CAMVID'
-"""
-Data constants
-"""
+cfg.CAMVID_DATASET = cfg.DATASET_DIR / 'CAMVID'
+
+# CARVANA
+cfg.CARVANA_DATASET = cfg.DATASET_DIR / 'CARVANA'
+
+################################################################################
+# Data constants
+################################################################################
 
 constants = EasyDict()
 

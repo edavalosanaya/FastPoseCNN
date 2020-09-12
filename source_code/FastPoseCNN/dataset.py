@@ -3,6 +3,7 @@ import sys
 import shutil
 import pathlib
 import collections
+from typing import List
 
 import pdb
 
@@ -18,6 +19,14 @@ import torch.utils
 import torch.utils.tensorboard
 import torchvision.transforms.functional
 
+import catalyst
+
+import matplotlib
+if os.environ.get('DISPLAY', '') == '':
+    matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+import matplotlib.cm
+
 # Local Imports
 
 root = next(path for path in pathlib.Path(os.path.abspath(__file__)).parents if path.name == 'FastPoseCNN')
@@ -32,13 +41,10 @@ import visualize
 #-------------------------------------------------------------------------------
 # File Constants
 
-camera_dataset = project.cfg.DATASET_DIR / 'NOCS' / 'camera' / 'val'
-voc_dir = project.cfg.DATASET_DIR / 'VOC2012'
-
 #-------------------------------------------------------------------------------
 # Collective Data Classes
 
-class NOCSDataset(torch.utils.data.Dataset):
+class OLDNOCSDataset(torch.utils.data.Dataset):
 
     """
     Doc-string
@@ -422,7 +428,7 @@ class NOCSDataset(torch.utils.data.Dataset):
 
         return sample
 
-class VOCSegDataset(torch.utils.data.Dataset):
+class OLDVOCSegDataset(torch.utils.data.Dataset):
     """A customized dataset to load VOC dataset."""
 
     def __init__(self, is_train, crop_size, voc_dir):
@@ -486,7 +492,285 @@ class VOCSegDataset(torch.utils.data.Dataset):
 
         return sample
 
+class CAMVIDDataset(torch.utils.data.Dataset):
+    """CamVid Dataset. Read images, apply augmentation and preprocessing transformations.
+    
+    Args:
+        images_dir (str): path to images folder
+        masks_dir (str): path to segmentation masks folder
+        class_values (list): values of classes to extract from segmentation mask
+        augmentation (albumentations.Compose): data transfromation pipeline 
+            (e.g. flip, scale, etc.)
+        preprocessing (albumentations.Compose): data preprocessing 
+            (e.g. noralization, shape manipulation, etc.)
+    
+    """
+    
+    CLASSES = ['sky', 'building', 'pole', 'road', 'pavement', 
+               'tree', 'signsymbol', 'fence', 'car', 
+               'pedestrian', 'bicyclist', 'unlabelled']
 
+    COLORMAP = matplotlib.cm.get_cmap('viridis', len(CLASSES))
+    
+    def __init__(
+            self, 
+            dataset_dir,
+            train_valid_test='train',
+            classes=None, 
+            augmentation=None, 
+            preprocessing=None,
+    ):
+        # Determing the images and masks directory
+        images_dir = os.path.join(dataset_dir, train_valid_test)
+        masks_dir = os.path.join(dataset_dir, train_valid_test+'annot')
+
+        self.ids = os.listdir(images_dir)
+        self.images_fps = [os.path.join(images_dir, image_id) for image_id in self.ids]
+        self.masks_fps = [os.path.join(masks_dir, image_id) for image_id in self.ids]
+        
+        # convert str names to class values on masks
+        self.class_values = [self.CLASSES.index(cls.lower()) for cls in classes]
+        
+        self.augmentation = augmentation
+        self.preprocessing = preprocessing
+    
+    def __getitem__(self, i):
+        
+        # read data
+        image = cv2.imread(self.images_fps[i])
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        mask = cv2.imread(self.masks_fps[i], 0)
+        
+        # extract certain classes from mask (e.g. cars)
+        masks = [(mask == v) for v in self.class_values]
+        mask = np.stack(masks, axis=-1).astype('float')
+        
+        # apply augmentations
+        if self.augmentation:
+            sample = self.augmentation(image=image, mask=mask)
+            image, mask = sample['image'], sample['mask']
+        
+        # apply preprocessing
+        if self.preprocessing:
+            sample = self.preprocessing(image=image, mask=mask)
+            image, mask = sample['image'], sample['mask']
+            
+        sample = {'image': image, 'mask': mask}
+        return sample
+        
+    def __len__(self):
+        return len(self.ids)
+
+class VOCDataset(torch.utils.data.Dataset):
+    """PASCAL VOC 2012 Dataset. Read images, apply augmentation and preprocessing transformations.
+    
+    Args:
+        voc_dir (str): filepath to the VOC dataset
+        augmentation (albumentations.Compose): data transfromation pipeline 
+            (e.g. flip, scale, etc.)
+        preprocessing (albumentations.Compose): data preprocessing 
+            (e.g. noralization, shape manipulation, etc.)
+    
+    """
+    
+    CLASSES = project.constants.VOC_CLASSES
+    
+    def __init__(
+            self, 
+            voc_dir,
+            is_train=False,
+            classes=None, 
+            augmentation=None, 
+            preprocessing=None,
+    ):
+        # Reading text file containing details about the segmantation and images
+        txt_fname = os.path.join(voc_dir, 'ImageSets', 'Segmentation', 'train.txt' if is_train else 'val.txt')
+        with open(txt_fname, 'r') as f:
+            images = f.read().split()
+
+        self.is_train = is_train
+        self.ids = images
+        self.images_fps = [os.path.join(voc_dir, 'JPEGImages', f'{image_id}.jpg') for image_id in self.ids]
+        self.masks_fps = [os.path.join(voc_dir, 'SegmentationClass', f'{image_id}.png') for image_id in self.ids]
+        
+        # convert str names to class values on masks
+        self.class_values = [self.CLASSES.index(cls.lower()) for cls in classes]
+        
+        self.augmentation = augmentation
+        self.preprocessing = preprocessing
+    
+    def __getitem__(self, i):
+        
+        # read data
+        image = cv2.imread(self.images_fps[i])
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        mask = cv2.imread(self.masks_fps[i], 0)
+        
+        # extract certain classes from mask (e.g. cars)
+        masks = [(mask == v) for v in self.class_values]
+        mask = np.stack(masks, axis=-1).astype('float')
+        
+        # apply augmentations
+        if self.augmentation:
+            sample = self.augmentation(image=image, mask=mask)
+            image, mask = sample['image'], sample['mask']
+        
+        # apply preprocessing
+        if self.preprocessing:
+            sample = self.preprocessing(image=image, mask=mask)
+            image, mask = sample['image'], sample['mask']
+            
+        sample = {'image': image, 'mask': mask}
+        return sample
+        
+    def __len__(self):
+        return len(self.ids)
+
+class NOCSDataset(torch.utils.data.Dataset):
+    """NOCS Dataset. Read images, apply augmentation and preprocessing transformations.
+    
+    Args:
+        dataset_dir (str): filepath to the dataset (train, valid, or test)
+        max_size (int): maximum number of samples
+        augmentation (albumentations.Compose): data transfromation pipeline 
+            (e.g. flip, scale, etc.)
+        preprocessing (albumentations.Compose): data preprocessing 
+            (e.g. noralization, shape manipulation, etc.)
+    """
+    
+    CLASSES = project.constants.SYNSET_NAMES
+    
+    def __init__(
+            self, 
+            dataset_dir,
+            max_size=None,
+            classes=None, 
+            augmentation=None, 
+            preprocessing=None,
+    ):
+        self.images_fps = self.get_image_paths_in_dir(dataset_dir, max_size=max_size)
+        
+        # convert str names to class values on masks
+        self.class_values = [self.CLASSES.index(cls.lower()) for cls in classes]
+        
+        self.augmentation = augmentation
+        self.preprocessing = preprocessing
+    
+    def __getitem__(self, i):
+        
+        # read data
+        image = cv2.imread(str(self.images_fps[i]))
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
+        mask_fp = str(self.images_fps[i]).replace('_color.png', '_mask.png')
+        mask = cv2.imread(mask_fp, 0)
+        
+        # extract certain classes from mask (e.g. cars)
+        masks = [(mask == v) for v in self.class_values]
+        mask = np.stack(masks, axis=-1).astype('float')
+        
+        # apply augmentations
+        if self.augmentation:
+            sample = self.augmentation(image=image, mask=mask)
+            image, mask = sample['image'], sample['mask']
+        
+        # apply preprocessing
+        if self.preprocessing:
+            sample = self.preprocessing(image=image, mask=mask)
+            image, mask = sample['image'], sample['mask']
+
+        sample = {'image': image, 'mask': mask}
+            
+        return sample
+        
+    def __len__(self):
+        return len(self.images_fps)
+
+    def get_image_paths_in_dir(self, dir_path, max_size=None):
+        """
+        Args:
+            dir_path (pathlib object): The directory to be search for all possible
+                color images
+        Objective:
+            Perform a search inside dir_path to collect all available color images
+            and save them into a list
+        Output:
+            total_path_list (list): A list of all collected color images
+        """
+
+        total_path_list = [] # [[color, depth], ...]
+        
+        # handling additional directories
+        eval_paths = [dir_path]
+        i = 0
+
+        while True:
+
+            # Break condition: if no more directories to evaluate, end
+            if len(eval_paths) <= i:
+                break
+
+            # Selecting the new path to evaluate
+            eval_path = eval_paths[i]
+            i += 1
+
+            # for all the evaluate paths, do the following
+            files = [x for x in eval_path.iterdir() if x.is_file()]
+
+            # Adding all the color images into the total_path_list
+            color_images = [x for x in files if x.name.find('color') != -1 and x.suffix == '.png']
+            total_path_list += color_images
+
+            directories = [x for x in eval_path.iterdir() if x.is_dir()]
+            eval_paths += directories
+
+            # If max size is reached or overpassed, break from loop
+            if max_size != None:
+                if len(total_path_list) >= max_size:
+                    break
+
+        # removing any falsy elements
+        total_path_list = [x for x in total_path_list if x]
+
+        # Trimming excess if dataset_max_size is set
+        if max_size != None:
+            total_path_list = total_path_list[:max_size]
+
+        return total_path_list
+
+class CARVANADataset(torch.utils.data.Dataset):
+
+    #CLASSES = ['bg', 'car']
+    
+    def __init__(
+        self,
+        images: List[pathlib.Path],
+        masks: List[pathlib.Path] = None,
+        transforms=None
+    ) -> None:
+        self.images = images
+        self.masks = masks
+        self.transforms = transforms
+
+    def __len__(self) -> int:
+        return len(self.images)
+
+    def __getitem__(self, idx: int) -> dict:
+        image_path = self.images[idx]
+        image = catalyst.utils.imread(image_path)
+        
+        result = {"image": image}
+        
+        if self.masks is not None:
+            mask = skimage.io.imread(self.masks[idx])
+            result["mask"] = mask
+        
+        if self.transforms is not None:
+            result = self.transforms(**result)
+        
+        result["filename"] = image_path.name
+
+        return result
 
 #-------------------------------------------------------------------------------
 # Functions
