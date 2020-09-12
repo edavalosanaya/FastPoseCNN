@@ -122,16 +122,31 @@ def make_summary_figure(colormap=None, **images):
 
     # Initializing the figure and axs
     fig = plt.figure(figsize=(16,5))
-    n = len(images)
+    nr = len(images)
+    nc = images[list(images.keys())[0]].shape[0]
+
+    #pdb.set_trace()
 
     for i, (name, image) in enumerate(images.items()):
-        plt.subplot(1, n, i + 1)
-        plt.xticks([])
-        plt.yticks([])
-        plt.title(' '.join(name.split('_')).title())
-        if len(image.shape) == 2 and colormap is not None:
-            plt.imshow(image, cmap=colormap)
-        else:
+        if len(image.shape) >= 3: # NHW or NCHW
+            for j, img in enumerate(image):
+
+                plt.subplot(nr, nc, 1 + j + nc*i)
+                plt.xticks([])
+                plt.yticks([])
+                if j == 0:
+                    plt.ylabel(' '.join(name.split('_')).title())
+
+                if len(img.shape) == 3: # CHW to HWC
+                    img = np.moveaxis(img, 0, -1)
+
+                plt.imshow(img)
+        else: # HW only
+
+            plt.subplot(nr, nc, i + 1)
+            plt.xticks([])
+            plt.yticks([])
+            plt.title(' '.join(name.split('_')).title())
             plt.imshow(image)
 
     # Overall figure configurations

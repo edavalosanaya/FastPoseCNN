@@ -56,6 +56,14 @@ Then open this on your browser
 
     http://localhost:6006
 
+To delete hanging Python processes use the following:
+
+    killall -9 python
+
+To delete hanging Tensorboard processes use the following:
+
+    pkill -9 tensorboard
+
 """
 
 import numpy as np
@@ -70,7 +78,7 @@ import visualize
 import trainer
 import model_lib
 import transforms
-#import custom_callbacks
+import custom_callbacks
 
 #-------------------------------------------------------------------------------
 # File Constants
@@ -247,7 +255,7 @@ def load_dataset(DATASET_NAME='VOC'):
         datasets = {'train': train_dataset,
                     'valid': valid_dataset}
 
-    return datasets
+    return collections.OrderedDict(datasets)
 
 def get_loaders(datasets, batch_size, num_workers):
 
@@ -276,9 +284,10 @@ if __name__ == '__main__':
     # For using multple CPUs for fast dataloaders
     # More information can be found in the following link:
     # https://github.com/pytorch/pytorch/issues/40403
+    """
     if NUM_WORKERS > 0:
         torch.multiprocessing.set_start_method('spawn') # good solution !!!!
-
+    """
     loaders = get_loaders(datasets, BATCH_SIZE, NUM_WORKERS)
 
     #***************************************************************************
@@ -291,7 +300,7 @@ if __name__ == '__main__':
     #model = smp.Unet('resnet34', encoder_weights='imagenet', classes=n_classes)
     model = smp.FPN(encoder_name='resnext50_32x4d', classes=1)
     model = torch.nn.DataParallel(model)
-    model.to(DEVICE)
+    model = model.to(DEVICE)
     model_name = 'FPN(resnext50_32x4d)'
 
     #***************************************************************************
@@ -366,7 +375,8 @@ if __name__ == '__main__':
         catalyst.dl.callbacks.IouCallback(input_key="mask"),
 
         # Visualize mask
-        custom_callbacks.MyCustomCallback()
+        #custom_callbacks.MyCustomCallback()
+        custom_callbacks.TensorAddImageCallback()
 
     ]
 
@@ -393,19 +403,12 @@ if __name__ == '__main__':
         criterion=criterion,
         optimizer=optimizer,
         scheduler=scheduler,
-        # our dataloaders
         loaders=loaders,
-        # We can specify the callbacks list for the experiment;
         callbacks=callbacks,
-        # path to save logs
         logdir=str(run_logdir),
         num_epochs=NUM_EPOCHS,
-        # save our best checkpoint by IoU metric
         main_metric="iou",
-        # IoU needs to be maximized.
         minimize_metric=False,
-        # for FP16. It uses the variable from the very first cell
         fp16=fp16_params,
-        # prints train logs
         verbose=True,
     )
