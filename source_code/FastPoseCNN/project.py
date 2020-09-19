@@ -47,7 +47,7 @@ constants = EasyDict()
 #-------------------------------------------------------------------------------
 # Functions regarding the constants
 
-def generate_colormap(num_classes, cmap=matplotlib.cm.get_cmap('viridis')):
+def generate_colormap(num_classes, cmap=matplotlib.cm.get_cmap('hsv')):
 
     colormap = np.zeros((num_classes, 3))
 

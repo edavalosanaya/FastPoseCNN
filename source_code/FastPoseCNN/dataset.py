@@ -675,15 +675,25 @@ class NOCSDataset(torch.utils.data.Dataset):
     
     def __getitem__(self, i):
         
-        # read data
+        # Reading data
         image = skimage.io.imread(str(self.images_fps[i]))
 
         mask_fp = str(self.images_fps[i]).replace('_color.png', '_mask.png')
         mask = skimage.io.imread(mask_fp, 0)[:,:,0]
+
+        json_fp = str(self.images_fps[i]).replace('_color.png', '_meta+.json')
+        json_data = json_tools.load_from_json(json_fp)
+
+        # Given the data, modify any data necessary
+        instance_dict = json_data['instance_dict']
+        instance_dict.update({'0': 0})
         
-        # extract certain classes from mask (e.g. cars)
-        masks = [(mask == v) for v in self.class_values]
-        mask = np.stack(masks, axis=-1).astype('float')
+        new_mask = np.zeros((mask.shape[0], mask.shape[1], len(self.class_values)))
+        
+        for i_id, c_id in instance_dict.items():
+            new_mask[:,:,c_id] += np.where(mask == int(i_id), 1, 0)
+
+        mask = new_mask
 
         # Applying class balancing
         if self.balance:

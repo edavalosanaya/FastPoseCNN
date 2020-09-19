@@ -21,13 +21,14 @@ class TensorAddImageCallback(catalyst.core.callbacks.logging.TensorboardLogger):
     # https://catalyst-team.github.io/catalyst/api/core.html#catalyst.core.callbacks.logging.TensorboardLogger
 
     def __init__(self, colormap):
-        super().__init__(metric_names=['summary image'],
+        super().__init__(metric_names=None,
                          log_on_batch_end=True,
-                         log_on_epoch_end=False)
+                         log_on_epoch_end=True)
 
         self.colormap = colormap
 
-    def on_batch_end(self, runner):
+    def on_epoch_end(self, runner):
+        super().on_epoch_end(runner)
 
         # Utilize the best loaders
         loader_names = list(runner.loaders.keys())
@@ -45,10 +46,8 @@ class TensorAddImageCallback(catalyst.core.callbacks.logging.TensorboardLogger):
         # Create the summary figure
         summary_fig = self.mask_check_tb(sample, runner)
 
-        pdb.set_trace()
-
         # Log the figure to tensorboard
-        self.loggers['_base'].add_figure(f'summary', summary_fig, runner.global_sample_step)
+        self.loggers['_base'].add_figure(f'summary image', summary_fig, runner.global_sample_step)
 
     def mask_check_tb(self, sample, runner):
 
