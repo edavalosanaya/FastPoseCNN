@@ -175,7 +175,7 @@ class DepthDecoder(nn.Module):
 
 class FastPoseCNN(nn.Module):
 
-    def __init__(self, in_channels=3, num_classes=len(project.constants.SYNSET_NAMES),
+    def __init__(self, in_channels=3, num_classes=len(project.constants.NOCS_CLASSES),
                  filter_factor=1, planes=[64,128,256,512,1024], bilinear=True):
         super().__init__()
         

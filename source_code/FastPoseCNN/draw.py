@@ -41,7 +41,7 @@ def draw_detections(image, intrinsics, synset_names, bbox, class_ids, masks, coo
 
         # Tag data 
         if draw_tag:
-            text = project.constants.SYNSET_NAMES[class_ids[i]]+'({:.2f})'.format(scores[i])
+            text = project.constants.NOCS_CLASSES[class_ids[i]]+'({:.2f})'.format(scores[i])
             draw_image = draw_text(draw_image, bbox[i], text, draw_box=True)
 
         # Rotation and Translation data
@@ -166,7 +166,7 @@ def draw_centroids(class_centroids, img, color=(0,255,0), thickness=4):
                 cX, cY = centroid
 
                 cv2.circle(color_image, centroid, thickness, color, -1)
-                label = f'{project.constants.SYNSET_NAMES[c_id+1]}: {i_id}'
+                label = f'{project.constants.NOCS_CLASSES[c_id+1]}: {i_id}'
                 cv2.putText(draw_image, label, (cX-20, cY-20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
 
     return draw_image

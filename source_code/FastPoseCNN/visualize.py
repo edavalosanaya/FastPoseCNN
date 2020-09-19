@@ -20,6 +20,7 @@ import matplotlib
 if os.environ.get('DISPLAY', '') == '':
     matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+import matplotlib.cm
 
 # Local Imports
 root = next(path for path in pathlib.Path(os.path.abspath(__file__)).parents if path.name == 'FastPoseCNN')
@@ -30,8 +31,6 @@ import dataset
 
 #-------------------------------------------------------------------------------
 # File's Constants
-
-CAMERA_DATASET = root.parents[1] / 'datasets' / 'NOCS' / 'camera' / 'val'
 
 #-------------------------------------------------------------------------------
 # Class
@@ -97,35 +96,12 @@ def collapse_multichannel_quat_or_scales(multi_c_image):
 #-------------------------------------------------------------------------------
 # Main Visualization Functions
 
-def torch_to_numpy(imgs):
-
-    formatted_images = []
-
-    for img in imgs:
-
-        # Converting images with C,H,W to H,W,C
-        if len(img.shape) == 3: # C,H,W
-            new_img = img.permute(1,2,0)
-
-        # Converting tensors to numpy arrays
-        new_img = new_img.cpu().numpy()
-
-        # Convert to the uint8 dataset
-        new_img = new_img.astype(np.uint8)
-        
-        # Saving formatted image
-        formatted_images.append(new_img)
-
-    return formatted_images
-
 def make_summary_figure(colormap=None, **images):
 
     # Initializing the figure and axs
     fig = plt.figure(figsize=(16,5))
     nr = len(images)
     nc = images[list(images.keys())[0]].shape[0]
-
-    #pdb.set_trace()
 
     for i, (name, image) in enumerate(images.items()):
         if len(image.shape) >= 3: # NHW or NCHW
@@ -153,34 +129,30 @@ def make_summary_figure(colormap=None, **images):
 
     return fig    
 
-def get_visualized_mask(mask, PIL_transform=False):
+def get_visualized_mask(mask, colormap):
 
-    colorized_mask = torch.zeros((3,mask.shape[-2], mask.shape[-1])).cuda()
+    colorized_mask = np.zeros((3,mask.shape[-2], mask.shape[-1]))
 
-    for class_id, class_color in enumerate(project.constants.SYNSET_COLORS):
+    for class_id, class_color in enumerate(colormap):
         for i in range(3):
-            X = torch.tensor(class_color[i]).cuda()
-            Y = torch.tensor(0).cuda()
-            if len(mask.shape) == 2:
-                colorized_mask[i,:,:] += torch.where(mask == class_id, X, Y)
-            elif len(mask.shape) == 3:
-                colorized_mask[i,:,:] += torch.where(mask[0,:,:] == class_id, X, Y)
 
-    if PIL_transform:
-        img = torchvision.transforms.ToPILImage()(colorized_mask).convert("RGB")
-        return img
+            X = np.array(class_color[i])
+            Y = np.zeros((1,))
+            
+            if len(mask.shape) == 2:
+                colorized_mask[i,:,:] += np.where(mask == class_id, X, Y)
 
     return colorized_mask
 
-def get_visualized_masks(masks, PIL_transform=False):
+def get_visualized_masks(masks, colormap):
 
-    colorized_masks = torch.zeros((masks.shape[0],3,masks.shape[-2],masks.shape[-1]))
+    colorized_masks = np.zeros((masks.shape[0],3,masks.shape[-2],masks.shape[-1]))
 
     for id, mask in enumerate(masks):
-        colorized_masks[id,:,:,:] = get_visualized_mask(mask)
+        colorized_masks[id,:,:,:] = get_visualized_mask(mask, colormap)
 
     return colorized_masks
-    
+
 #-------------------------------------------------------------------------------
 # PASCAL Functions
 # From this link: 
@@ -235,7 +207,7 @@ def voc_rand_crop(feature, label, height, width):
 if __name__ == "__main__":
 
     # Loading a test dataset
-    dataset = dataset.NOCSDataset(CAMERA_DATASET, dataset_max_size=2)
+    dataset = dataset.NOCSDataset(project.cfg.CAMERA_DATASET, dataset_max_size=2)
 
     # Creating a dataloader to include the batch dimension
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=True)

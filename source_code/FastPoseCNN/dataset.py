@@ -20,6 +20,7 @@ import torch.utils.tensorboard
 import torchvision.transforms.functional
 
 import catalyst
+import segmentation_models_pytorch as smp
 
 import matplotlib
 if os.environ.get('DISPLAY', '') == '':
@@ -37,9 +38,13 @@ import data_manipulation
 import project
 import draw
 import visualize
+import transforms
 
 #-------------------------------------------------------------------------------
 # File Constants
+
+ENCODER = 'resnext50_32x4d'
+ENCODER_WEIGHTS = 'imagenet'
 
 #-------------------------------------------------------------------------------
 # Collective Data Classes
@@ -242,7 +247,7 @@ class OLDNOCSDataset(torch.utils.data.Dataset):
         """
 
         # Creating data into multi-label structure
-        num_classes = len(project.constants.SYNSET_NAMES)
+        num_classes = len(project.constants.NOCS_CLASSES)
         class_ids = list(instance_dict.values())
         h, w = mask_cdata.shape
 
@@ -268,7 +273,7 @@ class OLDNOCSDataset(torch.utils.data.Dataset):
             for cnt in contour:
                 cv2.drawContours(instance_mask,[cnt],0,1,-1)
 
-            assert c_id > 0 and c_id < len(project.constants.SYNSET_NAMES), f'Invalid class id: {c_id}'
+            assert c_id > 0 and c_id < len(project.constants.NOCS_CLASSES), f'Invalid class id: {c_id}'
             
             # Converting the instances in the mask to classes
             masks = np.where(instance_mask == 1, c_id, masks)
@@ -456,6 +461,9 @@ class OLDVOCSegDataset(torch.utils.data.Dataset):
             img.shape[1] >= self.crop_size[1])]
 
     def __getitem__(self, idx):
+        
+        pdb.set_trace()
+        
         feature, label = visualize.voc_rand_crop(self.features[idx], self.labels[idx],
                                                  *self.crop_size)
         feature = feature.transpose(2,0,1)
@@ -502,15 +510,12 @@ class CAMVIDDataset(torch.utils.data.Dataset):
         augmentation (albumentations.Compose): data transfromation pipeline 
             (e.g. flip, scale, etc.)
         preprocessing (albumentations.Compose): data preprocessing 
-            (e.g. noralization, shape manipulation, etc.)
+            (e.g. normalization, shape manipulation, etc.)
     
     """
     
-    CLASSES = ['sky', 'building', 'pole', 'road', 'pavement', 
-               'tree', 'signsymbol', 'fence', 'car', 
-               'pedestrian', 'bicyclist', 'unlabelled']
-
-    COLORMAP = matplotlib.cm.get_cmap('viridis', len(CLASSES))
+    CLASSES = project.constants.CAMVID_CLASSES
+    COLORMAP = project.constants.CAMVID_COLORMAP
     
     def __init__(
             self, 
@@ -537,9 +542,8 @@ class CAMVIDDataset(torch.utils.data.Dataset):
     def __getitem__(self, i):
         
         # read data
-        image = cv2.imread(self.images_fps[i])
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        mask = cv2.imread(self.masks_fps[i], 0)
+        image = skimage.io.imread(self.images_fps[i])
+        mask = skimage.io.imread(self.masks_fps[i])
         
         # extract certain classes from mask (e.g. cars)
         masks = [(mask == v) for v in self.class_values]
@@ -574,6 +578,7 @@ class VOCDataset(torch.utils.data.Dataset):
     """
     
     CLASSES = project.constants.VOC_CLASSES
+    COLORMAP = project.constants.VOC_COLORMAP
     
     def __init__(
             self, 
@@ -601,24 +606,31 @@ class VOCDataset(torch.utils.data.Dataset):
     
     def __getitem__(self, i):
         
+        pdb.set_trace()
+
         # read data
-        image = cv2.imread(self.images_fps[i])
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        mask = cv2.imread(self.masks_fps[i], 0)
+        image = skimage.io.imread(self.images_fps[i])
+        mask = skimage.io.imread(self.masks_fps[i])
         
         # extract certain classes from mask (e.g. cars)
         masks = [(mask == v) for v in self.class_values]
         mask = np.stack(masks, axis=-1).astype('float')
+
+        pdb.set_trace()
         
         # apply augmentations
         if self.augmentation:
             sample = self.augmentation(image=image, mask=mask)
             image, mask = sample['image'], sample['mask']
+
+        pdb.set_trace()
         
         # apply preprocessing
         if self.preprocessing:
             sample = self.preprocessing(image=image, mask=mask)
             image, mask = sample['image'], sample['mask']
+
+        pdb.set_trace()
             
         sample = {'image': image, 'mask': mask}
         return sample
@@ -638,7 +650,8 @@ class NOCSDataset(torch.utils.data.Dataset):
             (e.g. noralization, shape manipulation, etc.)
     """
     
-    CLASSES = project.constants.SYNSET_NAMES
+    CLASSES = project.constants.NOCS_CLASSES
+    COLORMAP = project.constants.NOCS_COLORMAP
     
     def __init__(
             self, 
@@ -647,6 +660,8 @@ class NOCSDataset(torch.utils.data.Dataset):
             classes=None, 
             augmentation=None, 
             preprocessing=None,
+            balance=False,
+            crop_size=128
     ):
         self.images_fps = self.get_image_paths_in_dir(dataset_dir, max_size=max_size)
         
@@ -655,31 +670,44 @@ class NOCSDataset(torch.utils.data.Dataset):
         
         self.augmentation = augmentation
         self.preprocessing = preprocessing
+        self.balance = balance
+        self.crop_size = crop_size
     
     def __getitem__(self, i):
         
         # read data
-        image = cv2.imread(str(self.images_fps[i]))
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        image = skimage.io.imread(str(self.images_fps[i]))
 
         mask_fp = str(self.images_fps[i]).replace('_color.png', '_mask.png')
-        mask = cv2.imread(mask_fp, 0)
+        mask = skimage.io.imread(mask_fp, 0)[:,:,0]
         
         # extract certain classes from mask (e.g. cars)
         masks = [(mask == v) for v in self.class_values]
         mask = np.stack(masks, axis=-1).astype('float')
-        
+
+        # Applying class balancing
+        if self.balance:
+            sample = {'image': image, 'mask': mask}
+            sample = self.balance_sample(sample)
+            image = sample['image']
+            mask = sample['mask']
+
         # apply augmentations
         if self.augmentation:
             sample = self.augmentation(image=image, mask=mask)
             image, mask = sample['image'], sample['mask']
-        
+
+        clean_image = np.moveaxis(image.copy(), -1, 0)
+        clean_mask = np.moveaxis(mask.copy(), -1, 0)
+
         # apply preprocessing
         if self.preprocessing:
             sample = self.preprocessing(image=image, mask=mask)
             image, mask = sample['image'], sample['mask']
 
-        sample = {'image': image, 'mask': mask}
+        sample = {'image': image, 'mask': mask, 'clean image': clean_image, 'clean mask': clean_mask}
+
+        #print(sample['image'].shape, sample['mask'].shape)
             
         return sample
         
@@ -738,9 +766,104 @@ class NOCSDataset(torch.utils.data.Dataset):
 
         return total_path_list
 
+    def balance_sample(self, sample):
+
+        # First determing if there is an object in the image
+        class_has_object = []
+        for i in range(sample['mask'].shape[2]):
+            if len(np.unique(sample['mask'][:,:,i])) == 2:
+                class_has_object.append(i)
+
+        if len(class_has_object) == 0:
+            centroid = None
+        else:
+            # Selecting a random class, while not selecting the background
+            selected_class = np.random.choice(np.array(class_has_object))
+
+            # Create a mask specific to the selected class
+            class_mask = sample['mask'][:,:,selected_class]
+            class_mask = class_mask.astype(np.uint8)
+
+            try:
+                # In the case of multiple objects within the same class, we find the contours
+                cnts, hei = cv2.findContours(class_mask, cv2.RETR_TREE ,cv2.CHAIN_APPROX_SIMPLE)
+
+                # If multple contours (multiple objects), select one randomly
+                rand_choice = random.choice(range(len(cnts)))
+                cnt = cnts[rand_choice]
+
+                # Find the centroid of the contour
+                M = cv2.moments(cnt)
+                cX = int(M["m10"] / M["m00"])
+                cY = int(M["m01"] / M["m00"])
+                centroid = (cX, cY)
+            except Exception as e:
+                #print(e)
+                centroid = None
+
+        # Crop the sample given the center and crop_size
+        cropped_sample = self.crop_sample(sample, center=centroid)
+
+        return cropped_sample
+
+    def crop_sample(self, sample, center=None):
+
+        # Creating a container for the output
+        cropped_sample = {}
+
+        # H,W of the images
+        h, w, _ = sample['image'].shape
+
+        # No center is provided, then assume the center of the image
+        if center is None:
+            center = (w // 2, h // 2)
+
+        # Obtaing half of the crop_size
+        hcs = self.crop_size // 2 # half crop size
+
+        # Determing the left, right, top and bottom of the image
+        left = center[0] - hcs
+        right = center[0] + hcs
+        top = center[1] - hcs
+        bottom = center[1] + hcs
+
+        # Check if the left, right, top and bottom are outside the image
+        left_pad = right_pad = top_pad = bottom_pad = 0
+
+        if left < 0:
+            left_pad = -left
+            left = 0
+        if right > w:
+            right_pad = right - w
+            right = w
+        if top < 0:
+            top_pad = -top
+            top = 0
+        if bottom > h:
+            bottom_pad = bottom - h
+            bottom = h 
+
+        """
+        if left_pad != 0 or right_pad != 0 or top_pad != 0 or bottom_pad != 0:
+            pdb.set_trace()
+        #"""
+
+        # Crop the images in the sample
+        for key in sample.keys():
+            if len(sample[key].shape) == 2:
+                crop = sample[key][top:bottom,left:right]
+                crop_and_pad = np.pad(crop, ((top_pad,bottom_pad),(left_pad, right_pad)), mode='constant')
+                cropped_sample[key] = crop_and_pad
+            elif len(sample[key].shape) == 3:
+                crop = sample[key][top:bottom,left:right,:]
+                crop_and_pad = np.pad(crop, ((top_pad,bottom_pad),(left_pad, right_pad), (0,0)), mode='constant')
+                cropped_sample[key] = crop_and_pad
+
+        return cropped_sample
+
 class CARVANADataset(torch.utils.data.Dataset):
 
-    #CLASSES = ['bg', 'car']
+    CLASSES = ['car']
     
     def __init__(
         self,
@@ -748,6 +871,7 @@ class CARVANADataset(torch.utils.data.Dataset):
         masks: List[pathlib.Path] = None,
         transforms=None
     ) -> None:
+
         self.images = images
         self.masks = masks
         self.transforms = transforms
@@ -775,10 +899,36 @@ class CARVANADataset(torch.utils.data.Dataset):
 #-------------------------------------------------------------------------------
 # Functions
 
+def test_camvid_dataset():
+
+    preprocessing_fn = smp.encoders.get_preprocessing_fn(ENCODER, ENCODER_WEIGHTS)
+
+    dataset = CAMVIDDataset(
+        project.cfg.CAMVID_DATASET,
+        train_valid_test='train', 
+        classes=project.constants.CAMVID_CLASSES,
+        augmentation=transforms.get_training_augmentation(), 
+        preprocessing=transforms.get_preprocessing(preprocessing_fn)
+    )
+
+    test_sample = dataset[0]
+
 def test_nocs_dataset():
 
+    preprocessing_fn = smp.encoders.get_preprocessing_fn(ENCODER, ENCODER_WEIGHTS)
+
+    crop_size = 224
+
     print('Loading dataset')
-    dataset = NOCSDataset(camera_dataset, dataset_max_size=10, balance=True)
+    dataset = NOCSDataset(
+        dataset_dir=project.cfg.CAMERA_TRAIN_DATASET, 
+        max_size=1000,
+        classes=project.constants.NOCS_CLASSES,
+        augmentation=transforms.get_training_augmentation(height=crop_size, width=crop_size),
+        preprocessing=transforms.get_preprocessing(preprocessing_fn),
+        balance=True,
+        crop_size=crop_size,
+    )
     print('Finished loading dataset')
 
     # Testing custom Dataset (Working)
@@ -801,7 +951,7 @@ def test_nocs_dataset():
 
     #print(sample)
 
-    pdb.set_trace()
+    #pdb.set_trace()
     """
     for item in sample:
         print(item.shape)
@@ -843,7 +993,10 @@ def test_voc_dataset():
 # Main Code
 
 if __name__ == '__main__':
+    
     # For testing the dataset
-    #test_nocs_dataset()
-    test_voc_dataset()
+    
+    #test_camvid_dataset()
+    test_nocs_dataset()
+    #test_voc_dataset()
 

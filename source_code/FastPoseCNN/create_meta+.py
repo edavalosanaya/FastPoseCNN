@@ -134,7 +134,7 @@ def get_original_information(color_image, obj_model_dir):
             class_id = int(line_info[1])
             instance_dict[instance_id] = class_id
 
-            #print(f"Instance #{instance_id}: {class_id} = {project.constants.SYNSET_NAMES[class_id]}")
+            #print(f"Instance #{instance_id}: {class_id} = {project.constants.NOCS_CLASSES[class_id]}")
 
     cdata = np.array(mask_image, dtype=np.int32)
 
@@ -221,7 +221,7 @@ def get_original_information(color_image, obj_model_dir):
         disable_print()
 
         RTs, _, _, _ = nocs_utils.align(class_ids, masks, coords, depth_image, project.constants.INTRINSICS,
-                                        project.constants.SYNSET_NAMES, ".", None)
+                                        project.constants.NOCS_CLASSES, ".", None)
 
         # Enable print
         enable_print()
@@ -310,7 +310,7 @@ def manual_data_handling():
             class_id = int(line_info[1])
             instance_dict[instance_id] = class_id
 
-            #print(f"Instance #{instance_id}: {class_id} = {project.constants.SYNSET_NAMES[class_id]}")
+            #print(f"Instance #{instance_id}: {class_id} = {project.constants.NOCS_CLASSES[class_id]}")
 
     # Loading data
     color_image = cv2.imread(str(image_path), cv2.IMREAD_UNCHANGED)
@@ -420,15 +420,15 @@ def manual_data_handling():
     for i in range(masks.shape[2]):
         visual_mask = masks[:,:,i]
         visual_mask[visual_mask==0] = 255
-        cv2.imshow(f"({project.constants.SYNSET_NAMES[class_ids[i]]}) - Mask {i}", visual_mask)
-        cv2.imshow(f"({project.constants.SYNSET_NAMES[class_ids[i]]}) - Coords {i}", coords[:,:,i,:])
+        cv2.imshow(f"({project.constants.NOCS_CLASSES[class_ids[i]]}) - Mask {i}", visual_mask)
+        cv2.imshow(f"({project.constants.NOCS_CLASSES[class_ids[i]]}) - Coords {i}", coords[:,:,i,:])
 
     cv2.waitKey(0)
     """
 
     # now obtaining the rotation and translation
     RTs, _, _, _ = nocs_utils.align(class_ids, masks, coords, depth_image, project.constants.INTRINSICS,
-                                    project.constants.SYNSET_NAMES, ".", None)
+                                    project.constants.NOCS_CLASSES, ".", None)
 
     print(f'color_image.shape: {color_image.shape}')
     print(f'depth_image.shape: {depth_image.shape} depth_image.dtype: {depth_image.dtype}')
@@ -448,7 +448,7 @@ def nocs_util_data_handling():
 
     config = nocs_eval.InferenceConfig()
     config.OBJ_MODEL_DIR = r'E:\MASTERS_STUFF\MastersProject\networks\NOCS_CVPR2019\data\obj_models'
-    dataset = nocs_dataset.NOCSDataset(project.constants.SYNSET_NAMES, 'val', config)
+    dataset = nocs_dataset.NOCSDataset(project.constants.NOCS_CLASSES, 'val', config)
     dataset.load_camera_scenes(str(camera_dataset))
     dataset.prepare(project.constants.CLASS_MAP)
 
@@ -457,7 +457,7 @@ def nocs_util_data_handling():
     gt_mask, gt_coord, gt_class_ids, gt_scales, gt_domain_label = dataset.load_mask(local_image_id)
     gt_bbox = nocs_utils.extract_bboxes(gt_mask)
     gt_RTs, _, _, _ = nocs_utils.align(gt_class_ids, gt_mask, gt_coord, depth, project.constants.INTRINSICS,
-                            project.constants.SYNSET_NAMES, None, None)
+                            project.constants.NOCS_CLASSES, None, None)
 
     # Printing all information to determine issue
     print(f'image.shape: {image.shape}')
@@ -492,7 +492,7 @@ def test_original_data_organization():
 
         """
         # Version 1 (drawing)
-        drawn_image = tools.visualize.draw_detections(color_image, image_id, project.constants.INTRINSICS, project.constants.SYNSET_NAMES, 
+        drawn_image = tools.visualize.draw_detections(color_image, image_id, project.constants.INTRINSICS, project.constants.NOCS_CLASSES, 
                                                     bboxes, class_ids, masks, coords, RTs, scores, scales,
                                                     draw_coord=True, draw_tag=False, draw_RT=True)
 
@@ -503,7 +503,7 @@ def test_original_data_organization():
 
         # Version 2 (drawing)
         nocs_model = tools.models.NOCS(load_model=False)
-        output = nocs_model.draw_detections(color_image, project.constants.INTRINSICS, project.constants.SYNSET_NAMES, bboxes, class_ids,
+        output = nocs_model.draw_detections(color_image, project.constants.INTRINSICS, project.constants.NOCS_CLASSES, bboxes, class_ids,
                                             masks, coords, RTs, scores, scales, draw_coord=True, draw_tag=True, draw_RT=True)
 
         cv2.imshow(f'{name} output', output)
@@ -569,7 +569,7 @@ def test_new_data_organization():
     scores = [100 for j in range(len(class_ids))] # 100% for ground truth data
 
     print("Creating drawn image")
-    output = draw.draw_detections(color_image, project.constants.INTRINSICS, project.constants.SYNSET_NAMES, bboxes, class_ids,
+    output = draw.draw_detections(color_image, project.constants.INTRINSICS, project.constants.NOCS_CLASSES, bboxes, class_ids,
                                          masks, coords, RTs, scores, scales, draw_coord=True, draw_tag=True, draw_RT=True)
 
     cv2.imshow(f'My own data structure output', output)

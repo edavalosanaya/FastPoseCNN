@@ -87,14 +87,17 @@ import custom_callbacks
 IS_ALCHEMY_USED = False
 IS_FP16_USED = False
 
-DATASET_NAME = 'CARVANA'
+DATASET_NAME = 'NOCS'
 BATCH_SIZE = 4
 NUM_WORKERS = 0
 
 LEARNING_RATE = 0.001
 ENCODER_LEARNING_RATE = 0.0005
 
-NUM_EPOCHS=3
+ENCODER = 'resnext50_32x4d'
+ENCODER_WEIGHTS = 'imagenet'
+
+NUM_EPOCHS = 15
 DEVICE = catalyst.utils.get_device()
 
 # Alchemy Setup
@@ -159,28 +162,61 @@ def load_dataset(DATASET_NAME='VOC'):
     # Loading dataset 
     #***************************************************************************
     
+    # Obtaining the preprocessing_fn depending on the encoder and the encoder
+    # weights
+    preprocessing_fn = smp.encoders.get_preprocessing_fn(ENCODER, ENCODER_WEIGHTS)
+
     # NOCS
+    crop_size = 224
     if DATASET_NAME == 'NOCS':
-        train_dataset = dataset.NOCSDataset(project.cfg.CAMERA_TRAIN_DATASET, 1000, balance=True)
-        valid_dataset = dataset.NOCSDataset(project.cfg.CAMERA_VALID_DATASET, 100)
-        n_classes = len(project.constants.SYNSET_NAMES)
+        train_dataset = dataset.NOCSDataset(
+            dataset_dir=project.cfg.CAMERA_TRAIN_DATASET, 
+            max_size=1000,
+            classes=project.constants.NOCS_CLASSES,
+            augmentation=transforms.get_training_augmentation(height=crop_size, width=crop_size),
+            preprocessing=transforms.get_preprocessing(preprocessing_fn),
+            balance=True,
+            crop_size=crop_size
+        )
+
+        valid_dataset = dataset.NOCSDataset(
+            dataset_dir=project.cfg.CAMERA_VALID_DATASET, 
+            max_size=100,
+            classes=project.constants.NOCS_CLASSES,
+            augmentation=transforms.get_validation_augmentation(height=crop_size, width=crop_size),
+            preprocessing=transforms.get_preprocessing(preprocessing_fn),
+            balance=True,
+            crop_size=crop_size
+        )
         
         datasets = {'train': train_dataset,
                     'valid': valid_dataset}
     
     # VOC
     if DATASET_NAME == 'VOC':
-        crop_size = (320, 480)
-        train_dataset = dataset.VOCSegDataset(True, crop_size, project.cfg.VOC_DATASET)
-        valid_dataset = dataset.VOCSegDataset(False, crop_size, project.cfg.VOC_DATASET)
-        datasets = train_dataset, valid_dataset
-        n_classes = len(project.constants.VOC_CLASSES)
+        
+        train_dataset = dataset.VOCDataset(
+            voc_dir=project.cfg.VOC_DATASET,
+            is_train=True,
+            classes=project.constants.VOC_CLASSES,
+            augmentation=transforms.get_training_augmentation(),
+            preprocessing=transforms.get_preprocessing(preprocessing_fn)
+        )
 
+        valid_dataset = dataset.VOCDataset(
+            voc_dir=project.cfg.VOC_DATASET,
+            is_train=False,
+            classes=project.constants.VOC_CLASSES,
+            augmentation=transforms.get_validation_augmentation(),
+            preprocessing=transforms.get_preprocessing(preprocessing_fn)
+        )
+        
         datasets = {'train': train_dataset,
                     'valid': valid_dataset}
 
     # CAMVID
     if DATASET_NAME == 'CAMVID':
+
         train_dataset = dataset.CAMVIDDataset(
             project.cfg.CAMVID_DATASET,
             train_valid_test='train', 
@@ -213,8 +249,7 @@ def load_dataset(DATASET_NAME='VOC'):
 
         datasets = {'train': train_dataset,
                     'valid': valid_dataset,
-                    'test': test_dataset,
-                    'visual_test': test_dataset_vis}
+                    'test': test_dataset}
 
     # CARVANA
     if DATASET_NAME == 'CARVANA':
@@ -274,12 +309,12 @@ def get_loaders(datasets, batch_size, num_workers):
 
 if __name__ == '__main__':
 
+    #***************************************************************************
+    #* Creating datasets and dataloaders 
+    #***************************************************************************
+
     # Load datasets
     datasets = load_dataset(DATASET_NAME)
-
-    #***************************************************************************
-    #* Creating dataloaders 
-    #***************************************************************************
 
     # For using multple CPUs for fast dataloaders
     # More information can be found in the following link:
@@ -293,15 +328,15 @@ if __name__ == '__main__':
     #***************************************************************************
     #* Loading model
     #***************************************************************************
-    #model = model_lib.unet(n_classes = len(project.constants.SYNSET_NAMES), feature_scale=4)
+    #model = model_lib.unet(n_classes = len(project.constants.NOCS_CLASSES), feature_scale=4)
     #model = model_lib.FastPoseCNN(in_channels=3, bilinear=True, filter_factor=4)
-    #model = model_lib.UNetWrapper(in_channels=3, n_classes=len(project.constants.SYNSET_NAMES),
+    #model = model_lib.UNetWrapper(in_channels=3, n_classes=len(project.constants.NOCS_CLASSES),
     #                              padding=True, wf=4, depth=4)
     #model = smp.Unet('resnet34', encoder_weights='imagenet', classes=n_classes)
-    model = smp.FPN(encoder_name='resnext50_32x4d', classes=1)
+    model = smp.FPN(encoder_name=ENCODER, encoder_weights=ENCODER_WEIGHTS, classes=len(datasets['train'].CLASSES))
     model = torch.nn.DataParallel(model)
     model = model.to(DEVICE)
-    model_name = 'FPN(resnext50_32x4d)'
+    model_name = f'FPN-{ENCODER}-{ENCODER_WEIGHTS}'
 
     #***************************************************************************
     #* Selecting optimizer and learning rate scheduler
@@ -338,6 +373,7 @@ if __name__ == '__main__':
         'dice': catalyst.contrib.nn.DiceLoss(),
         'iou': catalyst.contrib.nn.IoULoss(),
         'bce': torch.nn.BCEWithLogitsLoss()
+        #'ce': torch.nn.CrossEntropyLoss()
     }
 
     #***************************************************************************
@@ -375,8 +411,7 @@ if __name__ == '__main__':
         catalyst.dl.callbacks.IouCallback(input_key="mask"),
 
         # Visualize mask
-        #custom_callbacks.MyCustomCallback()
-        custom_callbacks.TensorAddImageCallback()
+        custom_callbacks.TensorAddImageCallback(colormap=datasets['train'].COLORMAP)
 
     ]
 

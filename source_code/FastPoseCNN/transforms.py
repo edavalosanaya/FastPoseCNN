@@ -17,15 +17,15 @@ def get_preprocessing(preprocessing_fn):
 #-------------------------------------------------------------------------------
 # Train
 
-def get_training_augmentation():
+def get_training_augmentation(height=320, width=320):
     train_transform = [
 
         albu.HorizontalFlip(p=0.5),
 
         albu.ShiftScaleRotate(scale_limit=0.5, rotate_limit=0, shift_limit=0.1, p=1, border_mode=0),
 
-        albu.PadIfNeeded(min_height=320, min_width=320, always_apply=True, border_mode=0),
-        albu.RandomCrop(height=320, width=320, always_apply=True),
+        albu.PadIfNeeded(min_height=height, min_width=width, always_apply=True, border_mode=0),
+        albu.RandomCrop(height=height, width=width, always_apply=True),
 
         albu.IAAAdditiveGaussianNoise(p=0.2),
         albu.IAAPerspective(p=0.5),
@@ -62,9 +62,9 @@ def get_training_augmentation():
 #-------------------------------------------------------------------------------
 # Validation
 
-def get_validation_augmentation():
+def get_validation_augmentation(height=384, width=480):
     valid_transform = [
-        albu.PadIfNeeded(384, 480)
+        albu.PadIfNeeded(height, width)
         #albu.PadIfNeeded(320, 320),
         #albu.RandomCrop(height=320, width=320, always_apply=True)
     ]
