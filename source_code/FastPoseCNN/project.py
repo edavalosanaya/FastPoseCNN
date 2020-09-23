@@ -47,7 +47,7 @@ constants = EasyDict()
 #-------------------------------------------------------------------------------
 # Functions regarding the constants
 
-def generate_colormap(num_classes, cmap=matplotlib.cm.get_cmap('hsv')):
+def generate_colormap(num_classes, cmap=matplotlib.cm.get_cmap('hsv'), bg_index=0):
 
     colormap = np.zeros((num_classes, 3))
 
@@ -55,6 +55,9 @@ def generate_colormap(num_classes, cmap=matplotlib.cm.get_cmap('hsv')):
 
         fraction = x/num_classes
         rgb = (np.array(cmap(fraction)[:3]))
+
+        if x == bg_index:
+            rgb = np.array([0,0,0])
         
         colormap[x] = rgb
 

@@ -96,7 +96,7 @@ def collapse_multichannel_quat_or_scales(multi_c_image):
 #-------------------------------------------------------------------------------
 # Main Visualization Functions
 
-def make_summary_figure(colormap=None, **images):
+def make_summary_figure(**images):
 
     # Initializing the figure and axs
     fig = plt.figure(figsize=(16,5))

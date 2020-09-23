@@ -87,7 +87,7 @@ import custom_callbacks
 IS_ALCHEMY_USED = False
 IS_FP16_USED = False
 
-DATASET_NAME = 'NOCS'
+DATASET_NAME = 'CAMVID'
 BATCH_SIZE = 4
 NUM_WORKERS = 8
 
@@ -369,11 +369,15 @@ if __name__ == '__main__':
     #* Specifying criterions 
     #***************************************************************************
     
+    """
     criterion = {
         'dice': catalyst.contrib.nn.DiceLoss(),
         'iou': catalyst.contrib.nn.IoULoss(),
         'bce': torch.nn.BCEWithLogitsLoss()
-        #'ce': torch.nn.CrossEntropyLoss()
+    }
+    """
+    criterion = {
+        'ce': torch.nn.CrossEntropyLoss()
     }
 
     #***************************************************************************
@@ -382,6 +386,7 @@ if __name__ == '__main__':
 
     callbacks = [
         # Each criterion is calculated separately.
+        """
         catalyst.dl.callbacks.CriterionCallback(
             input_key="mask",
             prefix="loss_dice",
@@ -404,6 +409,13 @@ if __name__ == '__main__':
             mode="weighted_sum", # can be "sum", "weighted_sum" or "mean"
             # because we want weighted sum, we need to add scale for each loss
             metrics={"loss_dice": 1.0, "loss_iou": 1.0, "loss_bce": 0.8},
+        ),
+        """
+
+        catalyst.dl.callbacks.CriterionCallback(
+            input_key='mask',
+            prefix='loss_ce',
+            criterion_key='ce'
         ),
 
         # metrics

@@ -43,6 +43,13 @@ class TensorAddImageCallback(catalyst.core.callbacks.logging.TensorboardLogger):
         # Get random sample
         sample = next(iter(runner.loaders[best_loader]))
 
+        # Only using three images
+        items_to_use = np.random.choice(np.arange(sample['mask'].shape[0]), 3, replace=False)
+        for key in sample.keys():
+            sample[key] = sample[key][items_to_use]
+
+        #pdb.set_trace()
+
         # Create the summary figure
         summary_fig = self.mask_check_tb(sample, runner)
 
@@ -50,6 +57,8 @@ class TensorAddImageCallback(catalyst.core.callbacks.logging.TensorboardLogger):
         self.loggers['_base'].add_figure(f'summary image', summary_fig, runner.global_sample_step)
 
     def mask_check_tb(self, sample, runner):
+
+        #pdb.set_trace()
 
         # Selecting clean image and mask if available
         if 'clean mask' in sample.keys():
@@ -61,18 +70,33 @@ class TensorAddImageCallback(catalyst.core.callbacks.logging.TensorboardLogger):
             image_vis = sample['clean image'].cpu().numpy().astype(np.uint8)
         else:
             image_vis = sample['image'].cpu().numpy().astype(np.uint8)
+
+        #pdb.set_trace()
         
         # Given the sample, make the prediction with the runner
         logits = runner.predict_batch(sample)['logits']
         pr_mask = torch.nn.functional.sigmoid(logits).cpu().numpy()
 
-        if pr_mask.shape[1] == 1: # Binary segmentation
-            pr_mask = pr_mask[:,0,:,:]
-            gt_mask_vis = gt_mask[:,0,:,:]
+        pdb.set_trace()
 
-        else: # Multi-class segmentation
-            pr_mask = np.argmax(pr_mask, axis=1)
-            gt_mask_vis = np.argmax(gt_mask, axis=1)
+        # Target (ground truth) data format 
+        if len(gt_mask.shape) == len('BCHW'):
+
+            if pr_mask.shape[1] == 1: # Binary segmentation
+                pr_mask = pr_mask[:,0,:,:]
+                gt_mask_vis = gt_mask[:,0,:,:]
+
+            else: # Multi-class segmentation
+                pr_mask = np.argmax(pr_mask, axis=1)
+                gt_mask_vis = np.argmax(gt_mask, axis=1)
+
+        elif len(gt_mask.shape) == len('BHW'):
+
+            if pr_mask.shape[1] == 1: # Binary segmentation
+                pr_mask = pr_mask[:,0,:,:]
+
+            else: # Multi-class segmentation
+                pr_mask = np.argmax(pr_mask, axis=1)
 
         # Colorized the binary masks
         gt_mask_vis = visualize.get_visualized_masks(gt_mask_vis, self.colormap)
@@ -83,5 +107,7 @@ class TensorAddImageCallback(catalyst.core.callbacks.logging.TensorboardLogger):
             image=image_vis,
             ground_truth_mask=gt_mask_vis,
             predicited_mask=pr_mask)
+
+        pdb.set_trace()
 
         return summary_fig

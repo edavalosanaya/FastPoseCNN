@@ -524,6 +524,7 @@ class CAMVIDDataset(torch.utils.data.Dataset):
             classes=None, 
             augmentation=None, 
             preprocessing=None,
+            mask_dataformat='CHW'
     ):
         # Determing the images and masks directory
         images_dir = os.path.join(dataset_dir, train_valid_test)
@@ -538,6 +539,7 @@ class CAMVIDDataset(torch.utils.data.Dataset):
         
         self.augmentation = augmentation
         self.preprocessing = preprocessing
+        self.mask_dataformat = mask_dataformat
     
     def __getitem__(self, i):
         
@@ -545,9 +547,15 @@ class CAMVIDDataset(torch.utils.data.Dataset):
         image = skimage.io.imread(self.images_fps[i])
         mask = skimage.io.imread(self.masks_fps[i])
         
-        # extract certain classes from mask (e.g. cars)
-        masks = [(mask == v) for v in self.class_values]
-        mask = np.stack(masks, axis=-1).astype('float')
+        if self.mask_dataformat == 'CHW':
+            # extract certain classes from mask (e.g. cars)
+            masks = [(mask == v) for v in self.class_values]
+            mask = np.stack(masks, axis=-1).astype('float')
+        
+        elif self.mask_dataformat == 'HW':
+            pass
+        else:
+            raise RuntimeError('Invalid mask dataformat')
         
         # apply augmentations
         if self.augmentation:
@@ -661,7 +669,8 @@ class NOCSDataset(torch.utils.data.Dataset):
             augmentation=None, 
             preprocessing=None,
             balance=False,
-            crop_size=128
+            crop_size=128,
+            mask_dataformat='CHW'
     ):
         self.images_fps = self.get_image_paths_in_dir(dataset_dir, max_size=max_size)
         
@@ -672,6 +681,7 @@ class NOCSDataset(torch.utils.data.Dataset):
         self.preprocessing = preprocessing
         self.balance = balance
         self.crop_size = crop_size
+        self.mask_dataformat = mask_dataformat
     
     def __getitem__(self, i):
         
@@ -680,20 +690,36 @@ class NOCSDataset(torch.utils.data.Dataset):
 
         mask_fp = str(self.images_fps[i]).replace('_color.png', '_mask.png')
         mask = skimage.io.imread(mask_fp, 0)[:,:,0]
+        mask[mask == 255] = 0
+
+        #pdb.set_trace()
 
         json_fp = str(self.images_fps[i]).replace('_color.png', '_meta+.json')
         json_data = json_tools.load_from_json(json_fp)
 
         # Given the data, modify any data necessary
         instance_dict = json_data['instance_dict']
-        instance_dict.update({'0': 0})
-        
-        new_mask = np.zeros((mask.shape[0], mask.shape[1], len(self.class_values)))
-        
-        for i_id, c_id in instance_dict.items():
-            new_mask[:,:,c_id] += np.where(mask == int(i_id), 1, 0)
 
-        mask = new_mask
+        # Creating the new mask
+        if self.mask_dataformat == 'CHW':
+        
+            new_mask = np.zeros((mask.shape[0], mask.shape[1], len(self.class_values)))
+            
+            for i_id, c_id in instance_dict.items():
+                new_mask[:,:,c_id] += np.where(mask == int(i_id), 1, 0)
+
+            mask = new_mask.astype('float')
+
+        elif self.mask_dataformat == 'HW':
+
+            new_mask = np.zeros((mask.shape[0], mask.shape[1]))
+
+            for i_id, c_id in instance_dict.items():
+                new_mask[:,:] += np.where(mask == int(i_id), c_id, 0)
+
+            mask = new_mask.astype('float')
+
+        #pdb.set_trace()
 
         # Applying class balancing
         if self.balance:
@@ -780,9 +806,20 @@ class NOCSDataset(torch.utils.data.Dataset):
 
         # First determing if there is an object in the image
         class_has_object = []
-        for i in range(sample['mask'].shape[2]):
-            if len(np.unique(sample['mask'][:,:,i])) == 2:
-                class_has_object.append(i)
+
+        # If mask dataformat is CHW
+        if self.mask_dataformat == 'CHW':
+            for i in range(sample['mask'].shape[2]):
+                if len(np.unique(sample['mask'][:,:,i])) == 2:
+                    class_has_object.append(i)
+        
+        # elif mask dataformat is HW
+        elif self.mask_dataformat == 'HW':
+            class_has_object = np.unique(sample['mask'])
+
+        # error if other mask dataformat
+        else:
+            raise RuntimeError('Invalid data format')
 
         if len(class_has_object) == 0:
             centroid = None
@@ -791,7 +828,13 @@ class NOCSDataset(torch.utils.data.Dataset):
             selected_class = np.random.choice(np.array(class_has_object))
 
             # Create a mask specific to the selected class
-            class_mask = sample['mask'][:,:,selected_class]
+            if self.mask_dataformat == 'CHW':
+                class_mask = sample['mask'][:,:,selected_class]
+            elif self.mask_dataformat == 'HW':
+                class_mask = (sample['mask'] == selected_class) * 1
+            else:
+                raise RuntimeError('Invalid data format')
+            
             class_mask = class_mask.astype(np.uint8)
 
             try:
@@ -918,10 +961,12 @@ def test_camvid_dataset():
         train_valid_test='train', 
         classes=project.constants.CAMVID_CLASSES,
         augmentation=transforms.get_training_augmentation(), 
-        preprocessing=transforms.get_preprocessing(preprocessing_fn)
+        preprocessing=transforms.get_preprocessing(preprocessing_fn),
+        mask_dataformat='HW'
     )
 
-    test_sample = dataset[0]
+    test_sample = dataset[1]
+    pdb.set_trace()
 
 def test_nocs_dataset():
 
@@ -938,13 +983,15 @@ def test_nocs_dataset():
         preprocessing=transforms.get_preprocessing(preprocessing_fn),
         balance=True,
         crop_size=crop_size,
+        mask_dataformat='HW'
     )
     print('Finished loading dataset')
 
     # Testing custom Dataset (Working)
     #"""
     print("\n\nTesting dataset loading\n\n")
-    test_sample = dataset[0]
+    test_sample = dataset[1]
+    pdb.set_trace()
     #test_sample = dataset.get_random_sample(batched=True)
 
     #print(test_sample)
