@@ -5,7 +5,8 @@ from albumentations.pytorch import ToTensor
 # Pre-processing
 
 def to_tensor(x, **kwargs):
-    return x.transpose(2,0,1).astype('float32') if len(x.shape) == 3 else x.astype('float32')
+    #return x.transpose(2,0,1).astype('float32') if len(x.shape) == 3 else x.astype('float32')
+    return x.transpose(2,0,1) if len(x.shape) == 3 else x
 
 def get_preprocessing(preprocessing_fn):
     preprocessing_transform = albu.Compose([

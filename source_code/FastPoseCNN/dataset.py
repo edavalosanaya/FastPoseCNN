@@ -567,7 +567,7 @@ class CAMVIDDataset(torch.utils.data.Dataset):
             sample = self.preprocessing(image=image, mask=mask)
             image, mask = sample['image'], sample['mask']
             
-        sample = {'image': image, 'mask': mask}
+        sample = {'image': image.astype('float32'), 'mask': mask.astype('long')}
         return sample
         
     def __len__(self):
@@ -689,7 +689,7 @@ class NOCSDataset(torch.utils.data.Dataset):
         image = skimage.io.imread(str(self.images_fps[i]))
 
         mask_fp = str(self.images_fps[i]).replace('_color.png', '_mask.png')
-        mask = skimage.io.imread(mask_fp, 0)[:,:,0]
+        mask = skimage.io.imread(mask_fp, 0)[:,:,0].astype('float')
         mask[mask == 255] = 0
 
         #pdb.set_trace()
@@ -741,7 +741,7 @@ class NOCSDataset(torch.utils.data.Dataset):
             sample = self.preprocessing(image=image, mask=mask)
             image, mask = sample['image'], sample['mask']
 
-        sample = {'image': image, 'mask': mask, 'clean image': clean_image, 'clean mask': clean_mask}
+        sample = {'image': image.astype('float32'), 'mask': mask.astype('long'), 'clean image': clean_image, 'clean mask': clean_mask}
 
         #print(sample['image'].shape, sample['mask'].shape)
             

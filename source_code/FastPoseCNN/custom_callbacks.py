@@ -77,18 +77,18 @@ class TensorAddImageCallback(catalyst.core.callbacks.logging.TensorboardLogger):
         logits = runner.predict_batch(sample)['logits']
         pr_mask = torch.nn.functional.sigmoid(logits).cpu().numpy()
 
-        pdb.set_trace()
+        #pdb.set_trace()
 
         # Target (ground truth) data format 
         if len(gt_mask.shape) == len('BCHW'):
 
             if pr_mask.shape[1] == 1: # Binary segmentation
                 pr_mask = pr_mask[:,0,:,:]
-                gt_mask_vis = gt_mask[:,0,:,:]
+                gt_mask = gt_mask[:,0,:,:]
 
             else: # Multi-class segmentation
                 pr_mask = np.argmax(pr_mask, axis=1)
-                gt_mask_vis = np.argmax(gt_mask, axis=1)
+                gt_mask = np.argmax(gt_mask, axis=1)
 
         elif len(gt_mask.shape) == len('BHW'):
 
@@ -99,7 +99,9 @@ class TensorAddImageCallback(catalyst.core.callbacks.logging.TensorboardLogger):
                 pr_mask = np.argmax(pr_mask, axis=1)
 
         # Colorized the binary masks
-        gt_mask_vis = visualize.get_visualized_masks(gt_mask_vis, self.colormap)
+        #pdb.set_trace()
+
+        gt_mask_vis = visualize.get_visualized_masks(gt_mask, self.colormap)
         pr_mask = visualize.get_visualized_masks(pr_mask, self.colormap)
 
         # Creating a matplotlib figure illustrating the inputs vs outputs
@@ -108,6 +110,6 @@ class TensorAddImageCallback(catalyst.core.callbacks.logging.TensorboardLogger):
             ground_truth_mask=gt_mask_vis,
             predicited_mask=pr_mask)
 
-        pdb.set_trace()
+        #pdb.set_trace()
 
         return summary_fig

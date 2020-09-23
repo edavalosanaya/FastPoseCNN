@@ -146,10 +146,21 @@ def get_visualized_mask(mask, colormap):
 
 def get_visualized_masks(masks, colormap):
 
-    colorized_masks = np.zeros((masks.shape[0],3,masks.shape[-2],masks.shape[-1]))
+    # If HW data format
+    if len(masks.shape) == len('HW'):
 
-    for id, mask in enumerate(masks):
-        colorized_masks[id,:,:,:] = get_visualized_mask(mask, colormap)
+        colorized_masks = get_visualized_mask(masks, colormap)
+
+    # If CHW data format
+    elif len(masks.shape) == len('CHW'):
+
+        colorized_masks = np.zeros((masks.shape[0],3,masks.shape[-2],masks.shape[-1]))
+
+        for id, mask in enumerate(masks):
+            colorized_masks[id,:,:,:] = get_visualized_mask(mask, colormap)
+
+    else:
+        raise RuntimeError('Wrong mask dataformat')
 
     return colorized_masks
 

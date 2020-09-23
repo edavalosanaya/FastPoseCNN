@@ -87,7 +87,7 @@ import custom_callbacks
 IS_ALCHEMY_USED = False
 IS_FP16_USED = False
 
-DATASET_NAME = 'CAMVID'
+DATASET_NAME = 'NOCS'
 BATCH_SIZE = 4
 NUM_WORKERS = 8
 
@@ -175,8 +175,9 @@ def load_dataset(DATASET_NAME='VOC'):
             classes=project.constants.NOCS_CLASSES,
             augmentation=transforms.get_training_augmentation(height=crop_size, width=crop_size),
             preprocessing=transforms.get_preprocessing(preprocessing_fn),
-            balance=True,
-            crop_size=crop_size
+            balance=False,
+            crop_size=crop_size,
+            mask_dataformat='HW'
         )
 
         valid_dataset = dataset.NOCSDataset(
@@ -185,8 +186,9 @@ def load_dataset(DATASET_NAME='VOC'):
             classes=project.constants.NOCS_CLASSES,
             augmentation=transforms.get_validation_augmentation(height=crop_size, width=crop_size),
             preprocessing=transforms.get_preprocessing(preprocessing_fn),
-            balance=True,
-            crop_size=crop_size
+            balance=False,
+            crop_size=crop_size,
+            mask_dataformat='HW'
         )
         
         datasets = {'train': train_dataset,
@@ -222,7 +224,8 @@ def load_dataset(DATASET_NAME='VOC'):
             train_valid_test='train', 
             classes=project.constants.CAMVID_CLASSES,
             augmentation=transforms.get_training_augmentation(), 
-            preprocessing=transforms.get_preprocessing(preprocessing_fn)
+            preprocessing=transforms.get_preprocessing(preprocessing_fn),
+            mask_dataformat='HW'
         )
 
         valid_dataset = dataset.CAMVIDDataset(
@@ -230,7 +233,8 @@ def load_dataset(DATASET_NAME='VOC'):
             train_valid_test='val',
             classes=project.constants.CAMVID_CLASSES,
             augmentation=transforms.get_validation_augmentation(), 
-            preprocessing=transforms.get_preprocessing(preprocessing_fn)
+            preprocessing=transforms.get_preprocessing(preprocessing_fn),
+            mask_dataformat='HW'
         )
 
         test_dataset = dataset.CAMVIDDataset(
@@ -239,12 +243,14 @@ def load_dataset(DATASET_NAME='VOC'):
             classes=project.constants.CAMVID_CLASSES,
             augmentation=transforms.get_validation_augmentation(), 
             preprocessing=transforms.get_preprocessing(preprocessing_fn),
+            mask_dataformat='HW'
         )
 
         test_dataset_vis = dataset.CAMVIDDataset(
             project.cfg.CAMVID_DATASET,
             train_valid_test='test',
-            classes=project.constants.CAMVID_CLASSES
+            classes=project.constants.CAMVID_CLASSES,
+            mask_dataformat='HW'
         )
 
         datasets = {'train': train_dataset,
@@ -384,43 +390,44 @@ if __name__ == '__main__':
     #* Create Callbacks 
     #***************************************************************************
 
+    """
+    catalyst.dl.callbacks.CriterionCallback(
+        input_key="mask",
+        prefix="loss_dice",
+        criterion_key="dice"
+    ),
+    catalyst.dl.callbacks.CriterionCallback(
+        input_key="mask",
+        prefix="loss_iou",
+        criterion_key="iou"
+    ),
+    catalyst.dl.callbacks.CriterionCallback(
+        input_key="mask",
+        prefix="loss_bce",
+        criterion_key="bce"
+    ),
+
+    # And only then we aggregate everything into one loss.
+    catalyst.dl.callbacks.MetricAggregationCallback(
+        prefix="loss",
+        mode="weighted_sum", # can be "sum", "weighted_sum" or "mean"
+        # because we want weighted sum, we need to add scale for each loss
+        metrics={"loss_dice": 1.0, "loss_iou": 1.0, "loss_bce": 0.8},
+    ),
+    """
+
     callbacks = [
         # Each criterion is calculated separately.
-        """
-        catalyst.dl.callbacks.CriterionCallback(
-            input_key="mask",
-            prefix="loss_dice",
-            criterion_key="dice"
-        ),
-        catalyst.dl.callbacks.CriterionCallback(
-            input_key="mask",
-            prefix="loss_iou",
-            criterion_key="iou"
-        ),
-        catalyst.dl.callbacks.CriterionCallback(
-            input_key="mask",
-            prefix="loss_bce",
-            criterion_key="bce"
-        ),
-
-        # And only then we aggregate everything into one loss.
-        catalyst.dl.callbacks.MetricAggregationCallback(
-            prefix="loss",
-            mode="weighted_sum", # can be "sum", "weighted_sum" or "mean"
-            # because we want weighted sum, we need to add scale for each loss
-            metrics={"loss_dice": 1.0, "loss_iou": 1.0, "loss_bce": 0.8},
-        ),
-        """
 
         catalyst.dl.callbacks.CriterionCallback(
             input_key='mask',
-            prefix='loss_ce',
+            prefix='loss',
             criterion_key='ce'
         ),
 
         # metrics
-        catalyst.dl.callbacks.DiceCallback(input_key="mask"),
-        catalyst.dl.callbacks.IouCallback(input_key="mask"),
+        #catalyst.dl.callbacks.DiceCallback(input_key="mask"),
+        #catalyst.dl.callbacks.IouCallback(input_key="mask"),
 
         # Visualize mask
         custom_callbacks.TensorAddImageCallback(colormap=datasets['train'].COLORMAP)
@@ -454,8 +461,8 @@ if __name__ == '__main__':
         callbacks=callbacks,
         logdir=str(run_logdir),
         num_epochs=NUM_EPOCHS,
-        main_metric="iou",
-        minimize_metric=False,
+        #main_metric="iou",
+        #minimize_metric=False,
         fp16=fp16_params,
         verbose=True,
     )
