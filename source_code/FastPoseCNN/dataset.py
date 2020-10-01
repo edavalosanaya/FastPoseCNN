@@ -1,4 +1,5 @@
 import os
+from os import replace
 import sys
 import shutil
 import pathlib
@@ -572,6 +573,24 @@ class CAMVIDDataset(torch.utils.data.Dataset):
         
     def __len__(self):
         return len(self.ids)
+
+    def get_random_batched_sample(self, batch_size=1):
+
+        batched_sample = {}
+
+        for sample_id in np.random.choice(np.arange(self.__len__()), size=batch_size, replace=False):
+
+            sample = self.__getitem__(sample_id)
+
+            for key in sample.keys():
+
+                if key in batched_sample.keys():
+                    batched_sample[key] = np.concatenate([batched_sample[key], np.expand_dims(sample[key], axis=0)], axis=0)
+
+                else:
+                    batched_sample[key] = np.expand_dims(sample[key], axis=0)
+
+        return batched_sample
 
 class VOCDataset(torch.utils.data.Dataset):
     """PASCAL VOC 2012 Dataset. Read images, apply augmentation and preprocessing transformations.

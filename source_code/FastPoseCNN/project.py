@@ -64,6 +64,11 @@ def generate_colormap(num_classes, cmap=matplotlib.cm.get_cmap('hsv'), bg_index=
     return colormap
 
 #-------------------------------------------------------------------------------
+# All dataset variables
+
+constants.NUM_CLASSES = {}
+
+#-------------------------------------------------------------------------------
 # NOCS Dataset Constants
 
 constants.INTRINSICS = np.array([[577.5, 0, 319.5], [0., 577.5, 239.5], [0., 0., 1.]]) # CAMERA intrinsics
@@ -77,16 +82,6 @@ constants.NOCS_CLASSES = ['bg', #0
                           'mug'#6
                           ]
 
-"""
-constants.SYNSET_COLORS = [[0,0,0], # background (black)
-                           [237,27,36], # bottle (red)
-                           [247,143,30], # bowl (orange)
-                           [254,242,0], # camera (yellow)
-                           [1,168,96], # can (green)
-                           [1,86,164], # laptop (blue)
-                           [166,68,153] # mug (purple)
-                           ]
-"""
 constants.NOCS_COLORMAP = generate_colormap(len(constants.NOCS_CLASSES))
 
 constants.CLASS_MAP = {
@@ -95,6 +90,8 @@ constants.CLASS_MAP = {
     'cup':'mug',
     'laptop': 'laptop',
 }
+
+constants.NUM_CLASSES['NOCS'] = len(constants.NOCS_CLASSES)
 
 #-------------------------------------------------------------------------------
 # PASCAL VOC Dataset Constants
@@ -115,6 +112,8 @@ constants.VOC_CLASSES = ['background', 'aeroplane', 'bicycle', 'bird', 'boat',
 
 #constants.VOC_COLORMAP = generate_colormap(len(constants.VOC_CLASSES))
 
+constants.NUM_CLASSES['VOC'] = len(constants.VOC_CLASSES)
+
 #-------------------------------------------------------------------------------
 # CAMVID Dataset Constants
 
@@ -123,3 +122,5 @@ constants.CAMVID_CLASSES = ['sky', 'building', 'pole', 'road', 'pavement',
                             'pedestrian', 'bicyclist', 'unlabelled']
 
 constants.CAMVID_COLORMAP = generate_colormap(len(constants.CAMVID_CLASSES))
+
+constants.NUM_CLASSES['CAMVID'] = len(constants.CAMVID_CLASSES)
