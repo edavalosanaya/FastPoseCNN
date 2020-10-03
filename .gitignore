@@ -10,6 +10,7 @@
 
 # Folder-Type Ignore 
 logs/
+logs2/
 __pycache__/
 
 # Path-Specific Ignore

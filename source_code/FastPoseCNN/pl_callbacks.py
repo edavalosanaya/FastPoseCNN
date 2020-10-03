@@ -64,7 +64,7 @@ class MyCallback(pl.callbacks.Callback):
                 trainer.logger.log_metrics(
                     mode, 
                     {f'{tb_log_name}/epoch': average},
-                    trainer.global_step,
+                    trainer.current_epoch+1,
                     store=False
                 )
 

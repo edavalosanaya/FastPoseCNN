@@ -6,6 +6,7 @@ import collections
 import datetime
 
 import pdb
+from catalyst.core.callbacks.metrics import BatchMetricCallback
 
 # Ignore annoying warnings
 os.environ["TF_CPP_MIN_LOG_LEVEL"]="3"
@@ -23,6 +24,8 @@ import catalyst.contrib.nn
 import catalyst.dl.callbacks
 
 import sklearn.model_selection
+
+import pytorch_lightning as pl
 
 import segmentation_models_pytorch as smp
 
@@ -71,7 +74,7 @@ import catalyst_callbacks as cc
 # Run hyperparameters
 IS_FP16_USED = False
 
-DATASET_NAME = 'NOCS'
+DATASET_NAME = 'CAMVID'
 BATCH_SIZE = 4
 NUM_WORKERS = 8
 
@@ -81,7 +84,7 @@ ENCODER_LEARNING_RATE = 0.0005
 ENCODER = 'resnext50_32x4d'
 ENCODER_WEIGHTS = 'imagenet'
 
-NUM_EPOCHS = 20
+NUM_EPOCHS = 10
 DEVICE = catalyst.utils.get_device()
 
 #-------------------------------------------------------------------------------
@@ -185,8 +188,8 @@ def load_dataset(DATASET_NAME='VOC'):
         )
 
         datasets = {'train': train_dataset,
-                    'valid': valid_dataset,
-                    'test': test_dataset}
+                    'valid': valid_dataset}
+                    #'test': test_dataset}
 
     # CARVANA
     if DATASET_NAME == 'CARVANA':
@@ -256,20 +259,15 @@ if __name__ == '__main__':
     # For using multple CPUs for fast dataloaders
     # More information can be found in the following link:
     # https://github.com/pytorch/pytorch/issues/40403
-    """
+    #"""
     if NUM_WORKERS > 0:
         torch.multiprocessing.set_start_method('spawn') # good solution !!!!
-    """
+    #"""
     loaders = get_loaders(datasets, BATCH_SIZE, NUM_WORKERS)
 
     #***************************************************************************
     #* Loading model
     #***************************************************************************
-    #model = model_lib.unet(n_classes = len(project.constants.NOCS_CLASSES), feature_scale=4)
-    #model = model_lib.FastPoseCNN(in_channels=3, bilinear=True, filter_factor=4)
-    #model = model_lib.UNetWrapper(in_channels=3, n_classes=len(project.constants.NOCS_CLASSES),
-    #                              padding=True, wf=4, depth=4)
-    #model = smp.Unet('resnet34', encoder_weights='imagenet', classes=n_classes)
     model = smp.FPN(encoder_name=ENCODER, encoder_weights=ENCODER_WEIGHTS, classes=len(datasets['train'].CLASSES))
     model = torch.nn.DataParallel(model)
     model = model.to(DEVICE)
@@ -306,13 +304,6 @@ if __name__ == '__main__':
     #* Specifying criterions 
     #***************************************************************************
     
-    """
-    criterion = {
-        'dice': catalyst.contrib.nn.DiceLoss(),
-        'iou': catalyst.contrib.nn.IoULoss(),
-        'bce': torch.nn.BCEWithLogitsLoss()
-    }
-    """
     criterion = {
         'ce': torch.nn.CrossEntropyLoss(),
         'cce': model_lib.loss.CCE(),
@@ -322,32 +313,6 @@ if __name__ == '__main__':
     #***************************************************************************
     #* Create Callbacks 
     #***************************************************************************
-
-    """
-    catalyst.dl.callbacks.CriterionCallback(
-        input_key="mask",
-        prefix="loss_dice",
-        criterion_key="dice"
-    ),
-    catalyst.dl.callbacks.CriterionCallback(
-        input_key="mask",
-        prefix="loss_iou",
-        criterion_key="iou"
-    ),
-    catalyst.dl.callbacks.CriterionCallback(
-        input_key="mask",
-        prefix="loss_bce",
-        criterion_key="bce"
-    ),
-
-    # And only then we aggregate everything into one loss.
-    catalyst.dl.callbacks.MetricAggregationCallback(
-        prefix="loss",
-        mode="weighted_sum", # can be "sum", "weighted_sum" or "mean"
-        # because we want weighted sum, we need to add scale for each loss
-        metrics={"loss_dice": 1.0, "loss_iou": 1.0, "loss_bce": 0.8},
-    ),
-    """
 
     callbacks = [
         # Each criterion is calculated separately.
@@ -372,12 +337,17 @@ if __name__ == '__main__':
             prefix="loss",
             mode="weighted_sum", # can be "sum", "weighted_sum" or "mean"
             # because we want weighted sum, we need to add scale for each loss
-            metrics={"loss_ce": 1.0, "loss_cce": 1.0, "loss_focal": 1.0},
+            metrics={"loss_ce": 0.8, "loss_cce": 0.8, "loss_focal": 1.0},
         ),
 
         # metrics
         #catalyst.dl.callbacks.DiceCallback(input_key="mask"),
         #catalyst.dl.callbacks.IouCallback(input_key="mask"),
+        catalyst.core.callbacks.metrics.BatchMetricCallback(
+            prefix='dice',
+            metric_fn=pl.metrics.functional.dice_score,
+            input_key='mask'
+        ),
 
         # Visualize mask
         cc.TensorAddImageCallback(colormap=datasets['train'].COLORMAP)
@@ -385,7 +355,7 @@ if __name__ == '__main__':
 
     # Create tensorboard folder
     now = datetime.datetime.now().strftime('%d-%m-%y--%H-%M')
-    run_name = f'{DATASET_NAME}-{model_name}-{now}'
+    run_name = f'catalyst-{now}-{DATASET_NAME}-{model_name}'
     run_logdir = project.cfg.LOGS / run_name
 
     if run_logdir.exists() is False:

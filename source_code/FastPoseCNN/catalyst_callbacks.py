@@ -30,18 +30,14 @@ class TensorAddImageCallback(catalyst.core.callbacks.logging.TensorboardLogger):
     def on_epoch_end(self, runner):
         super().on_epoch_end(runner)
 
-        # Utilize the best loaders
-        loader_names = list(runner.loaders.keys())
+        # Logging images for both 'train' and 'valid'
+        for mode in ['train', 'valid']:
+            self.shared_epoch_end(mode, runner)
 
-        if 'test' in loader_names:
-            best_loader = 'test'
-        elif 'valid' in loader_names:
-            best_loader = 'valid'
-        else:
-            best_loader = 'train'
+    def shared_epoch_end(self, mode, runner):
 
         # Get random sample
-        sample = next(iter(runner.loaders[best_loader]))
+        sample = next(iter(runner.loaders[mode]))
 
         # Only using three images
         items_to_use = np.random.choice(np.arange(sample['mask'].shape[0]), 3, replace=False)
@@ -54,7 +50,7 @@ class TensorAddImageCallback(catalyst.core.callbacks.logging.TensorboardLogger):
         summary_fig = self.mask_check_tb(sample, runner)
 
         # Log the figure to tensorboard
-        self.loggers['_base'].add_figure(f'summary image', summary_fig, runner.global_sample_step)
+        self.loggers[f'{mode}_log'].add_figure(f'mask_gen/{mode}', summary_fig, runner.global_sample_step)
 
     def mask_check_tb(self, sample, runner):
 

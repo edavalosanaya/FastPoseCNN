@@ -12,7 +12,6 @@ import torch
 import torch.nn.functional as F
 
 import pytorch_lightning as pl
-from pytorch_lightning.utilities import rank_zero_only
 
 import catalyst
 import catalyst.utils
@@ -26,7 +25,7 @@ import model_lib
 import transforms
 import dataset as ds
 import pl_logger as pll
-import pl_c as plc
+import pl_callbacks as plc
 
 #-------------------------------------------------------------------------------
 # Documentation
@@ -65,6 +64,7 @@ To delete hanging Tensorboard processes use the following:
 DATASET_NAME = 'CAMVID'
 BATCH_SIZE = 4
 NUM_WORKERS = 8
+NUM_GPUS = 4
 
 LEARNING_RATE = 0.001
 ENCODER_LEARNING_RATE = 0.0005
@@ -72,7 +72,7 @@ ENCODER_LEARNING_RATE = 0.0005
 ENCODER = 'resnext50_32x4d'
 ENCODER_WEIGHTS = 'imagenet'
 
-NUM_EPOCHS = 20
+NUM_EPOCHS = 3
 
 #-------------------------------------------------------------------------------
 # Classes
@@ -91,10 +91,16 @@ class SegmentationTask(pl.LightningModule):
         # Saving the metrics
         self.metrics = metrics
 
+        # Global step tracker
+        self.global_step_tracker = {
+            'train': 0,
+            'valid': 0
+        }
+
     def forward(self, x):
         return self.model(x)
 
-    def shared_step(self, batch, mode):
+    def shared_step(self, mode, batch, batch_idx):
         
         # Forward pass the input and generate the prediction of the NN
         logits = self.model(batch['image'])
@@ -102,23 +108,26 @@ class SegmentationTask(pl.LightningModule):
         # Calculate the loss based on self.loss_function
         losses, metrics = self.loss_function(logits, batch['mask'])
 
+        # Calculate the effective global step
+        global_step = self.calculate_global_step(mode, batch_idx)
+
         # Logging the batch loss to Tensorboard
         for loss_name, loss_value in losses.items():
-            self.logger.log_metrics(mode, {f'{loss_name}/batch':loss_value}, self.global_step)
+            self.logger.log_metrics(mode, {f'{loss_name}/batch':loss_value}, global_step)
 
         # Logging the metric loss to Tensorboard
         for metric_name, metric_value in metrics.items():
-            self.logger.log_metrics(mode, {f'{metric_name}/batch':metric_value}, self.global_step) 
+            self.logger.log_metrics(mode, {f'{metric_name}/batch':metric_value}, global_step) 
 
         return losses, metrics
 
     def training_step(self, batch, batch_idx):
 
         # Calculate the loss
-        losses, metrics = self.shared_step(batch, 'train')
+        losses, metrics = self.shared_step('train', batch, batch_idx)
         
         # Placing the main loss into Train Result to perform backprog
-        result = pl.TrainResult(minimize=losses['loss'])
+        result = pl.TrainResult(minimize=losses['total_loss'])
         
         # Logging the train loss
         result.log('train_loss', losses['loss'])
@@ -131,11 +140,11 @@ class SegmentationTask(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
 
         # Calculate the loss
-        losses, metrics = self.shared_step(batch, 'valid')
+        losses, metrics = self.shared_step('valid', batch, batch_idx)
         
         # Log the batch loss inside the pl.TrainResult to visualize in the
         # progress bar
-        result = pl.EvalResult(checkpoint_on=losses['loss'])
+        result = pl.EvalResult(checkpoint_on=losses['total_loss'])
 
         # Logging the val loss
         result.log('val_loss', losses['loss'])
@@ -157,6 +166,9 @@ class SegmentationTask(pl.LightningModule):
             k: v(pred, gt) for k,v in self.metrics.items()
         }
 
+        # Calculate total loss
+        total_loss = torch.sum(torch.stack(list(losses.values())))
+
         # Calculate the loss multiplied by its corresponded weight
         weighted_losses = [losses[key] * self.criterion[key]['weight'] for key in losses.keys()]
         
@@ -166,13 +178,12 @@ class SegmentationTask(pl.LightningModule):
         # Save the calculated sum in the losses
         losses['loss'] = weighted_sum
 
+        # Saving the total loss
+        losses['total_loss'] = total_loss
+
         return losses, metrics
 
     def configure_optimizers(self):
-        """
-        opt = torch.optim.Adam(self.model.parameters(), lr=LEARNING_RATE)
-        sch = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max = 10)
-        """
 
         # Since we use a pre-trained encoder, we will reduce the learning rate on it.
         layerwise_params = {"encoder*": dict(lr=ENCODER_LEARNING_RATE, weight_decay=0.00003)}
@@ -197,6 +208,41 @@ class SegmentationTask(pl.LightningModule):
         }
         
         return [optimizer], [scheduler]
+
+    def calculate_global_step(self, mode, batch_idx):
+
+        # Calculate the actual global step
+        if self.trainer.train_dataloader is not None:
+            num_of_train_batchs = len(self.trainer.train_dataloader)
+        else:
+            num_of_train_batchs = 0
+
+        if self.trainer.val_dataloaders[0] is not None:
+            num_of_valid_batchs = len(self.trainer.val_dataloaders[0])
+        else:
+            num_of_valid_batchs = 0
+
+        total_batchs = num_of_train_batchs + num_of_valid_batchs - 1
+
+        # Calculating the effective batch_size
+        effective_batch_size = BATCH_SIZE * NUM_GPUS
+
+        # Calculating the effective batch_idx
+        effective_batch_idx = batch_idx * NUM_GPUS + (1 + int(self.global_rank))
+
+        if mode == 'train':
+            epoch_start_point = self.current_epoch * total_batchs * effective_batch_size
+            global_step = epoch_start_point + effective_batch_idx * BATCH_SIZE
+        elif mode == 'valid':
+            epoch_start_point = self.current_epoch * total_batchs * effective_batch_size + num_of_train_batchs * effective_batch_size
+            global_step = epoch_start_point + effective_batch_idx * BATCH_SIZE
+        else:
+            epoch_start_point = 0
+            global_step = self.global_step
+
+        print(f'{mode} - GPU {self.global_rank}: epoch_start_point={epoch_start_point} batch_idx={batch_idx} e_batch_idx={effective_batch_idx} e_batch_size={effective_batch_size} global_step={global_step}')
+
+        return global_step
 
 class SegmentationDataModule(pl.LightningDataModule):
 
@@ -351,7 +397,8 @@ class SegmentationDataModule(pl.LightningDataModule):
             dataloader = torch.utils.data.DataLoader(
                 self.datasets[dataset_key],
                 num_workers=self.num_workers,
-                batch_size=self.batch_size
+                batch_size=self.batch_size,
+                shuffle=True
             )
             return dataloader
 
@@ -405,7 +452,7 @@ if __name__ == '__main__':
     # Saving the run
     model_name = f'FPN-{ENCODER}-{ENCODER_WEIGHTS}'
     now = datetime.datetime.now().strftime('%d-%m-%y--%H-%M')
-    run_name = f'{now}-{DATASET_NAME}-{model_name}'
+    run_name = f'pl-{now}-{DATASET_NAME}-{model_name}'
 
     # Creating my own logger
     tb_logger = pll.MyLogger(
@@ -415,13 +462,13 @@ if __name__ == '__main__':
 
     # Creating my own callback
     custom_callback = plc.MyCallback(
-        metrics={'loss'}
+        metrics=list(criterion.keys()) + list(metrics.keys()) + ['loss']
     )
 
     # Training
     trainer = pl.Trainer(
         max_epochs=NUM_EPOCHS,
-        gpus=4,
+        gpus=NUM_GPUS,
         #train_percent_check=0.1,
         num_processes=NUM_WORKERS,
         distributed_backend='ddp', # required to work
