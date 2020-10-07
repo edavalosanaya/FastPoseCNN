@@ -62,9 +62,9 @@ To delete hanging Tensorboard processes use the following:
 
 # Run hyperparameters
 DATASET_NAME = 'CAMVID'
-BATCH_SIZE = 4
+BATCH_SIZE = 2
 NUM_WORKERS = 8
-NUM_GPUS = 4
+NUM_GPUS = 1
 
 LEARNING_RATE = 0.001
 ENCODER_LEARNING_RATE = 0.0005
@@ -73,6 +73,7 @@ ENCODER = 'resnext50_32x4d'
 ENCODER_WEIGHTS = 'imagenet'
 
 NUM_EPOCHS = 3
+DISTRIBUTED_BACKEND = None if NUM_GPUS == 1 else 'ddp' # (ddp, )
 
 #-------------------------------------------------------------------------------
 # Classes
@@ -225,23 +226,32 @@ class SegmentationTask(pl.LightningModule):
         total_batchs = num_of_train_batchs + num_of_valid_batchs - 1
 
         # Calculating the effective batch_size
-        effective_batch_size = BATCH_SIZE * NUM_GPUS
+        if self.use_ddp:
+            effective_batch_size = BATCH_SIZE * NUM_GPUS
+        elif self.use_single_gpu or self.use_dp:
+            effective_batch_size = BATCH_SIZE
 
         # Calculating the effective batch_idx
-        effective_batch_idx = batch_idx * NUM_GPUS + (1 + int(self.global_rank))
+        if self.use_ddp:
+            effective_batch_idx = batch_idx * NUM_GPUS + 1
+        elif self.use_single_gpu or self.use_dp:
+            effective_batch_idx = batch_idx
 
         if mode == 'train':
             epoch_start_point = self.current_epoch * total_batchs * effective_batch_size
-            global_step = epoch_start_point + effective_batch_idx * BATCH_SIZE
+            global_step = epoch_start_point + effective_batch_idx * BATCH_SIZE + 1
         elif mode == 'valid':
             epoch_start_point = self.current_epoch * total_batchs * effective_batch_size + num_of_train_batchs * effective_batch_size
-            global_step = epoch_start_point + effective_batch_idx * BATCH_SIZE
+            global_step = epoch_start_point + effective_batch_idx * BATCH_SIZE + 1
         else:
             epoch_start_point = 0
             global_step = self.global_step
 
-        print(f'{mode} - GPU {self.global_rank}: epoch_start_point={epoch_start_point} batch_idx={batch_idx} e_batch_idx={effective_batch_idx} e_batch_size={effective_batch_size} global_step={global_step}')
-
+        """
+        if int(self.global_rank) == 0 and mode == 'valid':
+            print(f'\n{mode} - GPU {self.global_rank}: epoch_start_point={epoch_start_point} batch_idx={batch_idx} e_batch_idx={effective_batch_idx} e_batch_size={effective_batch_size} global_step={global_step}')
+        """
+        
         return global_step
 
 class SegmentationDataModule(pl.LightningDataModule):
@@ -446,6 +456,12 @@ if __name__ == '__main__':
         'dice': pl.metrics.functional.dice_score
     }
 
+    # Noting what are the items that we want to see as the training develops
+    tracked_data = {
+        'minimize': list(criterion.keys()) + ['loss'],
+        'maximize': list(metrics.keys())
+    }
+
     # Attaching PyTorch Lightning logic to base model
     model = SegmentationTask(base_model, criterion, metrics)
 
@@ -453,6 +469,17 @@ if __name__ == '__main__':
     model_name = f'FPN-{ENCODER}-{ENCODER_WEIGHTS}'
     now = datetime.datetime.now().strftime('%d-%m-%y--%H-%M')
     run_name = f'pl-{now}-{DATASET_NAME}-{model_name}'
+
+    # Construct hparams data to send it to MyCallback
+    runs_hparams = {
+        'model': model_name,
+        'dataset': DATASET_NAME,
+        'number of GPUS': NUM_GPUS,
+        'batch size': BATCH_SIZE,
+        'number of workers': NUM_WORKERS,
+        'ML abs library': 'pl',
+        'distributed_backend': DISTRIBUTED_BACKEND,
+    }
 
     # Creating my own logger
     tb_logger = pll.MyLogger(
@@ -462,16 +489,16 @@ if __name__ == '__main__':
 
     # Creating my own callback
     custom_callback = plc.MyCallback(
-        metrics=list(criterion.keys()) + list(metrics.keys()) + ['loss']
+        hparams=runs_hparams,
+        tracked_data=tracked_data
     )
 
     # Training
     trainer = pl.Trainer(
         max_epochs=NUM_EPOCHS,
         gpus=NUM_GPUS,
-        #train_percent_check=0.1,
         num_processes=NUM_WORKERS,
-        distributed_backend='ddp', # required to work
+        distributed_backend=DISTRIBUTED_BACKEND, # required to work
         logger=tb_logger,
         callbacks=[custom_callback]
     )

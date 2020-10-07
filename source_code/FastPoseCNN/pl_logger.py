@@ -15,11 +15,11 @@ import pdb
 class MyLogger(pl.loggers.LightningLoggerBase):
 
     experiment = 'FastPoseCNN'
-    version = 'misc'
+    version = '_'
     name = 'logger'
     save_dir='.'
 
-    #@rank_zero_only
+    @rank_zero_only
     def __init__(
         self, 
         save_dir: Path = Path(pathlib.Path.cwd() / 'logs'), 
@@ -60,13 +60,13 @@ class MyLogger(pl.loggers.LightningLoggerBase):
             'valid': {}
         }
 
-    #@rank_zero_only
+    @rank_zero_only
     def log_hyperparams(self, params):
         # params is an argparse.Namespace
         # your code to record hyperparameters goes here
         pass
 
-    #@rank_zero_only
+    @rank_zero_only
     def log_metrics(self, mode, metrics, step, store=True):
 
         # Logging the metrics invidually to tensorboard
@@ -77,11 +77,12 @@ class MyLogger(pl.loggers.LightningLoggerBase):
         if store:
             self.save_metrics(mode, metrics)
 
-    #@rank_zero_only
+    @rank_zero_only
     def save_metrics(self, mode, metrics):
 
         for metric_name, metric_value in metrics.items():
 
+            # Save the information into the logs
             # If log metric has been saved before, simply just append it to the list
             if metric_name in self.log[mode].keys():
                 self.log[mode][metric_name].append(metric_value)
@@ -89,7 +90,7 @@ class MyLogger(pl.loggers.LightningLoggerBase):
             else:
                 self.log[mode][metric_name] = [metric_value]
 
-    #@rank_zero_only
+    @rank_zero_only
     def clear_metrics(self, mode=None):
 
         # If no mode is specified, just completely reset the log
@@ -104,19 +105,19 @@ class MyLogger(pl.loggers.LightningLoggerBase):
         else:
             self.log[mode] = {}
 
-    #@rank_zero_only
+    @rank_zero_only
     def agg_and_log_metrics(self, scalar_metrics, step):
         # Necessary empty function
         pass
 
-    #@rank_zero_only
+    @rank_zero_only
     def save(self):
         
         # Flushing all the writers to make sure all the logs are completed
         for writer in self.writers.values():
             writer.flush()
 
-    #@rank_zero_only
+    @rank_zero_only
     def finalize(self, status):
         
         # Flushing and closing all the writers

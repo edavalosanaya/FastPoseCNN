@@ -50,7 +50,7 @@ class TensorAddImageCallback(catalyst.core.callbacks.logging.TensorboardLogger):
         summary_fig = self.mask_check_tb(sample, runner)
 
         # Log the figure to tensorboard
-        self.loggers[f'{mode}_log'].add_figure(f'mask_gen/{mode}', summary_fig, runner.global_sample_step)
+        self.loggers[f'_base'].add_figure(f'mask_gen/{mode}', summary_fig, runner.global_sample_step)
 
     def mask_check_tb(self, sample, runner):
 

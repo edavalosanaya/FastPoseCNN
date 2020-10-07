@@ -84,7 +84,7 @@ ENCODER_LEARNING_RATE = 0.0005
 ENCODER = 'resnext50_32x4d'
 ENCODER_WEIGHTS = 'imagenet'
 
-NUM_EPOCHS = 10
+NUM_EPOCHS = 30
 DEVICE = catalyst.utils.get_device()
 
 #-------------------------------------------------------------------------------

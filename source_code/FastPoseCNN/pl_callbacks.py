@@ -17,10 +17,17 @@ import visualize
 class MyCallback(pl.callbacks.Callback):
 
     @rank_zero_only
-    def __init__(self, metrics):
+    def __init__(self, hparams, tracked_data):
         super().__init__()
 
-        self.metrics = metrics
+        self.hparams = hparams
+        self.tracked_data = tracked_data
+
+        max_metrics = {k:0 for k in self.tracked_data['maximize']}
+        min_metrics = {k:np.inf for k in self.tracked_data['minimize']}
+        
+        self.metric_dict = max_metrics
+        self.metric_dict.update(min_metrics)
 
     @rank_zero_only
     def on_train_epoch_end(self, trainer, pl_module):
@@ -46,8 +53,6 @@ class MyCallback(pl.callbacks.Callback):
     @rank_zero_only
     def log_epoch_average(self, mode, trainer, pl_module):
 
-        #pdb.set_trace()
-
         log = pl_module.logger.log[mode]
 
         for log_name in log.keys():
@@ -55,10 +60,13 @@ class MyCallback(pl.callbacks.Callback):
             tb_log_name = log_name.replace('/batch', '')
 
             # if the log name is from the desired tensorboard metrics, then use it
-            if tb_log_name in self.metrics:
+            if tb_log_name in sum(self.tracked_data.values(), []):
+
+                # Move all items inside the logger into cuda:0
+                cuda_0_log = [x.to('cuda:0') for x in log[log_name]]
 
                 # Obtain the average first
-                average = torch.mean(torch.stack(log[log_name]))
+                average = torch.mean(torch.stack(cuda_0_log))
 
                 # Log the average
                 trainer.logger.log_metrics(
@@ -67,6 +75,17 @@ class MyCallback(pl.callbacks.Callback):
                     trainer.current_epoch+1,
                     store=False
                 )
+
+                # Save the best value (epoch level) to later log into hparams
+                # If maximize, take the maximum value
+                if tb_log_name in self.tracked_data['maximize']:
+                    if self.metric_dict[tb_log_name] < average:
+                        self.metric_dict[tb_log_name] = average
+                
+                # If minimize, take the minimum value
+                elif tb_log_name in self.tracked_data['minimize']:
+                    if self.metric_dict[tb_log_name] > average:
+                        self.metric_dict[tb_log_name] = average    
 
         # After an epoch, we clear out the log
         pl_module.logger.clear_metrics(mode)
@@ -92,6 +111,7 @@ class MyCallback(pl.callbacks.Callback):
         # Log the figure to tensorboard
         pl_module.logger.writers[mode].add_figure(f'mask_gen/{mode}', summary_fig, trainer.global_step)
 
+    @rank_zero_only
     def mask_check_tb(self, sample, pl_module, colormap):
 
         #pdb.set_trace()
@@ -145,3 +165,16 @@ class MyCallback(pl.callbacks.Callback):
         #pdb.set_trace()
 
         return summary_fig
+
+    @rank_zero_only
+    def teardown(self, trainer, pl_module, stage):
+        
+        """
+        # Log hyper parameters:
+            - Using the initialization parameter self.hparams, we use that as the
+              hparam_dict while the logger will contain the metrics_dict.
+        """
+        pl_module.logger.writers['base'].add_hparams(
+            hparam_dict=self.hparams,
+            metric_dict=self.metric_dict
+        )
