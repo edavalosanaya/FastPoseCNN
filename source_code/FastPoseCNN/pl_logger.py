@@ -35,12 +35,12 @@ class MyLogger(pl.loggers.LightningLoggerBase):
         self.name = name
 
         # Creating the necessary directories
-        run_dir = save_dir / self.name
-        base_dir = save_dir / self.name / '_base_log'
-        train_dir = save_dir / self.name / 'train_log'
-        valid_dir = save_dir / self.name / 'valid_log'
+        self.run_dir = save_dir / self.name
+        self.base_dir = save_dir / self.name / '_base_log'
+        self.train_dir = save_dir / self.name / 'train_log'
+        self.valid_dir = save_dir / self.name / 'valid_log'
 
-        necessary_dirs = [run_dir, base_dir, train_dir, valid_dir]
+        necessary_dirs = [self.run_dir, self.base_dir, self.train_dir, self.valid_dir]
 
         for necessary_dir in necessary_dirs:
             if necessary_dir.exists() is False:
@@ -48,9 +48,9 @@ class MyLogger(pl.loggers.LightningLoggerBase):
 
         # Creating Summary Writer for both base, training and validation
         self.writers = {
-            'base': SummaryWriter(log_dir=str(base_dir)),
-            'train': SummaryWriter(log_dir=str(train_dir)),
-            'valid': SummaryWriter(log_dir=str(valid_dir))
+            'base': SummaryWriter(log_dir=str(self.base_dir)),
+            'train': SummaryWriter(log_dir=str(self.train_dir)),
+            'valid': SummaryWriter(log_dir=str(self.valid_dir))
         }
 
         # Creating logging variables

@@ -64,7 +64,7 @@ To delete hanging Tensorboard processes use the following:
 DATASET_NAME = 'CAMVID'
 BATCH_SIZE = 2
 NUM_WORKERS = 8
-NUM_GPUS = 1
+NUM_GPUS = 4
 
 LEARNING_RATE = 0.001
 ENCODER_LEARNING_RATE = 0.0005

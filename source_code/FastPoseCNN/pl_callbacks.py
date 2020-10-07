@@ -1,4 +1,6 @@
 import pdb
+import shutil
+import os
 
 import numpy as np
 
@@ -178,3 +180,19 @@ class MyCallback(pl.callbacks.Callback):
             hparam_dict=self.hparams,
             metric_dict=self.metric_dict
         )
+
+        # Remove the additional folder for this hyperparameter entry
+        base_log_dir = pl_module.logger.base_dir
+
+        # For all the items inside the base_log_dir of the run
+        for child in base_log_dir.iterdir():
+
+            # If the child is a directory
+            if child.is_dir():
+
+                # Take all the files out into the log_dir
+                for file_in_child in child.iterdir():
+                    shutil.move(str(file_in_child), str(base_log_dir))
+
+                # Then delete the ugly folder >:(
+                os.rmdir(str(child))
