@@ -1,8 +1,12 @@
 import os
 import warnings
 import datetime
+import argparse
+import pathlib
 
 import pdb
+
+import numpy as np
 
 # Ignore annoying warnings
 os.environ["TF_CPP_MIN_LOG_LEVEL"]="3"
@@ -16,6 +20,8 @@ import pytorch_lightning as pl
 import catalyst
 import catalyst.utils
 import catalyst.contrib.nn
+
+import sklearn
 
 import segmentation_models_pytorch as smp
 
@@ -61,19 +67,19 @@ To delete hanging Tensorboard processes use the following:
 # File Constants
 
 # Run hyperparameters
-DATASET_NAME = 'CAMVID'
-BATCH_SIZE = 2
-NUM_WORKERS = 8
-NUM_GPUS = 4
+class DEFAULT_HPARAM(argparse.Namespace):
+    DATASET_NAME = 'CAMVID'
+    BATCH_SIZE = 2
+    NUM_WORKERS = 8
+    NUM_GPUS = 4
+    LEARNING_RATE = 0.001
+    ENCODER_LEARNING_RATE = 0.0005
+    ENCODER = 'resnext50_32x4d'
+    ENCODER_WEIGHTS = 'imagenet'
+    NUM_EPOCHS = 3
+    DISTRIBUTED_BACKEND = None if NUM_GPUS <= 1 else 'ddp'
 
-LEARNING_RATE = 0.001
-ENCODER_LEARNING_RATE = 0.0005
-
-ENCODER = 'resnext50_32x4d'
-ENCODER_WEIGHTS = 'imagenet'
-
-NUM_EPOCHS = 3
-DISTRIBUTED_BACKEND = None if NUM_GPUS == 1 else 'ddp' # (ddp, )
+HPARAM = DEFAULT_HPARAM()
 
 #-------------------------------------------------------------------------------
 # Classes
@@ -187,13 +193,13 @@ class SegmentationTask(pl.LightningModule):
     def configure_optimizers(self):
 
         # Since we use a pre-trained encoder, we will reduce the learning rate on it.
-        layerwise_params = {"encoder*": dict(lr=ENCODER_LEARNING_RATE, weight_decay=0.00003)}
+        layerwise_params = {"encoder*": dict(lr=HPARAM.ENCODER_LEARNING_RATE, weight_decay=0.00003)}
 
         # This function removes weight_decay for biases and applies our layerwise_params
         model_params = catalyst.utils.process_model_params(self.model, layerwise_params=layerwise_params)
 
         # Catalyst has new SOTA optimizers out of box
-        base_optimizer = catalyst.contrib.nn.RAdam(model_params, lr=LEARNING_RATE, weight_decay=0.0003)
+        base_optimizer = catalyst.contrib.nn.RAdam(model_params, lr=HPARAM.LEARNING_RATE, weight_decay=0.0003)
         optimizer = catalyst.contrib.nn.Lookahead(base_optimizer)
 
         # Solution from here:
@@ -227,30 +233,25 @@ class SegmentationTask(pl.LightningModule):
 
         # Calculating the effective batch_size
         if self.use_ddp:
-            effective_batch_size = BATCH_SIZE * NUM_GPUS
+            effective_batch_size = HPARAM.BATCH_SIZE * HPARAM.NUM_GPUS
         elif self.use_single_gpu or self.use_dp:
-            effective_batch_size = BATCH_SIZE
+            effective_batch_size = HPARAM.BATCH_SIZE
 
         # Calculating the effective batch_idx
         if self.use_ddp:
-            effective_batch_idx = batch_idx * NUM_GPUS + 1
+            effective_batch_idx = batch_idx * HPARAM.NUM_GPUS + 1
         elif self.use_single_gpu or self.use_dp:
             effective_batch_idx = batch_idx
 
         if mode == 'train':
             epoch_start_point = self.current_epoch * total_batchs * effective_batch_size
-            global_step = epoch_start_point + effective_batch_idx * BATCH_SIZE + 1
+            global_step = epoch_start_point + effective_batch_idx * HPARAM.BATCH_SIZE + 1
         elif mode == 'valid':
             epoch_start_point = self.current_epoch * total_batchs * effective_batch_size + num_of_train_batchs * effective_batch_size
-            global_step = epoch_start_point + effective_batch_idx * BATCH_SIZE + 1
+            global_step = epoch_start_point + effective_batch_idx * HPARAM.BATCH_SIZE + 1
         else:
             epoch_start_point = 0
             global_step = self.global_step
-
-        """
-        if int(self.global_rank) == 0 and mode == 'valid':
-            print(f'\n{mode} - GPU {self.global_rank}: epoch_start_point={epoch_start_point} batch_idx={batch_idx} e_batch_idx={effective_batch_idx} e_batch_size={effective_batch_size} global_step={global_step}')
-        """
         
         return global_step
 
@@ -268,7 +269,7 @@ class SegmentationDataModule(pl.LightningDataModule):
 
         # Obtaining the preprocessing_fn depending on the encoder and the encoder
         # weights
-        preprocessing_fn = smp.encoders.get_preprocessing_fn(ENCODER, ENCODER_WEIGHTS)
+        preprocessing_fn = smp.encoders.get_preprocessing_fn(HPARAM.ENCODER, HPARAM.ENCODER_WEIGHTS)
 
         # NOCS
         if self.dataset_name == 'NOCS':
@@ -430,18 +431,37 @@ class SegmentationDataModule(pl.LightningDataModule):
 
 if __name__ == '__main__':
 
+    # Parse arguments and replace global variables if needed
+    parser = argparse.ArgumentParser(description='Train with PyTorch Lightning framework')
+    parser.add_argument('-d', '--DATASET_NAME', type=str, default=HPARAM.DATASET_NAME, help='Name of the dataset')
+    parser.add_argument('-b', '--BATCH_SIZE', type=int, default=HPARAM.BATCH_SIZE, help='Batch size')
+    parser.add_argument('-nw', '--NUM_WORKERS', type=int, default=HPARAM.NUM_WORKERS, help='Number of CPU workers')
+    parser.add_argument('-ng', '--NUM_GPUS', type=int, default=HPARAM.NUM_GPUS, help='Number of GPUS')
+    parser.add_argument('-e', '--NUM_EPOCHS', type=int, default=HPARAM.NUM_EPOCHS, help='Number of epochs')
+    parser.add_argument('-db', '--DISTRIBUTED_BACKEND', type=str, default=HPARAM.DISTRIBUTED_BACKEND, choices=['dp','ddp','ddp_spawn','ddp2','horovod'], help='Type of distributed backend')
+    parser.add_argument('-lr', '--LEARNING_RATE', type=float, default=HPARAM.LEARNING_RATE, help='Learning rate of the model')
+    parser.add_argument('-elr', '--ENCODER_LEARNING_RATE', default=HPARAM.ENCODER_LEARNING_RATE, type=float, help='Encoder learning rate')
+    parser.add_argument('-enc', '--ENCODER', type=str, default=HPARAM.ENCODER, help='Type of encoder')
+    parser.add_argument('-ew', '--ENCODER_WEIGHTS', type=str, default=HPARAM.ENCODER_WEIGHTS, help='encoder pre-trained weights')
+
+    # Updating the HPARAMs
+    parser.parse_args(namespace=HPARAM)
+    
+    # Ensuring that DISTRIBUTED_BACKEND doesn't cause problems
+    HPARAM.DISTRIBUTED_BACKEND = None if HPARAM.NUM_GPUS <= 1 else 'ddp'
+
     # Creating data module
     dataset = SegmentationDataModule(
-        dataset_name=DATASET_NAME,
-        batch_size=BATCH_SIZE,
-        num_workers=NUM_WORKERS
+        dataset_name=HPARAM.DATASET_NAME,
+        batch_size=HPARAM.BATCH_SIZE,
+        num_workers=HPARAM.NUM_WORKERS
     )
 
     # Creating base model
     base_model = smp.FPN(
-        encoder_name=ENCODER, 
-        encoder_weights=ENCODER_WEIGHTS, 
-        classes=project.constants.NUM_CLASSES[DATASET_NAME]
+        encoder_name=HPARAM.ENCODER, 
+        encoder_weights=HPARAM.ENCODER_WEIGHTS, 
+        classes=project.constants.NUM_CLASSES[HPARAM.DATASET_NAME]
     )
 
     # Selecting the criterion
@@ -466,19 +486,19 @@ if __name__ == '__main__':
     model = SegmentationTask(base_model, criterion, metrics)
 
     # Saving the run
-    model_name = f'FPN-{ENCODER}-{ENCODER_WEIGHTS}'
+    model_name = f"FPN-{HPARAM.ENCODER}-{HPARAM.ENCODER_WEIGHTS}"
     now = datetime.datetime.now().strftime('%d-%m-%y--%H-%M')
-    run_name = f'pl-{now}-{DATASET_NAME}-{model_name}'
+    run_name = f"pl-{now}-{HPARAM.DATASET_NAME}-{model_name}"
 
     # Construct hparams data to send it to MyCallback
     runs_hparams = {
         'model': model_name,
-        'dataset': DATASET_NAME,
-        'number of GPUS': NUM_GPUS,
-        'batch size': BATCH_SIZE,
-        'number of workers': NUM_WORKERS,
+        'dataset': HPARAM.DATASET_NAME,
+        'number of GPUS': HPARAM.NUM_GPUS,
+        'batch size': HPARAM.BATCH_SIZE,
+        'number of workers': HPARAM.NUM_WORKERS,
         'ML abs library': 'pl',
-        'distributed_backend': DISTRIBUTED_BACKEND,
+        'distributed_backend': HPARAM.DISTRIBUTED_BACKEND,
     }
 
     # Creating my own logger
@@ -495,10 +515,10 @@ if __name__ == '__main__':
 
     # Training
     trainer = pl.Trainer(
-        max_epochs=NUM_EPOCHS,
-        gpus=NUM_GPUS,
-        num_processes=NUM_WORKERS,
-        distributed_backend=DISTRIBUTED_BACKEND, # required to work
+        max_epochs=HPARAM.NUM_EPOCHS,
+        gpus=HPARAM.NUM_GPUS,
+        num_processes=HPARAM.NUM_WORKERS,
+        distributed_backend=HPARAM.DISTRIBUTED_BACKEND, # required to work
         logger=tb_logger,
         callbacks=[custom_callback]
     )
