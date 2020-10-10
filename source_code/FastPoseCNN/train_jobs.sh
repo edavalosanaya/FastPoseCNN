@@ -1,7 +1,7 @@
 #!/bin/bash
 
 : '
-Avaliable parameters (for pl_train.py)
+Avaliable parameters (for pl_segmentation_task.py)
     --DATASET_NAME (-d)
     --BATCH_SIZE (-b)
     --NUM_WORKERS (-nw)
@@ -18,12 +18,24 @@ Avaliable parameters (for pl_train.py)
 pkill -9 tensorboard
 
 # This file is to run training jobs
-python catalyst_train.py 
+#python catalyst_train.py 
 
-python pl_train.py --NUM_EPOCHS 100 --NUM_GPUS 4 --DISTRIBUTED_BACKEND ddp --BATCH_SIZE 4
-python pl_train.py --NUM_EPOCHS 100 --NUM_GPUS 4 --DISTRIBUTED_BACKEND dp --BATCH_SIZE 4
-python pl_train.py --NUM_EPOCHS 100 --NUM_GPUS 1 --BATCH_SIZE 4
+python pl_segmentation_task.py --NUM_EPOCHS 100 --NUM_GPUS 1 --DISTRIBUTED_BACKEND ddp --BATCH_SIZE 4
+python pl_segmentation_task.py --NUM_EPOCHS 100 --NUM_GPUS 2 --DISTRIBUTED_BACKEND ddp --BATCH_SIZE 4
+python pl_segmentation_task.py --NUM_EPOCHS 100 --NUM_GPUS 3 --DISTRIBUTED_BACKEND ddp --BATCH_SIZE 4
+python pl_segmentation_task.py --NUM_EPOCHS 100 --NUM_GPUS 4 --DISTRIBUTED_BACKEND ddp --BATCH_SIZE 4
 
-python pl_train.py --NUM_EPOCHS 100 --NUM_GPUS 4 --DISTRIBUTED_BACKEND ddp --BATCH_SIZE 1
-python pl_train.py --NUM_EPOCHS 100 --NUM_GPUS 4 --DISTRIBUTED_BACKEND dp --BATCH_SIZE 1
-python pl_train.py --NUM_EPOCHS 100 --NUM_GPUS 1 --BATCH_SIZE 1
+python pl_segmentation_task.py --NUM_EPOCHS 100 --NUM_GPUS 1 --DISTRIBUTED_BACKEND ddp --BATCH_SIZE 3
+python pl_segmentation_task.py --NUM_EPOCHS 100 --NUM_GPUS 2 --DISTRIBUTED_BACKEND ddp --BATCH_SIZE 3
+python pl_segmentation_task.py --NUM_EPOCHS 100 --NUM_GPUS 3 --DISTRIBUTED_BACKEND ddp --BATCH_SIZE 3
+python pl_segmentation_task.py --NUM_EPOCHS 100 --NUM_GPUS 4 --DISTRIBUTED_BACKEND ddp --BATCH_SIZE 3
+
+python pl_segmentation_task.py --NUM_EPOCHS 100 --NUM_GPUS 1 --DISTRIBUTED_BACKEND ddp --BATCH_SIZE 2
+python pl_segmentation_task.py --NUM_EPOCHS 100 --NUM_GPUS 2 --DISTRIBUTED_BACKEND ddp --BATCH_SIZE 2
+python pl_segmentation_task.py --NUM_EPOCHS 100 --NUM_GPUS 3 --DISTRIBUTED_BACKEND ddp --BATCH_SIZE 2
+python pl_segmentation_task.py --NUM_EPOCHS 100 --NUM_GPUS 4 --DISTRIBUTED_BACKEND ddp --BATCH_SIZE 2
+
+python pl_segmentation_task.py --NUM_EPOCHS 100 --NUM_GPUS 1 --DISTRIBUTED_BACKEND ddp --BATCH_SIZE 1
+python pl_segmentation_task.py --NUM_EPOCHS 100 --NUM_GPUS 2 --DISTRIBUTED_BACKEND ddp --BATCH_SIZE 1
+python pl_segmentation_task.py --NUM_EPOCHS 100 --NUM_GPUS 3 --DISTRIBUTED_BACKEND ddp --BATCH_SIZE 1
+python pl_segmentation_task.py --NUM_EPOCHS 100 --NUM_GPUS 4 --DISTRIBUTED_BACKEND ddp --BATCH_SIZE 1

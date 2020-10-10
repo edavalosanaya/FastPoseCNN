@@ -13,6 +13,7 @@ import numpy as np
 import cv2
 import imutils
 import skimage.io
+import skimage.transform
 
 import torch
 import torchvision
@@ -48,7 +49,7 @@ ENCODER = 'resnext50_32x4d'
 ENCODER_WEIGHTS = 'imagenet'
 
 #-------------------------------------------------------------------------------
-# Collective Data Classes
+# Old Data Classes
 
 class OLDNOCSDataset(torch.utils.data.Dataset):
 
@@ -434,74 +435,10 @@ class OLDNOCSDataset(torch.utils.data.Dataset):
 
         return sample
 
-class OLDVOCSegDataset(torch.utils.data.Dataset):
-    """A customized dataset to load VOC dataset."""
+#-------------------------------------------------------------------------------
+# Segmentation Datasets
 
-    def __init__(self, is_train, crop_size, voc_dir):
-        
-        self.rgb_mean = np.array([0.485, 0.456, 0.406])
-        self.rgb_std = np.array([0.229, 0.224, 0.225])
-        self.crop_size = crop_size
-        
-        features, labels = visualize.read_voc_images(voc_dir, is_train=is_train)
-        self.features = [self.normalize_image(feature)
-                         for feature in self.filter(features)]
-        
-        self.labels = self.filter(labels)
-        
-        self.colormap2label = visualize.build_colormap2label()
-        
-        print('read ' + str(len(self.features)) + ' examples')
-
-    def normalize_image(self, img):
-        return (img.astype('float32') / 255 - self.rgb_mean) / self.rgb_std
-
-    def filter(self, imgs):
-        return [img for img in imgs if (
-            img.shape[0] >= self.crop_size[0] and
-            img.shape[1] >= self.crop_size[1])]
-
-    def __getitem__(self, idx):
-        
-        pdb.set_trace()
-        
-        feature, label = visualize.voc_rand_crop(self.features[idx], self.labels[idx],
-                                                 *self.crop_size)
-        feature = feature.transpose(2,0,1)
-        label = visualize.voc_label_indices(label, self.colormap2label)
-
-        # Convert from numpy to tensor
-        feature = torch.from_numpy(feature).type(torch.FloatTensor)
-        label = torch.from_numpy(label).type(torch.LongTensor)
-
-        # Moving tensors to cuda if possible
-        device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-        feature = feature.to(device)
-        label = label.to(device)
-
-        sample = {'color_image': feature,
-                  'masks': label}
-        
-        #return sample
-        return feature, label
-
-    def __len__(self):
-        return len(self.features)
-
-    def get_random_sample(self, batched=True):
-
-        random_idx = random.choice(range(len(self)))
-
-        # Loading data
-        sample = self.__getitem__(random_idx)
-
-        if batched:
-            for key in sample.keys():
-                sample[key] = torch.unsqueeze(sample[key], 0)
-
-        return sample
-
-class CAMVIDDataset(torch.utils.data.Dataset):
+class CAMVIDSegDataset(torch.utils.data.Dataset):
     """CamVid Dataset. Read images, apply augmentation and preprocessing transformations.
     
     Args:
@@ -592,7 +529,7 @@ class CAMVIDDataset(torch.utils.data.Dataset):
 
         return batched_sample
 
-class VOCDataset(torch.utils.data.Dataset):
+class VOCSegDataset(torch.utils.data.Dataset):
     """PASCAL VOC 2012 Dataset. Read images, apply augmentation and preprocessing transformations.
     
     Args:
@@ -665,7 +602,7 @@ class VOCDataset(torch.utils.data.Dataset):
     def __len__(self):
         return len(self.ids)
 
-class NOCSDataset(torch.utils.data.Dataset):
+class NOCSSegDataset(torch.utils.data.Dataset):
     """NOCS Dataset. Read images, apply augmentation and preprocessing transformations.
     
     Args:
@@ -710,8 +647,6 @@ class NOCSDataset(torch.utils.data.Dataset):
         mask_fp = str(self.images_fps[i]).replace('_color.png', '_mask.png')
         mask = skimage.io.imread(mask_fp, 0)[:,:,0].astype('float')
         mask[mask == 255] = 0
-
-        #pdb.set_trace()
 
         json_fp = str(self.images_fps[i]).replace('_color.png', '_meta+.json')
         json_data = json_tools.load_from_json(json_fp)
@@ -933,7 +868,7 @@ class NOCSDataset(torch.utils.data.Dataset):
 
         return cropped_sample
 
-class CARVANADataset(torch.utils.data.Dataset):
+class CARVANASegDataset(torch.utils.data.Dataset):
 
     CLASSES = ['car']
     
@@ -969,13 +904,260 @@ class CARVANADataset(torch.utils.data.Dataset):
         return result
 
 #-------------------------------------------------------------------------------
+# Pose Regression Datasets
+
+class NOCSPoseRegDataset(torch.utils.data.Dataset):
+    """NOCS Dataset. Read images, apply augmentation and preprocessing transformations.
+    
+    Args:
+        dataset_dir (str): filepath to the dataset (train, valid, or test)
+        max_size (int): maximum number of samples
+        augmentation (albumentations.Compose): data transfromation pipeline 
+            (e.g. flip, scale, etc.)
+        preprocessing (albumentations.Compose): data preprocessing 
+            (e.g. noralization, shape manipulation, etc.)
+    """
+
+    CLASSES = project.constants.NOCS_CLASSES
+    COLORMAP = project.constants.NOCS_COLORMAP
+    
+    def __init__(
+        self,
+        dataset_dir,
+        max_size=None,
+        classes=None,
+        augmentation=None,
+        preprocessing=None,
+        crop_size=100
+    ):
+        # Obtaining the filepaths for the images
+        self.images_fps = self.get_image_paths_in_dir(dataset_dir, max_size=max_size)
+
+        # convert str names to class values on masks
+        self.class_values = [self.CLASSES.index(cls.lower()) for cls in classes]
+
+        # Saving parameters
+        self.augmentation = augmentation
+        self.preprocessing = preprocessing
+        self.crop_size = crop_size
+
+    def __getitem__(self, i):
+
+        # Reading data
+        # Image
+        image = skimage.io.imread(str(self.images_fps[i]))
+
+        # Mask
+        mask_fp = str(self.images_fps[i]).replace('_color.png', '_mask.png')
+        mask = skimage.io.imread(mask_fp, 0)[:,:,0].astype('float')
+        mask[mask == 255] = 0
+
+        # Depth
+        depth_fp = str(self.images_fps[i]).replace('_color.png', '_depth.png')
+        depth_image = skimage.io.imread(depth_fp)
+
+        # Converting depth to the correct shape and dtype
+        if len(depth_image.shape) == 3: # encoded depth image
+            new_depth = np.uint16(depth_image[:, :, 1] * 256) + np.uint16(depth_image[:,:,2])
+            new_depth = new_depth.astype(np.uint16)
+            depth_image = new_depth
+        elif len(depth_image.shape) == 2 and depth_image.dtype == 'uint16':
+            pass # depth is perfecto!
+        else:
+            assert False, '[ Error ]: Unsupported depth type'
+
+        # Other data
+        json_fp = str(self.images_fps[i]).replace('_color.png', '_meta+.json')
+        json_data = json_tools.load_from_json(json_fp)
+
+        # Given the data, modify any data necessary
+        instance_dict = json_data['instance_dict']
+
+        # Selecting randomly an instance (an object)
+        keys = list(instance_dict.keys())
+        random_index_selected = np.random.randint(low=0, high=len(keys))
+
+        selected_instance_id = int(keys[random_index_selected])
+        selected_quaterion = np.asarray(json_data['quaternions'][random_index_selected], dtype=np.float32)
+        selected_scale = np.asarray(json_data['scales'][random_index_selected], dtype=np.float32)
+        selected_norm = np.asarray(json_data['norm_factors'][random_index_selected], dtype=np.float32)
+        
+        instance_mask = np.equal(mask, selected_instance_id) * 1
+        instance_mask = instance_mask.astype(np.uint8)
+
+        # Storing mask and image into sample
+        sample = {'image': image, 'depth': depth_image}
+        one_object_sample = self.crop_one_object(instance_mask, sample)
+
+        # Attach pose and depth
+        one_object_sample.update({
+            'quaternion': selected_quaterion,
+            'scale': selected_scale,
+            'norm_factor': selected_norm
+        })
+
+        return one_object_sample
+
+    def __len__(self):
+        return len(self.images_fps)
+
+    def crop_one_object(self, instance_mask, sample):
+
+        # Finding the extreme points of the mask:
+        # https://www.pyimagesearch.com/2016/04/11/finding-extreme-points-in-contours-with-opencv/
+
+        try:
+            # In the case of multiple objects within the same class, we find the contours
+            cnts, hei = cv2.findContours(instance_mask, cv2.RETR_TREE ,cv2.CHAIN_APPROX_SIMPLE)
+
+            # If multple contours (multiple objects), select one randomly
+            rand_choice = random.choice(range(len(cnts)))
+            cnt = cnts[rand_choice]
+
+            # Find the centroid of the contour
+            M = cv2.moments(cnt)
+            cX = int(M["m10"] / M["m00"])
+            cY = int(M["m01"] / M["m00"])
+            centroid = (cX, cY)
+
+            # Finding the extreme points
+            ext_left = tuple(cnt[cnt[:,:,0].argmin()][0])
+            ext_right = tuple(cnt[cnt[:,:,0].argmax()][0])
+            ext_top = tuple(cnt[cnt[:,:,1].argmin()][0])
+            ext_bot = tuple(cnt[cnt[:,:,1].argmax()][0])
+
+        except Exception as e:
+            print(e)
+            # If centroid was not found, simply use the center of the image
+            h,w = instance_mask.shape
+            Cx, Cy = w // 2, h // 2
+
+            centroid = (Cx, Cy)
+            ext_left = (Cx-30, Cy)
+            ext_right = (Cx+30, Cy)
+            ext_top = (Cx, Cy-30)
+            ext_bot = (Cx, Cy+30)
+
+        # Mask's data
+        mask_data = {
+            'centroid': centroid,
+            'ext_left': ext_left,
+            'ext_right': ext_right,
+            'ext_top': ext_top,
+            'ext_bot': ext_bot
+        }
+
+        # Crop the sample given the center and crop_size
+        cropped_sample = self.crop_sample(sample, mask_data)
+
+        return cropped_sample
+
+    def crop_sample(self, sample, mask_data):
+
+        # Creating a container for the output
+        cropped_sample = {}
+
+        # H,W of the images
+        h, w, _ = sample['image'].shape
+
+        # Determing the left, right, top and bottom of the image
+        padding = 10
+        left = mask_data['ext_left'][0] - padding
+        right = mask_data['ext_right'][0] + padding
+        top = mask_data['ext_top'][1] - padding
+        bottom = mask_data['ext_bot'][1] + padding
+
+        # Check if the left, right, top and bottom are outside the image
+        left_pad = right_pad = top_pad = bottom_pad = 0
+
+        if left < 0:
+            left_pad = -left
+            left = 0
+        if right > w:
+            right_pad = right - w
+            right = w
+        if top < 0:
+            top_pad = -top
+            top = 0
+        if bottom > h:
+            bottom_pad = bottom - h
+            bottom = h 
+
+        # Crop the images in the sample
+        for key in sample.keys():
+            if len(sample[key].shape) == 2:
+                crop = sample[key][top:bottom,left:right]
+                crop_and_pad = np.pad(crop, ((top_pad,bottom_pad),(left_pad, right_pad)), mode='constant')
+                rescaled_crop_and_pad = skimage.transform.resize(crop_and_pad, (self.crop_size, self.crop_size), anti_aliasing=True)
+                cropped_sample[key] = rescaled_crop_and_pad
+            elif len(sample[key].shape) == 3:
+                crop = sample[key][top:bottom,left:right,:]
+                crop_and_pad = np.pad(crop, ((top_pad,bottom_pad),(left_pad, right_pad), (0,0)), mode='constant')
+                rescaled_crop_and_pad = skimage.transform.resize(crop_and_pad, (self.crop_size, self.crop_size, sample[key].shape[2]), anti_aliasing=True)
+                cropped_sample[key] = rescaled_crop_and_pad
+
+        return cropped_sample
+
+    def get_image_paths_in_dir(self, dir_path, max_size=None):
+        """
+        Args:
+            dir_path (pathlib object): The directory to be search for all possible
+                color images
+        Objective:
+            Perform a search inside dir_path to collect all available color images
+            and save them into a list
+        Output:
+            total_path_list (list): A list of all collected color images
+        """
+
+        total_path_list = [] # [[color, depth], ...]
+        
+        # handling additional directories
+        eval_paths = [dir_path]
+        i = 0
+
+        while True:
+
+            # Break condition: if no more directories to evaluate, end
+            if len(eval_paths) <= i:
+                break
+
+            # Selecting the new path to evaluate
+            eval_path = eval_paths[i]
+            i += 1
+
+            # for all the evaluate paths, do the following
+            files = [x for x in eval_path.iterdir() if x.is_file()]
+
+            # Adding all the color images into the total_path_list
+            color_images = [x for x in files if x.name.find('color') != -1 and x.suffix == '.png']
+            total_path_list += color_images
+
+            directories = [x for x in eval_path.iterdir() if x.is_dir()]
+            eval_paths += directories
+
+            # If max size is reached or overpassed, break from loop
+            if max_size != None:
+                if len(total_path_list) >= max_size:
+                    break
+
+        # removing any falsy elements
+        total_path_list = [x for x in total_path_list if x]
+
+        # Trimming excess if dataset_max_size is set
+        if max_size != None:
+            total_path_list = total_path_list[:max_size]
+
+        return total_path_list
+
+#-------------------------------------------------------------------------------
 # Functions
 
-def test_camvid_dataset():
+def test_seg_camvid_dataset():
 
     preprocessing_fn = smp.encoders.get_preprocessing_fn(ENCODER, ENCODER_WEIGHTS)
 
-    dataset = CAMVIDDataset(
+    dataset = CAMVIDSegDataset(
         project.cfg.CAMVID_DATASET,
         train_valid_test='train', 
         classes=project.constants.CAMVID_CLASSES,
@@ -987,14 +1169,14 @@ def test_camvid_dataset():
     test_sample = dataset[1]
     pdb.set_trace()
 
-def test_nocs_dataset():
+def test_seg_nocs_dataset():
 
     preprocessing_fn = smp.encoders.get_preprocessing_fn(ENCODER, ENCODER_WEIGHTS)
 
     crop_size = 224
 
     print('Loading dataset')
-    dataset = NOCSDataset(
+    dataset = NOCSSegDataset(
         dataset_dir=project.cfg.CAMERA_TRAIN_DATASET, 
         max_size=1000,
         classes=project.constants.NOCS_CLASSES,
@@ -1006,35 +1188,15 @@ def test_nocs_dataset():
     )
     print('Finished loading dataset')
 
-    # Testing custom Dataset (Working)
-    #"""
     print("\n\nTesting dataset loading\n\n")
     test_sample = dataset[1]
-    pdb.set_trace()
     #test_sample = dataset.get_random_sample(batched=True)
 
-    #print(test_sample)
-    """
-    for item in test_sample:
-        print(item.shape)
-    #"""
-
     # Testing built-in dataset (Working)
-    #"""
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=True)
-
     sample = next(iter(dataloader))
 
-    #print(sample)
-
-    #pdb.set_trace()
-    """
-    for item in sample:
-        print(item.shape)
-
-    #"""
-
-def test_voc_dataset():
+def test_seg_voc_dataset():
 
     # Creating train and valid dataset
     crop_size = (320, 480)
@@ -1065,14 +1227,45 @@ def test_voc_dataset():
         break
     #"""
 
+def test_pose_nocs_dataset():
+
+    crop_size = 100
+
+    preprocessing_fn = smp.encoders.get_preprocessing_fn(ENCODER, ENCODER_WEIGHTS)
+
+    dataset = NOCSPoseRegDataset(
+        dataset_dir=project.cfg.CAMERA_TRAIN_DATASET,
+        max_size=1000,
+        classes=project.constants.NOCS_CLASSES,
+        augmentation=transforms.get_training_augmentation(height=crop_size, width=crop_size),
+        preprocessing=transforms.get_preprocessing(preprocessing_fn),
+        crop_size=crop_size
+    )
+
+    # Testing dataset
+    test_sample = dataset[1]
+
+    # Testing dataloader
+    dataloader = torch.utils.data.DataLoader(dataset, batch_size=2, shuffle=True)
+    sample = next(iter(dataloader))
+
 #-------------------------------------------------------------------------------
 # Main Code
 
 if __name__ == '__main__':
+
+    # TODO
+    """
+    norm factor in pose regression dataset is not correct!
+    """
     
     # For testing the dataset
     
-    #test_camvid_dataset()
-    test_nocs_dataset()
-    #test_voc_dataset()
+    # Segmentation Datasets
+    #test_seg_camvid_dataset()
+    #test_seg_nocs_dataset()
+    #test_seg_voc_dataset()
+
+    # Pose Datsets
+    test_pose_nocs_dataset()
 

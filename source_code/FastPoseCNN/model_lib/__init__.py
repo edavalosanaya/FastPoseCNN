@@ -7,4 +7,5 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from fastposecnn import FastPoseCNN
 from unet import UNet
 from unet_wrapper import UNetWrapper
+from pose_regressor import PoseRegressor
 import loss

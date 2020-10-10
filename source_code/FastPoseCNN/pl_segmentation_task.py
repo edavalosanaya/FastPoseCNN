@@ -74,6 +74,7 @@ class DEFAULT_HPARAM(argparse.Namespace):
     NUM_GPUS = 4
     LEARNING_RATE = 0.001
     ENCODER_LEARNING_RATE = 0.0005
+    BACKBONE_ARCH = 'FPN'
     ENCODER = 'resnext50_32x4d'
     ENCODER_WEIGHTS = 'imagenet'
     NUM_EPOCHS = 3
@@ -98,35 +99,8 @@ class SegmentationTask(pl.LightningModule):
         # Saving the metrics
         self.metrics = metrics
 
-        # Global step tracker
-        self.global_step_tracker = {
-            'train': 0,
-            'valid': 0
-        }
-
     def forward(self, x):
         return self.model(x)
-
-    def shared_step(self, mode, batch, batch_idx):
-        
-        # Forward pass the input and generate the prediction of the NN
-        logits = self.model(batch['image'])
-        
-        # Calculate the loss based on self.loss_function
-        losses, metrics = self.loss_function(logits, batch['mask'])
-
-        # Calculate the effective global step
-        global_step = self.calculate_global_step(mode, batch_idx)
-
-        # Logging the batch loss to Tensorboard
-        for loss_name, loss_value in losses.items():
-            self.logger.log_metrics(mode, {f'{loss_name}/batch':loss_value}, global_step)
-
-        # Logging the metric loss to Tensorboard
-        for metric_name, metric_value in metrics.items():
-            self.logger.log_metrics(mode, {f'{metric_name}/batch':metric_value}, global_step) 
-
-        return losses, metrics
 
     def training_step(self, batch, batch_idx):
 
@@ -160,10 +134,29 @@ class SegmentationTask(pl.LightningModule):
         result.log_dict(metrics)
 
         return result
+    
+    def shared_step(self, mode, batch, batch_idx):
+        
+        # Forward pass the input and generate the prediction of the NN
+        logits = self.model(batch['image'])
+        
+        # Calculate the loss based on self.loss_function
+        losses, metrics = self.loss_function(logits, batch['mask'])
+
+        # Calculate the effective global step
+        global_step = self.calculate_global_step(mode, batch_idx)
+
+        # Logging the batch loss to Tensorboard
+        for loss_name, loss_value in losses.items():
+            self.logger.log_metrics(mode, {f'{loss_name}/batch':loss_value}, global_step)
+
+        # Logging the metric loss to Tensorboard
+        for metric_name, metric_value in metrics.items():
+            self.logger.log_metrics(mode, {f'{metric_name}/batch':metric_value}, global_step) 
+
+        return losses, metrics
 
     def loss_function(self, pred, gt):
-    
-        metrics = {}
 
         # Calculate the loss of each criterion and the metrics
         losses = {
@@ -274,7 +267,7 @@ class SegmentationDataModule(pl.LightningDataModule):
         # NOCS
         if self.dataset_name == 'NOCS':
             crop_size = 224
-            train_dataset = dataset.NOCSDataset(
+            train_dataset = dataset.NOCSSegDataset(
                 dataset_dir=project.cfg.CAMERA_TRAIN_DATASET, 
                 max_size=1000,
                 classes=project.constants.NOCS_CLASSES,
@@ -285,7 +278,7 @@ class SegmentationDataModule(pl.LightningDataModule):
                 mask_dataformat='HW'
             )
 
-            valid_dataset = dataset.NOCSDataset(
+            valid_dataset = dataset.NOCSSegDataset(
                 dataset_dir=project.cfg.CAMERA_VALID_DATASET, 
                 max_size=100,
                 classes=project.constants.NOCS_CLASSES,
@@ -324,7 +317,7 @@ class SegmentationDataModule(pl.LightningDataModule):
         # CAMVID
         if self.dataset_name == 'CAMVID':
 
-            train_dataset = ds.CAMVIDDataset(
+            train_dataset = ds.CAMVIDSegDataset(
                 project.cfg.CAMVID_DATASET,
                 train_valid_test='train', 
                 classes=project.constants.CAMVID_CLASSES,
@@ -333,7 +326,7 @@ class SegmentationDataModule(pl.LightningDataModule):
                 mask_dataformat='HW'
             )
 
-            valid_dataset = ds.CAMVIDDataset(
+            valid_dataset = ds.CAMVIDSegDataset(
                 project.cfg.CAMVID_DATASET,
                 train_valid_test='val',
                 classes=project.constants.CAMVID_CLASSES,
@@ -342,7 +335,7 @@ class SegmentationDataModule(pl.LightningDataModule):
                 mask_dataformat='HW'
             )
 
-            test_dataset = ds.CAMVIDDataset(
+            test_dataset = ds.CAMVIDSegDataset(
                 project.cfg.CAMVID_DATASET,
                 train_valid_test='test',
                 classes=project.constants.CAMVID_CLASSES,
@@ -351,7 +344,7 @@ class SegmentationDataModule(pl.LightningDataModule):
                 mask_dataformat='HW'
             )
 
-            test_dataset_vis = ds.CAMVIDDataset(
+            test_dataset_vis = ds.CAMVIDSegDataset(
                 project.cfg.CAMVID_DATASET,
                 train_valid_test='test',
                 classes=project.constants.CAMVID_CLASSES,
@@ -385,14 +378,14 @@ class SegmentationDataModule(pl.LightningDataModule):
             np_masks = np.array(ALL_MASKS)
 
             # Creates our train dataset
-            train_dataset = dataset.CARVANADataset(
+            train_dataset = dataset.CARVANASegDataset(
                 images = np_images[train_indices].tolist(),
                 masks = np_masks[train_indices].tolist(),
                 transforms = transforms.train_transforms
             )
 
             # Creates our valid dataset
-            valid_dataset = dataset.CARVANADataset(
+            valid_dataset = dataset.CARVANASegDataset(
                 images = np_images[valid_indices].tolist(),
                 masks = np_masks[valid_indices].tolist(),
                 transforms = transforms.valid_transforms
@@ -442,13 +435,14 @@ if __name__ == '__main__':
     parser.add_argument('-lr', '--LEARNING_RATE', type=float, default=HPARAM.LEARNING_RATE, help='Learning rate of the model')
     parser.add_argument('-elr', '--ENCODER_LEARNING_RATE', default=HPARAM.ENCODER_LEARNING_RATE, type=float, help='Encoder learning rate')
     parser.add_argument('-enc', '--ENCODER', type=str, default=HPARAM.ENCODER, help='Type of encoder')
+    parser.add_argument('-bba', '--BACKBONE_ARCH', type=str, default=HPARAM.BACKBONE_ARCH, help='Type of backbone architecture')
     parser.add_argument('-ew', '--ENCODER_WEIGHTS', type=str, default=HPARAM.ENCODER_WEIGHTS, help='encoder pre-trained weights')
 
     # Updating the HPARAMs
     parser.parse_args(namespace=HPARAM)
     
     # Ensuring that DISTRIBUTED_BACKEND doesn't cause problems
-    HPARAM.DISTRIBUTED_BACKEND = None if HPARAM.NUM_GPUS <= 1 else 'ddp'
+    HPARAM.DISTRIBUTED_BACKEND = None if HPARAM.NUM_GPUS <= 1 else HPARAM.DISTRIBUTED_BACKEND
 
     # Creating data module
     dataset = SegmentationDataModule(
@@ -458,7 +452,7 @@ if __name__ == '__main__':
     )
 
     # Creating base model
-    base_model = smp.FPN(
+    base_model = smp.__dict__[HPARAM.BACKBONE_ARCH](
         encoder_name=HPARAM.ENCODER, 
         encoder_weights=HPARAM.ENCODER_WEIGHTS, 
         classes=project.constants.NUM_CLASSES[HPARAM.DATASET_NAME]
@@ -473,7 +467,9 @@ if __name__ == '__main__':
 
     # Selecting metrics
     metrics = {
-        'dice': pl.metrics.functional.dice_score
+        'dice': pl.metrics.functional.dice_score,
+        'iou': pl.metrics.functional.iou,
+        'f1': pl.metrics.functional.f1_score
     }
 
     # Noting what are the items that we want to see as the training develops
@@ -486,9 +482,9 @@ if __name__ == '__main__':
     model = SegmentationTask(base_model, criterion, metrics)
 
     # Saving the run
-    model_name = f"FPN-{HPARAM.ENCODER}-{HPARAM.ENCODER_WEIGHTS}"
+    model_name = f"{HPARAM.BACKBONE_ARCH}-{HPARAM.ENCODER}-{HPARAM.ENCODER_WEIGHTS}"
     now = datetime.datetime.now().strftime('%d-%m-%y--%H-%M')
-    run_name = f"pl-{now}-{HPARAM.DATASET_NAME}-{model_name}"
+    run_name = f"seg-{now}-{HPARAM.DATASET_NAME}-{model_name}"
 
     # Construct hparams data to send it to MyCallback
     runs_hparams = {

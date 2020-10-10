@@ -103,7 +103,7 @@ def load_dataset(DATASET_NAME='VOC'):
     # NOCS
     if DATASET_NAME == 'NOCS':
         crop_size = 224
-        train_dataset = dataset.NOCSDataset(
+        train_dataset = dataset.NOCSSegDataset(
             dataset_dir=project.cfg.CAMERA_TRAIN_DATASET, 
             max_size=1000,
             classes=project.constants.NOCS_CLASSES,
@@ -114,7 +114,7 @@ def load_dataset(DATASET_NAME='VOC'):
             mask_dataformat='HW'
         )
 
-        valid_dataset = dataset.NOCSDataset(
+        valid_dataset = dataset.NOCSSegDataset(
             dataset_dir=project.cfg.CAMERA_VALID_DATASET, 
             max_size=100,
             classes=project.constants.NOCS_CLASSES,
@@ -131,7 +131,7 @@ def load_dataset(DATASET_NAME='VOC'):
     # VOC
     if DATASET_NAME == 'VOC':
         
-        train_dataset = dataset.VOCDataset(
+        train_dataset = dataset.VOCSegDataset(
             voc_dir=project.cfg.VOC_DATASET,
             is_train=True,
             classes=project.constants.VOC_CLASSES,
@@ -139,7 +139,7 @@ def load_dataset(DATASET_NAME='VOC'):
             preprocessing=transforms.get_preprocessing(preprocessing_fn)
         )
 
-        valid_dataset = dataset.VOCDataset(
+        valid_dataset = dataset.VOCSegDataset(
             voc_dir=project.cfg.VOC_DATASET,
             is_train=False,
             classes=project.constants.VOC_CLASSES,
@@ -153,7 +153,7 @@ def load_dataset(DATASET_NAME='VOC'):
     # CAMVID
     if DATASET_NAME == 'CAMVID':
 
-        train_dataset = dataset.CAMVIDDataset(
+        train_dataset = dataset.CAMVIDSegDataset(
             project.cfg.CAMVID_DATASET,
             train_valid_test='train', 
             classes=project.constants.CAMVID_CLASSES,
@@ -162,7 +162,7 @@ def load_dataset(DATASET_NAME='VOC'):
             mask_dataformat='HW'
         )
 
-        valid_dataset = dataset.CAMVIDDataset(
+        valid_dataset = dataset.CAMVIDSegDataset(
             project.cfg.CAMVID_DATASET,
             train_valid_test='val',
             classes=project.constants.CAMVID_CLASSES,
@@ -171,7 +171,7 @@ def load_dataset(DATASET_NAME='VOC'):
             mask_dataformat='HW'
         )
 
-        test_dataset = dataset.CAMVIDDataset(
+        test_dataset = dataset.CAMVIDSegDataset(
             project.cfg.CAMVID_DATASET,
             train_valid_test='test',
             classes=project.constants.CAMVID_CLASSES,
@@ -180,7 +180,7 @@ def load_dataset(DATASET_NAME='VOC'):
             mask_dataformat='HW'
         )
 
-        test_dataset_vis = dataset.CAMVIDDataset(
+        test_dataset_vis = dataset.CAMVIDSegDataset(
             project.cfg.CAMVID_DATASET,
             train_valid_test='test',
             classes=project.constants.CAMVID_CLASSES,
@@ -214,14 +214,14 @@ def load_dataset(DATASET_NAME='VOC'):
         np_masks = np.array(ALL_MASKS)
 
         # Creates our train dataset
-        train_dataset = dataset.CARVANADataset(
+        train_dataset = dataset.CARVANASegDataset(
             images = np_images[train_indices].tolist(),
             masks = np_masks[train_indices].tolist(),
             transforms = transforms.train_transforms
         )
 
         # Creates our valid dataset
-        valid_dataset = dataset.CARVANADataset(
+        valid_dataset = dataset.CARVANASegDataset(
             images = np_images[valid_indices].tolist(),
             masks = np_masks[valid_indices].tolist(),
             transforms = transforms.valid_transforms

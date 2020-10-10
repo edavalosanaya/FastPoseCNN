@@ -28,6 +28,17 @@ sys.path.append(str(root))
 #-------------------------------------------------------------------------------
 # Classes
 
+class AdaptiveConcatPool2d(nn.Module):
+    # https://www.youtube.com/watch?v=Ne4jOzDfUw8
+    def __init__(self, sz=1):
+        super().__init__()
+        self.output_size = sz
+        self.ap = nn.AdaptiveAvgPool2d(sz)
+        self.mp = nn.AdaptiveMaxPool2d(sz)
+
+    def forward(self, x):
+        return torch.cat([self.mp(x), self.ap(x)], 1)
+
 class DoubleConv(nn.Module):
     """
     (convolution => [BN] => ReLU) * 2

@@ -17,7 +17,7 @@ import torch.nn.functional as F
 root = next(path for path in pathlib.Path(os.path.abspath(__file__)).parents if path.name == 'FastPoseCNN')
 sys.path.append(str(root))
 
-import model_lib.layers as L
+import model_lib.custom_layers as L
 import project
 import dataset
 import data_manipulation
