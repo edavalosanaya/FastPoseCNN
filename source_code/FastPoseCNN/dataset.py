@@ -36,7 +36,7 @@ root = next(path for path in pathlib.Path(os.path.abspath(__file__)).parents if 
 sys.path.append(str(pathlib.Path(__file__).parent))
 
 import json_tools
-import data_manipulation
+import data_manipulation as dm
 import project
 import draw
 import visualize
@@ -868,6 +868,24 @@ class NOCSSegDataset(torch.utils.data.Dataset):
 
         return cropped_sample
 
+    def get_random_batched_sample(self, batch_size=1):
+
+        batched_sample = {}
+
+        for sample_id in np.random.choice(np.arange(self.__len__()), size=batch_size, replace=False):
+
+            sample = self.__getitem__(sample_id)
+
+            for key in sample.keys():
+
+                if key in batched_sample.keys():
+                    batched_sample[key] = np.concatenate([batched_sample[key], np.expand_dims(sample[key], axis=0)], axis=0)
+
+                else:
+                    batched_sample[key] = np.expand_dims(sample[key], axis=0)
+
+        return batched_sample
+
 class CARVANASegDataset(torch.utils.data.Dataset):
 
     CLASSES = ['car']
@@ -975,28 +993,55 @@ class NOCSPoseRegDataset(torch.utils.data.Dataset):
 
         # Selecting randomly an instance (an object)
         keys = list(instance_dict.keys())
-        random_index_selected = np.random.randint(low=0, high=len(keys))
 
-        selected_instance_id = int(keys[random_index_selected])
-        selected_quaterion = np.asarray(json_data['quaternions'][random_index_selected], dtype=np.float32)
-        selected_scale = np.asarray(json_data['scales'][random_index_selected], dtype=np.float32)
-        selected_norm = np.asarray(json_data['norm_factors'][random_index_selected], dtype=np.float32)
+        if len(keys) > 0: # Sample with objects
+            random_index_selected = np.random.randint(low=0, high=len(keys))
+
+            selected_instance_id = int(keys[random_index_selected])
+            selected_quaterion = np.asarray(json_data['quaternions'][random_index_selected], dtype=np.float32)
+            selected_scale = np.asarray(json_data['scales'][random_index_selected], dtype=np.float32)
+            selected_norm = np.asarray(json_data['norm_factors'][random_index_selected], dtype=np.float32)
+            
+            instance_mask = np.equal(mask, selected_instance_id) * 1
+            instance_mask = instance_mask.astype(np.uint8)
         
-        instance_mask = np.equal(mask, selected_instance_id) * 1
-        instance_mask = instance_mask.astype(np.uint8)
+        else: # Sample without objects
+            selected_quaterion = np.array([0,0,0,0], dtype=np.float32)
+            selected_scale = np.array([0,0,0], dtype=np.float32)
+            selected_norm = np.asarray(0, dtype=np.float32)
+
+            instance_mask = np.zeros_like(mask).astype(np.uint8)
 
         # Storing mask and image into sample
         sample = {'image': image, 'depth': depth_image}
-        one_object_sample = self.crop_one_object(instance_mask, sample)
+        sample = self.crop_one_object(instance_mask, sample)
 
-        # Attach pose and depth
-        one_object_sample.update({
+        # Convert dtypes for image and depth
+        image = sample['image'].astype(np.uint8)
+        depth = sample['depth'].astype(np.uint8)
+        mask = instance_mask.astype(np.uint8)
+
+        # apply augmentations
+        if self.augmentation:
+            sample = self.augmentation(image=image, mask=mask, depth=depth)
+            image, depth, mask = sample['image'], sample['depth'], sample['mask']
+
+        # apply preprocessing
+        if self.preprocessing:
+            sample = self.preprocessing(image=image, mask=mask, depth=depth)
+            image, depth, mask = sample['image'], sample['depth'], sample['mask']
+
+        # Changing dtype
+        sample = {
+            'image': image.astype('float32'), 
+            'depth': depth.astype('float32'),
+            'mask': mask.astype('long'),
             'quaternion': selected_quaterion,
             'scale': selected_scale,
             'norm_factor': selected_norm
-        })
+        }
 
-        return one_object_sample
+        return sample
 
     def __len__(self):
         return len(self.images_fps)
@@ -1010,9 +1055,12 @@ class NOCSPoseRegDataset(torch.utils.data.Dataset):
             # In the case of multiple objects within the same class, we find the contours
             cnts, hei = cv2.findContours(instance_mask, cv2.RETR_TREE ,cv2.CHAIN_APPROX_SIMPLE)
 
-            # If multple contours (multiple objects), select one randomly
-            rand_choice = random.choice(range(len(cnts)))
-            cnt = cnts[rand_choice]
+            # If no contours are found, use the center
+            if cnts == []:
+                raise RuntimeError('No contours, use default')
+
+            # Grabbing the biggest contour
+            cnt = max(cnts, key=cv2.contourArea)
 
             # Find the centroid of the contour
             M = cv2.moments(cnt)
@@ -1032,11 +1080,12 @@ class NOCSPoseRegDataset(torch.utils.data.Dataset):
             h,w = instance_mask.shape
             Cx, Cy = w // 2, h // 2
 
+            padding = self.crop_size // 2
             centroid = (Cx, Cy)
-            ext_left = (Cx-30, Cy)
-            ext_right = (Cx+30, Cy)
-            ext_top = (Cx, Cy-30)
-            ext_bot = (Cx, Cy+30)
+            ext_left = (Cx-padding, Cy)
+            ext_right = (Cx+padding, Cy)
+            ext_top = (Cx, Cy-padding)
+            ext_bot = (Cx, Cy+padding)
 
         # Mask's data
         mask_data = {
@@ -1060,12 +1109,27 @@ class NOCSPoseRegDataset(torch.utils.data.Dataset):
         # H,W of the images
         h, w, _ = sample['image'].shape
 
-        # Determing the left, right, top and bottom of the image
+        # H,W of the mask
+        crop_h, crop_w = mask_data['ext_right'][0] - mask_data['ext_left'][0], mask_data['ext_bot'][1] - mask_data['ext_top'][1]
         padding = 10
-        left = mask_data['ext_left'][0] - padding
-        right = mask_data['ext_right'][0] + padding
-        top = mask_data['ext_top'][1] - padding
-        bottom = mask_data['ext_bot'][1] + padding
+
+        if w > h:
+            diff = np.abs((crop_w - crop_h) // 2)
+            left = mask_data['ext_left'][0] - padding
+            right = mask_data['ext_right'][0] + padding
+            top = mask_data['ext_top'][1] - (padding + diff)
+            bottom = mask_data['ext_bot'][1] + (padding + diff)
+        elif w < h:
+            diff = np.abs((crop_h - crop_w) // 2)
+            left = mask_data['ext_left'][0] - (padding + diff)
+            right = mask_data['ext_right'][0] + (padding + diff)
+            top = mask_data['ext_top'][1] - padding
+            bottom = mask_data['ext_bot'][1] + padding
+        else:
+            left = mask_data['ext_left'][0] - padding
+            right = mask_data['ext_right'][0] + padding
+            top = mask_data['ext_top'][1] - padding
+            bottom = mask_data['ext_bot'][1] + padding
 
         # Check if the left, right, top and bottom are outside the image
         left_pad = right_pad = top_pad = bottom_pad = 0
@@ -1088,12 +1152,12 @@ class NOCSPoseRegDataset(torch.utils.data.Dataset):
             if len(sample[key].shape) == 2:
                 crop = sample[key][top:bottom,left:right]
                 crop_and_pad = np.pad(crop, ((top_pad,bottom_pad),(left_pad, right_pad)), mode='constant')
-                rescaled_crop_and_pad = skimage.transform.resize(crop_and_pad, (self.crop_size, self.crop_size), anti_aliasing=True)
+                rescaled_crop_and_pad = skimage.transform.resize(crop_and_pad, (self.crop_size, self.crop_size), anti_aliasing=True).astype(np.float32)
                 cropped_sample[key] = rescaled_crop_and_pad
             elif len(sample[key].shape) == 3:
                 crop = sample[key][top:bottom,left:right,:]
                 crop_and_pad = np.pad(crop, ((top_pad,bottom_pad),(left_pad, right_pad), (0,0)), mode='constant')
-                rescaled_crop_and_pad = skimage.transform.resize(crop_and_pad, (self.crop_size, self.crop_size, sample[key].shape[2]), anti_aliasing=True)
+                rescaled_crop_and_pad = skimage.transform.resize(crop_and_pad, (self.crop_size, self.crop_size, sample[key].shape[2]), anti_aliasing=True).astype(np.float32)
                 cropped_sample[key] = rescaled_crop_and_pad
 
         return cropped_sample
@@ -1149,6 +1213,24 @@ class NOCSPoseRegDataset(torch.utils.data.Dataset):
             total_path_list = total_path_list[:max_size]
 
         return total_path_list
+
+    def get_random_batched_sample(self, batch_size=1):
+
+        batched_sample = {}
+
+        for sample_id in np.random.choice(np.arange(self.__len__()), size=batch_size, replace=False):
+
+            sample = self.__getitem__(sample_id)
+
+            for key in sample.keys():
+
+                if key in batched_sample.keys():
+                    batched_sample[key] = np.concatenate([batched_sample[key], np.expand_dims(sample[key], axis=0)], axis=0)
+
+                else:
+                    batched_sample[key] = np.expand_dims(sample[key], axis=0)
+
+        return batched_sample
 
 #-------------------------------------------------------------------------------
 # Functions
@@ -1245,6 +1327,19 @@ def test_pose_nocs_dataset():
     # Testing dataset
     test_sample = dataset[1]
 
+    # Testing pose visualization
+    class_centroids = dm.get_masks_centroids(test_sample['mask'])
+    zs = dm.get_data_from_centroids(class_centroids, test_sample['depth'])
+    translation_vector = dm.create_translation_vector(class_centroids, zs, project.constants.intrinsics)
+    
+    draw.draw_quat_detections(
+        image = test_sample['image'],
+        intrinsics = project.constants.intrinsics,
+        quaterions = test_sample['quaternion'],
+        translation_vectors = translation_vector,
+        norm_scales = test_sample['scale']
+    )
+
     # Testing dataloader
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=2, shuffle=True)
     sample = next(iter(dataloader))
@@ -1253,11 +1348,6 @@ def test_pose_nocs_dataset():
 # Main Code
 
 if __name__ == '__main__':
-
-    # TODO
-    """
-    norm factor in pose regression dataset is not correct!
-    """
     
     # For testing the dataset
     

@@ -267,7 +267,7 @@ class SegmentationDataModule(pl.LightningDataModule):
         # NOCS
         if self.dataset_name == 'NOCS':
             crop_size = 224
-            train_dataset = dataset.NOCSSegDataset(
+            train_dataset = ds.NOCSSegDataset(
                 dataset_dir=project.cfg.CAMERA_TRAIN_DATASET, 
                 max_size=1000,
                 classes=project.constants.NOCS_CLASSES,
@@ -278,7 +278,7 @@ class SegmentationDataModule(pl.LightningDataModule):
                 mask_dataformat='HW'
             )
 
-            valid_dataset = dataset.NOCSSegDataset(
+            valid_dataset = ds.NOCSSegDataset(
                 dataset_dir=project.cfg.CAMERA_VALID_DATASET, 
                 max_size=100,
                 classes=project.constants.NOCS_CLASSES,
@@ -295,7 +295,7 @@ class SegmentationDataModule(pl.LightningDataModule):
         # VOC
         if self.dataset_name == 'VOC':
             
-            train_dataset = dataset.VOCDataset(
+            train_dataset = ds.VOCDataset(
                 voc_dir=project.cfg.VOC_DATASET,
                 is_train=True,
                 classes=project.constants.VOC_CLASSES,
@@ -303,7 +303,7 @@ class SegmentationDataModule(pl.LightningDataModule):
                 preprocessing=transforms.get_preprocessing(preprocessing_fn)
             )
 
-            valid_dataset = dataset.VOCDataset(
+            valid_dataset = ds.VOCDataset(
                 voc_dir=project.cfg.VOC_DATASET,
                 is_train=False,
                 classes=project.constants.VOC_CLASSES,
@@ -378,14 +378,14 @@ class SegmentationDataModule(pl.LightningDataModule):
             np_masks = np.array(ALL_MASKS)
 
             # Creates our train dataset
-            train_dataset = dataset.CARVANASegDataset(
+            train_dataset = ds.CARVANASegDataset(
                 images = np_images[train_indices].tolist(),
                 masks = np_masks[train_indices].tolist(),
                 transforms = transforms.train_transforms
             )
 
             # Creates our valid dataset
-            valid_dataset = dataset.CARVANASegDataset(
+            valid_dataset = ds.CARVANASegDataset(
                 images = np_images[valid_indices].tolist(),
                 masks = np_masks[valid_indices].tolist(),
                 transforms = transforms.valid_transforms
@@ -505,6 +505,7 @@ if __name__ == '__main__':
 
     # Creating my own callback
     custom_callback = plc.MyCallback(
+        task='segmentation',
         hparams=runs_hparams,
         tracked_data=tracked_data
     )

@@ -9,9 +9,16 @@ def to_tensor(x, **kwargs):
     return x.transpose(2,0,1) if len(x.shape) == 3 else x
 
 def get_preprocessing(preprocessing_fn):
+    """
     preprocessing_transform = albu.Compose([
         albu.Lambda(image=preprocessing_fn),
         albu.Lambda(image=to_tensor, mask=to_tensor),
+    ])
+    """
+    preprocessing_transform = albu.Compose([
+        albu.Lambda(image=preprocessing_fn),
+        albu.Lambda(image=to_tensor, mask=to_tensor),
+        {'depth': 'image'}
     ])
     return preprocessing_transform
     

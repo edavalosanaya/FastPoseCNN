@@ -65,7 +65,7 @@ class DEFAULT_HPARAM(argparse.Namespace):
     DATASET_NAME = 'NOCS'
     BATCH_SIZE = 2
     NUM_WORKERS = 8
-    NUM_GPUS = 4
+    NUM_GPUS = 1
     LEARNING_RATE = 0.001
     NUM_EPOCHS = 3
     DISTRIBUTED_BACKEND = None if NUM_GPUS <= 1 else 'ddp'
@@ -146,6 +146,8 @@ class PoseRegresssionTask(pl.LightningModule):
         for metric_name, metric_value in metrics.items():
             self.logger.log_metrics(mode, {f'{metric_name}/batch':metric_value}, global_step) 
 
+        return losses, metrics
+
     def loss_function(self, pred, gt):
         
         # Calculate the loss of each criterion and the metrics
@@ -176,7 +178,7 @@ class PoseRegresssionTask(pl.LightningModule):
     def configure_optimizers(self):
 
         # Catalyst has new SOTA optimizers out of box
-        base_optimizer = catalyst.contrib.nn.RAdam(self.model.parameters, lr=HPARAM.LEARNING_RATE, weight_decay=0.0003)
+        base_optimizer = catalyst.contrib.nn.RAdam(self.model.parameters(), lr=HPARAM.LEARNING_RATE, weight_decay=0.0003)
         optimizer = catalyst.contrib.nn.Lookahead(base_optimizer)
 
         # Solution from here:
@@ -213,11 +215,15 @@ class PoseRegresssionTask(pl.LightningModule):
             effective_batch_size = HPARAM.BATCH_SIZE * HPARAM.NUM_GPUS
         elif self.use_single_gpu or self.use_dp:
             effective_batch_size = HPARAM.BATCH_SIZE
+        else:
+            effective_batch_size = HPARAM.BATCH_SIZE
 
         # Calculating the effective batch_idx
         if self.use_ddp:
             effective_batch_idx = batch_idx * HPARAM.NUM_GPUS + 1
         elif self.use_single_gpu or self.use_dp:
+            effective_batch_idx = batch_idx
+        else: # cpu
             effective_batch_idx = batch_idx
 
         if mode == 'train':
@@ -235,6 +241,7 @@ class PoseRegresssionTask(pl.LightningModule):
 class PoseRegressionDataModule(pl.LightningDataModule):
 
     def __init__(self, dataset_name='NOCS', batch_size=1, num_workers=0):
+        super().__init__()
         
         # Saving parameters
         self.dataset_name = dataset_name
@@ -251,15 +258,16 @@ class PoseRegressionDataModule(pl.LightningDataModule):
         if self.dataset_name == 'NOCS':
             crop_size=100
 
-            train_dataset = dataset.NOCSPoseRegDataset(
+            train_dataset = ds.NOCSPoseRegDataset(
                 dataset_dir=project.cfg.CAMERA_TRAIN_DATASET,
                 max_size=1000,
+                classes=project.constants.NOCS_CLASSES,
                 augmentation=transforms.get_training_augmentation(height=crop_size, width=crop_size),
-                preprocessing=transforms.get_preprocessing_fn(preprocessing_fn),
+                preprocessing=transforms.get_preprocessing(preprocessing_fn),
                 crop_size=crop_size
             )
 
-            valid_dataset = dataset.NOCSPoseRegDataset(
+            valid_dataset = ds.NOCSPoseRegDataset(
                 dataset_dir=project.cfg.CAMERA_VALID_DATASET, 
                 max_size=100,
                 classes=project.constants.NOCS_CLASSES,
@@ -313,7 +321,7 @@ if __name__ == '__main__':
     # Creating base model
     base_model = model_lib.PoseRegressor(
         backbone=HPARAM.ENCODER,
-        pretrained=HPARAM.ENCODER_WEIGHTS
+        encoder_weights=HPARAM.ENCODER_WEIGHTS
     )
 
     # Selecting the criterion
@@ -359,13 +367,13 @@ if __name__ == '__main__':
 
     # Creating my own callback
     custom_callback = plc.MyCallback(
+        task='pose regression',
         hparams=runs_hparams,
         tracked_data=tracked_data
     )
 
     # Training
     trainer = pl.Trainer(
-        fast_dev_run=True,
         max_epochs=HPARAM.NUM_EPOCHS,
         gpus=HPARAM.NUM_GPUS,
         num_processes=HPARAM.NUM_WORKERS,

@@ -19,8 +19,14 @@ import visualize
 class MyCallback(pl.callbacks.Callback):
 
     @rank_zero_only
-    def __init__(self, hparams, tracked_data):
+    def __init__(self, task, hparams, tracked_data):
         super().__init__()
+
+        # Checking parameters
+        assert task in ['segmentation', 'pose regression']
+
+        # Saving parameters
+        self.task = task
 
         self.hparams = hparams
         self.tracked_data = tracked_data
@@ -49,8 +55,15 @@ class MyCallback(pl.callbacks.Callback):
         # Log the average for the metrics for each epoch
         self.log_epoch_average(mode, trainer, pl_module)
 
-        # Log visualizatino of the mask
-        self.log_epoch_mask(mode, trainer, pl_module)
+        # Depending on the task, create the correct visualization
+        if self.task == 'segmentation':
+            # Log visualization of the mask
+            self.log_epoch_mask(mode, trainer, pl_module)
+        elif self.task == 'pose regression':
+            # Log visulization of pose
+            self.log_epoch_pose(mode, trainer, pl_module)
+        else:
+            raise RuntimeError('Invalid task')
 
     @rank_zero_only
     def log_epoch_average(self, mode, trainer, pl_module):
@@ -91,7 +104,11 @@ class MyCallback(pl.callbacks.Callback):
 
         # After an epoch, we clear out the log
         pl_module.logger.clear_metrics(mode)
-        
+
+    #---------------------------------------------------------------------------
+    # Visualizations
+
+    # MASK 
     @rank_zero_only
     def log_epoch_mask(self, mode, trainer, pl_module):
 
@@ -116,22 +133,16 @@ class MyCallback(pl.callbacks.Callback):
     @rank_zero_only
     def mask_check_tb(self, sample, pl_module, colormap):
 
-        #pdb.set_trace()
-
         # Selecting clean image and mask if available
         image_key = 'clean image' if 'clean image' in sample.keys() else 'image'
         mask_key = 'clean mask' if 'clean mask' in sample.keys() else 'mask'
         
         image_vis = sample[image_key].astype(np.uint8)
         gt_mask = sample[mask_key].astype(np.uint8)
-
-        #pdb.set_trace()
         
         # Given the sample, make the prediction with the PyTorch Lightning Module
         logits = pl_module(torch.from_numpy(sample['image']).float().to(pl_module.device)).detach()
         pr_mask = torch.nn.functional.sigmoid(logits).cpu().numpy()
-
-        #pdb.set_trace()
 
         # Target (ground truth) data format 
         if len(gt_mask.shape) == len('BCHW'):
@@ -153,8 +164,6 @@ class MyCallback(pl.callbacks.Callback):
                 pr_mask = np.argmax(pr_mask, axis=1)
 
         # Colorized the binary masks
-        #pdb.set_trace()
-
         gt_mask_vis = visualize.get_visualized_masks(gt_mask, colormap)
         pr_mask = visualize.get_visualized_masks(pr_mask, colormap)
 
@@ -167,6 +176,32 @@ class MyCallback(pl.callbacks.Callback):
         #pdb.set_trace()
 
         return summary_fig
+
+    # POSE
+    @rank_zero_only
+    def log_epoch_pose(self, mode, trainer, pl_module):
+        
+        # Obtaining the LightningDataModule
+        datamodule = trainer.datamodule
+
+        # Accessing the corresponding dataset
+        dataset = datamodule.datasets[mode]
+
+        # Get random sample
+        sample = dataset.get_random_batched_sample(batch_size=3)
+
+        # Create the pose figure
+        #summary_fig = self.pose_check_tb(sample, pl_module)
+
+        # Log the figure to tensorboard
+        #pl_module.logger.writers[mode].add_figure(f'pose_gen/{mode}', summary_fig, trainer.global_step)
+
+    @rank_zero_only
+    def pose_check_tb(self, sample, pl_module):
+        pass
+
+    #---------------------------------------------------------------------------
+    # End of Training
 
     @rank_zero_only
     def teardown(self, trainer, pl_module, stage):
