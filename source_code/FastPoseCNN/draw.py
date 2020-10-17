@@ -6,13 +6,15 @@ import numpy as np
 import cv2
 from pyquaternion import Quaternion
 
+import matplotlib.pyplot as plt
+
 import scipy.spatial.transform
 import scipy.spatial
 
 # Local Imports
 
 import project
-import data_manipulation
+import data_manipulation as dm
 
 #-------------------------------------------------------------------------------
 # Complete (old data structure) Routine Functions
@@ -53,12 +55,12 @@ def draw_detections(image, intrinsics, synset_names, bbox, class_ids, masks, coo
             # Creating a xyz axis and converting 3D coordinates into 2D projections
             xyz_axis = 0.3*np.array([[0, 0, 0], [0, 0, 1], [0, 1, 0], [1, 0, 0]]).transpose()
             norm_xyz_axis = xyz_axis / normalizing_factor
-            projected_axes = data_manipulation.transform_3d_camera_coords_to_2d_quantized_projections(norm_xyz_axis, RT, intrinsics)
+            projected_axes = dm.transform_3d_camera_coords_to_2d_quantized_projections(norm_xyz_axis, RT, intrinsics)
 
             # Creating a 8-point bounding box and converting it into a its 2D projection
-            bbox_3d = data_manipulation.get_3d_bbox(scales[i,:],0)
+            bbox_3d = dm.get_3d_bbox(scales[i,:],0)
             norm_bbox_3d = bbox_3d / normalizing_factor
-            projected_bbox = data_manipulation.transform_3d_camera_coords_to_2d_quantized_projections(norm_bbox_3d, RT, intrinsics)
+            projected_bbox = dm.transform_3d_camera_coords_to_2d_quantized_projections(norm_bbox_3d, RT, intrinsics)
 
             # Drawing the projections by using the resulting points
             draw_image = draw_3d_bbox(draw_image, projected_bbox, RT_color)
@@ -66,63 +68,52 @@ def draw_detections(image, intrinsics, synset_names, bbox, class_ids, masks, coo
 
     return draw_image
 
+def draw_quat(image, quaternion, translation_vector, norm_scale, norm_factor, intrinsics):
+
+    # Convert quaternion to RT matrix
+    RT = dm.quat_2_RT_given_T_in_world(quaternion, translation_vector)
+    
+    draw_image = draw_RT(
+        image = image,
+        RT = RT,
+        scale = norm_scale,
+        norm_factor = norm_factor, 
+        intrinsics = intrinsics
+    )
+
+    return draw_image
+
 def draw_quat_detections(image, intrinsics, quaternions, translation_vectors, norm_scales):
 
     draw_image = image.copy()
 
-    xyz = np.array([[0,0,0],[1,0,0],[0,1,0],[0,0,1]], dtype=np.float32).transpose()
+    for i in range(len(quaternions)):
 
-    print(xyz)
-    print(norm_scales)
-
-    for i, quaternion in enumerate(quaternions):
-
-        #quaternion = Quaternion(quaternion)
-        RT = data_manipulation.quat_2_RT_given_T_in_world(quaternion, translation_vectors[i])
-
-        norm_scale = norm_scales[i]
-        
-        norm_xyz = xyz.copy()
-        norm_xyz[0,:] *= norm_scale[0] / 2
-        norm_xyz[1,:] *= norm_scale[1] / 2
-        norm_xyz[2,:] *= norm_scale[2] / 2
-
-        #print(norm_xyz)
-
-        """
-
-        for j in range(4): # for origin, x, y, and z
-
-            vector = norm_xyz[:,j]
-            print(f'vector: \n{vector}\n')
-            rotated_vector = R.apply(vector).reshape((-1,1))
-            print(f'rotated_vector: \n{rotated_vector}\n')
-            shifted_rotated_vector = intrinsics @ translation_vectors[i] + rotated_vector
-            print(f'shifted_rotated_vector: \n{shifted_rotated_vector}\n')
-
-            shifted_rotated_vector = shifted_rotated_vector.flatten()
-
-            norm_xyz[:,j] = shifted_rotated_vector
-
-        norm_xyz = data_manipulation.homogeneous_2_cartesian_coord(norm_xyz)
-        norm_xyz = norm_xyz.astype(np.int32)
-        norm_xyz = norm_xyz.transpose()
-
-        print(norm_xyz)
-
-        #draw_image = draw_axes(draw_image, norm_xyz)
-        """
-
-        projections = data_manipulation.transform_3d_camera_coords_to_2d_quantized_projections(norm_xyz, RT, intrinsics)
-        
-        print(projections)
-        
-        draw_image = draw_axes(draw_image, projections)
+        draw_image = draw_quat(draw_image, intrinsics, quaternions[i], translation_vectors[i], norm_scales[i])
 
     return draw_image
 
 #-------------------------------------------------------------------------------
 # Complete (new data structure) Routine Functions
+
+def draw_RT(image, RT, scale, norm_factor, intrinsics):
+
+    # Pts that will be displayed
+    xyz = 0.3*np.array([[0,0,0],[1,0,0],[0,1,0],[0,0,1]], dtype=np.float32).transpose()
+    xyz /= norm_factor
+    
+    bbox_3d = dm.get_3d_bbox(scale, 0)
+    bbox_3d /= norm_factor
+
+    # Apply RT into a set of points
+    xyz_projection = dm.transform_3d_camera_coords_to_2d_quantized_projections(xyz, RT, intrinsics)
+    bbox_3d_projection = dm.transform_3d_camera_coords_to_2d_quantized_projections(bbox_3d, RT, intrinsics)
+
+    # Drawing projections
+    draw_image = draw_axes(image, xyz_projection)
+    draw_image = draw_3d_bbox(image, bbox_3d_projection, color=(0,0,255))
+
+    return draw_image
 
 def draw_RTs(image, RTs, scales, intrinsics):
 
@@ -132,46 +123,30 @@ def draw_RTs(image, RTs, scales, intrinsics):
 
         for instance_id, RT in enumerate(class_RTs):
 
-            # Pts that will be displayed
-            xyz = np.array([[0,0,0],[1,0,0],[0,1,0],[0,0,1]], dtype=np.float32).transpose()
-            xyz[0,:] *= scales[class_id][instance_id][0] / 2
-            xyz[1,:] *= scales[class_id][instance_id][1] / 2
-            xyz[2,:] *= scales[class_id][instance_id][2] / 2
-            
-            bbox_3d = data_manipulation.get_3d_bbox(scales[class_id][instance_id], 0)
-
-            # Apply RT into a set of points
-            xyz_projection = data_manipulation.transform_3d_camera_coords_to_2d_quantized_projections(xyz, RT, intrinsics)
-            bbox_3d_projection = data_manipulation.transform_3d_camera_coords_to_2d_quantized_projections(bbox_3d, RT, intrinsics)
-
-            # Drawing projections
-            draw_image = draw_axes(draw_image, xyz_projection)
-            draw_image = draw_3d_bbox(draw_image, bbox_3d_projection, color=(0,0,255))
+            draw_image = draw_RT(draw_image, RT, scales[class_id][instance_id], intrinsics)            
 
     return draw_image
 
 #-------------------------------------------------------------------------------
 # Small-helper Functions
 
-def draw_centroids(class_centroids, img, color=(0,255,0), thickness=4):
+def draw_centroids(centroids, img, color=(0,255,0), thickness=4):
+
+    img = dm.set_image_data_format(img, "channels_last")
 
     draw_image = img.copy()
 
-    for c_id in range(len(class_centroids)):
+    for centroid in centroids:
 
-            centroids = class_centroids[c_id]
-
-            for i_id, centroid in enumerate(centroids):
-
-                cX, cY = centroid
-
-                cv2.circle(color_image, centroid, thickness, color, -1)
-                label = f'{project.constants.NOCS_CLASSES[c_id+1]}: {i_id}'
-                cv2.putText(draw_image, label, (cX-20, cY-20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
+        cv2.circle(draw_image, (centroid.x, centroid.y), thickness, color, -1)
+        label = f'{project.constants.NOCS_CLASSES[centroid.class_id]}'
+        cv2.putText(draw_image, label, (centroid.x-20, centroid.y-20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
 
     return draw_image
 
 def draw_3d_bbox(img, bbox_pts, color):
+
+    img = dm.set_image_data_format(img, "channels_last")
 
     # draw ground layer in darker color
     color_ground = (int(color[0] * 0.3), int(color[1] * 0.3), int(color[2] * 0.3))
@@ -192,6 +167,8 @@ def draw_3d_bbox(img, bbox_pts, color):
 def draw_axes(img, axes):
 
     font = cv2.FONT_HERSHEY_TRIPLEX
+
+    img = dm.set_image_data_format(img, "channels_last")
 
     # draw axes
     # axes[0] = center of axis, axes[X] = end point of an axis

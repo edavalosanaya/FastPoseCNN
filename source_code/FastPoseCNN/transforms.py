@@ -5,28 +5,23 @@ from albumentations.pytorch import ToTensor
 # Pre-processing
 
 def to_tensor(x, **kwargs):
-    #return x.transpose(2,0,1).astype('float32') if len(x.shape) == 3 else x.astype('float32')
     return x.transpose(2,0,1) if len(x.shape) == 3 else x
 
 def get_preprocessing(preprocessing_fn):
-    """
+
     preprocessing_transform = albu.Compose([
         albu.Lambda(image=preprocessing_fn),
-        albu.Lambda(image=to_tensor, mask=to_tensor),
-    ])
-    """
-    preprocessing_transform = albu.Compose([
-        albu.Lambda(image=preprocessing_fn),
-        albu.Lambda(image=to_tensor, mask=to_tensor),
-        {'depth': 'image'}
-    ])
+        albu.Lambda(image=to_tensor, mask=to_tensor)],
+        additional_targets = {'depth': 'mask'}
+    )
+
     return preprocessing_transform
     
 #-------------------------------------------------------------------------------
 # Train
 
 def get_training_augmentation(height=320, width=320):
-    train_transform = [
+    train_transform = albu.Compose([
 
         albu.HorizontalFlip(p=0.5),
 
@@ -63,9 +58,11 @@ def get_training_augmentation(height=320, width=320):
             ],
             p=0.9,
         ),
-    ]
+    ],
+    additional_targets = {'depth': 'mask'}
+    )
 
-    return albu.Compose(train_transform)
+    return train_transform
 
 #-------------------------------------------------------------------------------
 # Validation

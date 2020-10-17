@@ -12,6 +12,7 @@ import random
 import numpy as np
 import cv2
 import imutils
+import skimage
 import skimage.io
 import skimage.transform
 
@@ -995,14 +996,17 @@ class NOCSPoseRegDataset(torch.utils.data.Dataset):
         keys = list(instance_dict.keys())
 
         if len(keys) > 0: # Sample with objects
-            random_index_selected = np.random.randint(low=0, high=len(keys))
+            #random_index_selected = np.random.randint(low=0, high=len(keys))
+            random_index_selected = 0
 
-            selected_instance_id = int(keys[random_index_selected])
+            selected_instance_id = keys[random_index_selected]
+            selected_class_id = instance_dict[selected_instance_id]
             selected_quaterion = np.asarray(json_data['quaternions'][random_index_selected], dtype=np.float32)
             selected_scale = np.asarray(json_data['scales'][random_index_selected], dtype=np.float32)
             selected_norm = np.asarray(json_data['norm_factors'][random_index_selected], dtype=np.float32)
+            selected_RT = np.asarray(json_data['RTs'][random_index_selected], dtype=np.float32)
             
-            instance_mask = np.equal(mask, selected_instance_id) * 1
+            instance_mask = np.equal(mask, int(selected_instance_id)) * selected_class_id
             instance_mask = instance_mask.astype(np.uint8)
         
         else: # Sample without objects
@@ -1013,14 +1017,15 @@ class NOCSPoseRegDataset(torch.utils.data.Dataset):
             instance_mask = np.zeros_like(mask).astype(np.uint8)
 
         # Storing mask and image into sample
-        sample = {'image': image, 'depth': depth_image}
-        sample = self.crop_one_object(instance_mask, sample)
+        sample = {'image': image, 'depth': depth_image, 'mask': instance_mask}
+        #sample = self.crop_one_object(instance_mask, sample)
 
         # Convert dtypes for image and depth
-        image = sample['image'].astype(np.uint8)
-        depth = sample['depth'].astype(np.uint8)
-        mask = instance_mask.astype(np.uint8)
+        image = sample['image']
+        depth = sample['depth']
+        mask = sample['mask']
 
+        """
         # apply augmentations
         if self.augmentation:
             sample = self.augmentation(image=image, mask=mask, depth=depth)
@@ -1030,13 +1035,15 @@ class NOCSPoseRegDataset(torch.utils.data.Dataset):
         if self.preprocessing:
             sample = self.preprocessing(image=image, mask=mask, depth=depth)
             image, depth, mask = sample['image'], sample['depth'], sample['mask']
+        """
 
         # Changing dtype
         sample = {
-            'image': image.astype('float32'), 
-            'depth': depth.astype('float32'),
+            'image': skimage.img_as_float32(image), 
+            'depth': skimage.img_as_float32(depth),
             'mask': mask.astype('long'),
             'quaternion': selected_quaterion,
+            'RT': selected_RT,
             'scale': selected_scale,
             'norm_factor': selected_norm
         }
@@ -1110,16 +1117,16 @@ class NOCSPoseRegDataset(torch.utils.data.Dataset):
         h, w, _ = sample['image'].shape
 
         # H,W of the mask
-        crop_h, crop_w = mask_data['ext_right'][0] - mask_data['ext_left'][0], mask_data['ext_bot'][1] - mask_data['ext_top'][1]
+        crop_w, crop_h = mask_data['ext_right'][0] - mask_data['ext_left'][0], mask_data['ext_bot'][1] - mask_data['ext_top'][1]
         padding = 10
 
-        if w > h:
+        if crop_w > crop_h:
             diff = np.abs((crop_w - crop_h) // 2)
             left = mask_data['ext_left'][0] - padding
             right = mask_data['ext_right'][0] + padding
             top = mask_data['ext_top'][1] - (padding + diff)
             bottom = mask_data['ext_bot'][1] + (padding + diff)
-        elif w < h:
+        elif crop_w < crop_h:
             diff = np.abs((crop_h - crop_w) // 2)
             left = mask_data['ext_left'][0] - (padding + diff)
             right = mask_data['ext_right'][0] + (padding + diff)
@@ -1150,15 +1157,18 @@ class NOCSPoseRegDataset(torch.utils.data.Dataset):
         # Crop the images in the sample
         for key in sample.keys():
             if len(sample[key].shape) == 2:
-                crop = sample[key][top:bottom,left:right]
-                crop_and_pad = np.pad(crop, ((top_pad,bottom_pad),(left_pad, right_pad)), mode='constant')
-                rescaled_crop_and_pad = skimage.transform.resize(crop_and_pad, (self.crop_size, self.crop_size), anti_aliasing=True).astype(np.float32)
-                cropped_sample[key] = rescaled_crop_and_pad
+                c = sample[key][top:bottom,left:right] # crop
+                cp = np.pad(c, ((top_pad,bottom_pad),(left_pad, right_pad)), mode='constant') # crop and pad
+                rcp = skimage.transform.resize(cp, (self.crop_size, self.crop_size), anti_aliasing=False)#.astype(np.float32) # crop, pad, and reshaped
+                rcp2 = skimage.img_as_ubyte(rcp) # converted to np.uint8
+                cropped_sample[key] = rcp2
+            
             elif len(sample[key].shape) == 3:
-                crop = sample[key][top:bottom,left:right,:]
-                crop_and_pad = np.pad(crop, ((top_pad,bottom_pad),(left_pad, right_pad), (0,0)), mode='constant')
-                rescaled_crop_and_pad = skimage.transform.resize(crop_and_pad, (self.crop_size, self.crop_size, sample[key].shape[2]), anti_aliasing=True).astype(np.float32)
-                cropped_sample[key] = rescaled_crop_and_pad
+                c = sample[key][top:bottom,left:right,:]
+                cp = np.pad(c, ((top_pad,bottom_pad),(left_pad, right_pad), (0,0)), mode='constant')
+                rcp = skimage.transform.resize(cp, (self.crop_size, self.crop_size, sample[key].shape[2]), anti_aliasing=False)#.astype(np.float32)
+                rcp2 = skimage.img_as_ubyte(rcp)
+                cropped_sample[key] = rcp2
 
         return cropped_sample
 
@@ -1311,7 +1321,7 @@ def test_seg_voc_dataset():
 
 def test_pose_nocs_dataset():
 
-    crop_size = 100
+    crop_size = 150
 
     preprocessing_fn = smp.encoders.get_preprocessing_fn(ENCODER, ENCODER_WEIGHTS)
 
@@ -1327,18 +1337,46 @@ def test_pose_nocs_dataset():
     # Testing dataset
     test_sample = dataset[1]
 
-    # Testing pose visualization
-    class_centroids = dm.get_masks_centroids(test_sample['mask'])
-    zs = dm.get_data_from_centroids(class_centroids, test_sample['depth'])
-    translation_vector = dm.create_translation_vector(class_centroids, zs, project.constants.intrinsics)
-    
-    draw.draw_quat_detections(
-        image = test_sample['image'],
-        intrinsics = project.constants.intrinsics,
-        quaterions = test_sample['quaternion'],
-        translation_vectors = translation_vector,
-        norm_scales = test_sample['scale']
+    #"""
+    # Creating the translation vector
+    centroids = dm.get_masks_centroids(test_sample['mask'])
+    zs = dm.get_data_from_centroids(centroids, test_sample['depth']) * 100000
+    translation_vectors = dm.create_translation_vectors(centroids, zs, project.constants.INTRINSICS)
+
+    # Selecting the first translation vector
+    translation_vector = translation_vectors[0]
+    #"""
+
+    # Extracting translation vector from RT
+    """
+    translation_vector = dm.extract_translation_vector_from_RT(
+        RT = test_sample['RT'],
+        intrinsics = project.constants.INTRINSICS
     )
+    #"""
+    
+    #"""
+    drawn_image = draw.draw_quat(
+        image = test_sample['image'],
+        quaternion = test_sample['quaternion'],
+        translation_vector = translation_vector,
+        norm_scale = test_sample['scale'],
+        norm_factor = test_sample['norm_factor'],
+        intrinsics = project.constants.INTRINSICS
+    )
+    #"""
+
+    """
+    drawn_image = draw.draw_RT(
+        image = test_sample['image'],
+        RT = test_sample['RT'],
+        scale = test_sample['scale'],
+        norm_factor = test_sample['norm_factor'],
+        intrinsics = project.constants.INTRINSICS
+    )
+    #"""
+
+    plt.imshow(drawn_image)
 
     # Testing dataloader
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=2, shuffle=True)

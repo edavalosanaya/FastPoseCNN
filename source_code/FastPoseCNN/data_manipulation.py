@@ -10,6 +10,7 @@ from pyquaternion import Quaternion
 
 import math
 import numpy as np
+import skimage
 
 import scipy.spatial
 import scipy.linalg
@@ -17,35 +18,79 @@ import sklearn.preprocessing
 import scipy.spatial.transform
 
 import matplotlib
-if os.environ.get('DISPLAY', '') == '':
-    matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 import torch
 
 # Local Imports
 
-
 #-------------------------------------------------------------------------------
-# File Constants
+# Classes 
 
+class Centroid:
 
-#-------------------------------------------------------------------------------
-# Classes
+    def __init__(self, x, y, class_id=None, instance_id=None):
+
+        self.x = x
+        self.y = y
+        
+        if class_id:
+            self.class_id = int(class_id)
+        else:
+            self.class_id = None
+        
+        if instance_id:
+            self.instance_id = int(instance_id)
+        else:
+            self.instance_id = None
+
+    def set_instance_id(self, value):
+        self.instance_id = int(value)
+
+    def get_instance_id(self):
+        return self.instance_id
+
+    def get_class_id(self, value):
+        self.class_id = int(value)
+
+    def get_class_id(self):
+        return self.class_id    
 
 #-------------------------------------------------------------------------------
 # Simple Tool Function
 
-def add(a,b):
+def image_data_format(image):
 
-    return a + b
+    if len(image.shape) != 3:
+        return None
+    else:
+        if image.shape[0] > image.shape[-1]:
+            return 'channels_last'
+        else:
+            return 'channels_first'
 
-def subtract(a,b):
+def set_image_data_format(image, dataformat):
 
-    return a - b
+    if isinstance(image, np.ndarray): # numpy
 
+        current_dataformat = image_data_format(image)
+
+        if current_dataformat == dataformat:
+            return image
+        else:
+            return np.moveaxis(image, 0, -1)
+
+    elif isinstance(image, torch.Tensor): # tensor
+
+        current_dataformat = image_data_format(image)
+
+        if current_dataformat == dataformat:
+            return image
+        else:
+            return image.permute(2, 0, 1)
+            
 #-------------------------------------------------------------------------------
-# Mask/BBOX Functions
+# get Functions
 
 def extract_2d_bboxes_from_masks(masks):
     """
@@ -123,13 +168,14 @@ def get_3d_bboxes(scales, shift = 0):
 
     return bboxes_3d
 
-def get_mask_centroids(mask):
+def get_mask_centroids(mask, class_id=None):
 
-    _, cnts, hie = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+    try:
+        _, cnts, hie = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+    except Exception as e:
+        cnts, hie = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
 
     # Hierarchy representation in OpenCV: [Next, Previous, First_Child, Parent]
-
-    #print(len(cnts), hie)
 
     centroids = []
 
@@ -142,58 +188,47 @@ def get_mask_centroids(mask):
         M = cv2.moments(c)
         cX = int(M["m10"] / M["m00"])
         cY = int(M["m01"] / M["m00"])
-        centroids.append((cX, cY))
+        centroids.append(Centroid(cX, cY, class_id))
 
     return centroids
 
 def get_masks_centroids(masks):
 
-    total_centroids = {}
+    total_centroids = []
 
+    # Converting to the right dtype
     if type(masks) == torch.Tensor:
         masks = masks.numpy().astype(np.uint8)
+    elif masks.dtype != np.uint8:
+        masks = skimage.img_as_ubyte(masks)
 
-    if len(masks.shape) == 3: # multiple masks
+    for class_id in np.unique(masks):
 
-        for class_id in range(masks.shape[0]): # assuming CHW
-            
-            mask = masks[class_id]
-            centroids = get_mask_centroids(mask)
-            if centroids: # not empty
-                total_centroids[class_id] = centroids
+        if class_id == 0: # background, skip
+            continue
+        
+        class_mask = (np.equal(masks, class_id) * 1).astype(np.uint8)
+        centroids = get_mask_centroids(class_mask, class_id)
 
-    else: # one mask only
-
-        total_centroids[0] = get_mask_centroids(masks)
+        if centroids: # not empty
+            total_centroids += centroids
 
     return total_centroids
 
-def get_data_from_centroids(class_centroids, img):
+def get_data_from_centroids(centroids, img):
 
-    output = {}
+    if isinstance(img, torch.Tensor):
+        img = img.cpu().numpy()
 
-    for class_id in class_centroids.keys():
+    total_data = []
 
-        centroids = class_centroids[class_id]
-        class_data = []
+    for centroid in centroids:
 
-        for centroid in centroids:
+        data = img[centroid.y, centroid.x]
 
-            cX, cY = centroid
-            
-            if len(img.shape) == 4: # [C, data, H, W]
-                data = img[class_id, :, cY, cX].numpy()
-            elif len(img.shape) == 3: # [C, H, W]
-                data = img[class_id, cY, cX].numpy()
-            elif len(img.shape) == 2: # [H, W]
-                data = img[cY, cX].numpy()
+        total_data.append(data)
 
-            class_data.append(data)
-
-        if class_data: # if not empty
-            output[class_id] = class_data
-
-    return output
+    return np.array(total_data)
 
 #-------------------------------------------------------------------------------
 # Pure Geometric Functions
@@ -228,7 +263,7 @@ def homogeneous_2_cartesian_coord(homogeneous_coord):
     return cartesian_coord
 
 #-------------------------------------------------------------------------------
-# RT Functions2
+# RT Functions
 
 def transform_2d_quantized_projections_to_3d_camera_coords(cartesian_projections_2d, RT, intrinsics, z):
     # Math comes from: https://robotacademy.net.au/lesson/image-formation/
@@ -324,7 +359,20 @@ def transform_3d_camera_coords_to_2d_quantized_projections(cartesian_camera_coor
     return cartesian_projections_2d
 
 #-------------------------------------------------------------------------------
-# RT-Quaternion Functions
+# Translation Vector Functions
+
+def extract_translation_vector_from_RT(RT, intrinsics):
+
+    xyz_axis = 0.3*np.array([[0, 0, 0], [0, 0, 1], [0, 1, 0], [1, 0, 0]]).transpose()
+    perfect_projected_axes = transform_3d_camera_coords_to_2d_quantized_projections(xyz_axis, RT, intrinsics)
+    
+    projected_origin = perfect_projected_axes[0,:].reshape((-1, 1))
+    origin_z = (np.linalg.inv(RT)[2, 3] * 1000)
+
+    translation_vector = create_translation_vector(projected_origin, origin_z, intrinsics)
+
+    return translation_vector
+
 
 def create_translation_vector(cartesian_projections_2d_xy_origin, z, intrinsics):
     """
@@ -359,26 +407,22 @@ def create_translation_vector(cartesian_projections_2d_xy_origin, z, intrinsics)
 
     return translation_vector
 
-def create_translation_vectors(class_centroids, zs, intrinsics):
+def create_translation_vectors(centroids, zs, intrinsics):
 
-    translation_vectors = {}
+    translation_vectors = []
 
-    for class_id, centroids in class_centroids.items():
+    for i, centroid in enumerate(centroids):
 
-        class_data = []
+        z = zs[i]
+        formatted_centroid = np.array([centroid.x, centroid.y]).reshape((-1, 1))
 
-        for instance_id, centroid in enumerate(centroids):
-
-            formatted_centroid = np.array(centroid).reshape((-1, 1))
-            z = zs[class_id][instance_id]
-
-            translation_vector = create_translation_vector(formatted_centroid, z, intrinsics)
-            class_data.append(translation_vector)
-
-        if class_data: # if not empty
-            translation_vectors[class_id] = class_data
+        translation_vector = create_translation_vector(formatted_centroid, z, intrinsics)
+        translation_vectors.append(translation_vector)
 
     return translation_vectors
+
+#-------------------------------------------------------------------------------
+# RT-Quaternion Functions
 
 def RT_2_quat(RT, normalize=True):
     """
@@ -486,6 +530,9 @@ def quats_2_RTs_given_Ts_in_world(quaternions, translation_vectors):
             RTs[class_id] = class_RTs
 
     return RTs
+
+#-------------------------------------------------------------------------------
+# Error Correction
 
 def get_new_RT_error(perfect_projected_pts, quat_projected_pts):
     """
