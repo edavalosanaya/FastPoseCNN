@@ -28,12 +28,38 @@ sys.path.append(str(pathlib.Path(__file__).parent))
 
 import project
 import dataset
+import draw
+import data_manipulation as dm
 
 #-------------------------------------------------------------------------------
 # File's Constants
 
 #-------------------------------------------------------------------------------
 # Class
+
+#-------------------------------------------------------------------------------
+# Visualization for Debugging
+
+def debug_show(**images):
+
+    num_rows = num_columns = round(len(list(images.keys()))/2)
+
+    if num_rows == 0:
+        num_rows = num_columns = 1
+
+    fig = plt.figure(figsize=(3*num_rows,3*num_columns))
+
+    for i, (name, image) in enumerate(images.items()):
+
+        plt.subplot(num_rows, num_columns, i+1)
+        plt.xticks([])
+        plt.yticks([])
+        plt.xlabel(' '.join(name.split('_')).title())
+
+        image = dm.standardize_image(image)
+        plt.imshow(image)
+
+    plt.show()
 
 #-------------------------------------------------------------------------------
 # Dimensional Compression Functions

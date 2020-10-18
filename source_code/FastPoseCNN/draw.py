@@ -11,6 +11,10 @@ import matplotlib.pyplot as plt
 import scipy.spatial.transform
 import scipy.spatial
 
+import torch
+
+import skimage
+
 # Local Imports
 
 import project
@@ -19,6 +23,7 @@ import data_manipulation as dm
 #-------------------------------------------------------------------------------
 # Complete (old data structure) Routine Functions
 
+@dm.dec_correct_img_dataformat
 def draw_detections(image, intrinsics, synset_names, bbox, class_ids, masks, coords,
                     RTs, scores, scales, normalizing_factors, RT_color, draw_coord=False, draw_tag=False, draw_RT=True):
 
@@ -68,7 +73,16 @@ def draw_detections(image, intrinsics, synset_names, bbox, class_ids, masks, coo
 
     return draw_image
 
-def draw_quat(image, quaternion, translation_vector, norm_scale, norm_factor, intrinsics):
+@dm.dec_correct_img_dataformat
+def draw_quat(
+    image, 
+    quaternion, 
+    translation_vector, 
+    norm_scale, 
+    norm_factor, 
+    intrinsics,
+    zoom=1
+    ):
 
     # Convert quaternion to RT matrix
     RT = dm.quat_2_RT_given_T_in_world(quaternion, translation_vector)
@@ -78,11 +92,13 @@ def draw_quat(image, quaternion, translation_vector, norm_scale, norm_factor, in
         RT = RT,
         scale = norm_scale,
         norm_factor = norm_factor, 
-        intrinsics = intrinsics
+        intrinsics = intrinsics,
+        zoom = zoom
     )
 
     return draw_image
 
+@dm.dec_correct_img_dataformat
 def draw_quat_detections(image, intrinsics, quaternions, translation_vectors, norm_scales):
 
     draw_image = image.copy()
@@ -96,14 +112,22 @@ def draw_quat_detections(image, intrinsics, quaternions, translation_vectors, no
 #-------------------------------------------------------------------------------
 # Complete (new data structure) Routine Functions
 
-def draw_RT(image, RT, scale, norm_factor, intrinsics):
+@dm.dec_correct_img_dataformat
+def draw_RT(
+    image, 
+    RT, 
+    scale, 
+    norm_factor, 
+    intrinsics,
+    zoom = 1
+    ):
 
     # Pts that will be displayed
     xyz = 0.3*np.array([[0,0,0],[1,0,0],[0,1,0],[0,0,1]], dtype=np.float32).transpose()
-    xyz /= norm_factor
+    xyz /= norm_factor*zoom
     
     bbox_3d = dm.get_3d_bbox(scale, 0)
-    bbox_3d /= norm_factor
+    bbox_3d /= norm_factor*zoom
 
     # Apply RT into a set of points
     xyz_projection = dm.transform_3d_camera_coords_to_2d_quantized_projections(xyz, RT, intrinsics)
@@ -115,6 +139,7 @@ def draw_RT(image, RT, scale, norm_factor, intrinsics):
 
     return draw_image
 
+@dm.dec_correct_img_dataformat
 def draw_RTs(image, RTs, scales, intrinsics):
 
     draw_image = image.copy()
@@ -130,9 +155,8 @@ def draw_RTs(image, RTs, scales, intrinsics):
 #-------------------------------------------------------------------------------
 # Small-helper Functions
 
-def draw_centroids(centroids, img, color=(0,255,0), thickness=4):
-
-    img = dm.set_image_data_format(img, "channels_last")
+@dm.dec_correct_img_dataformat
+def draw_centroids(img, centroids, color=(0,255,0), thickness=4):
 
     draw_image = img.copy()
 
@@ -144,9 +168,8 @@ def draw_centroids(centroids, img, color=(0,255,0), thickness=4):
 
     return draw_image
 
+@dm.dec_correct_img_dataformat
 def draw_3d_bbox(img, bbox_pts, color):
-
-    img = dm.set_image_data_format(img, "channels_last")
 
     # draw ground layer in darker color
     color_ground = (int(color[0] * 0.3), int(color[1] * 0.3), int(color[2] * 0.3))
@@ -164,11 +187,10 @@ def draw_3d_bbox(img, bbox_pts, color):
 
     return img
 
+@dm.dec_correct_img_dataformat
 def draw_axes(img, axes):
 
     font = cv2.FONT_HERSHEY_TRIPLEX
-
-    img = dm.set_image_data_format(img, "channels_last")
 
     # draw axes
     # axes[0] = center of axis, axes[X] = end point of an axis
@@ -188,6 +210,7 @@ def draw_axes(img, axes):
 
     return img
 
+@dm.dec_correct_img_dataformat
 def draw_text(draw_image, bbox, text, draw_box=False):
 
     font_face = cv2.FONT_HERSHEY_TRIPLEX

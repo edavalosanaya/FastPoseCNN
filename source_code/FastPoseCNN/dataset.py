@@ -36,11 +36,11 @@ import matplotlib.cm
 root = next(path for path in pathlib.Path(os.path.abspath(__file__)).parents if path.name == 'FastPoseCNN')
 sys.path.append(str(pathlib.Path(__file__).parent))
 
-import json_tools
+import json_tools as jt
 import data_manipulation as dm
 import project
 import draw
-import visualize
+import visualize as vz
 import transforms
 
 #-------------------------------------------------------------------------------
@@ -211,7 +211,7 @@ class OLDNOCSDataset(torch.utils.data.Dataset):
         depth_image = skimage.io.imread(str(depth_path))
 
         # Loading JSON data
-        json_data = json_tools.load_from_json(meta_plus_path)
+        json_data = jt.load_from_json(meta_plus_path)
         instance_dict = json_data['instance_dict']
         scales = np.asarray(json_data['scales'], dtype=np.float32)
         RTs = np.asarray(json_data['RTs'], dtype=np.float32)
@@ -650,7 +650,7 @@ class NOCSSegDataset(torch.utils.data.Dataset):
         mask[mask == 255] = 0
 
         json_fp = str(self.images_fps[i]).replace('_color.png', '_meta+.json')
-        json_data = json_tools.load_from_json(json_fp)
+        json_data = jt.load_from_json(json_fp)
 
         # Given the data, modify any data necessary
         instance_dict = json_data['instance_dict']
@@ -987,7 +987,7 @@ class NOCSPoseRegDataset(torch.utils.data.Dataset):
 
         # Other data
         json_fp = str(self.images_fps[i]).replace('_color.png', '_meta+.json')
-        json_data = json_tools.load_from_json(json_fp)
+        json_data = jt.load_from_json(json_fp)
 
         # Given the data, modify any data necessary
         instance_dict = json_data['instance_dict']
@@ -1006,11 +1006,12 @@ class NOCSPoseRegDataset(torch.utils.data.Dataset):
             selected_norm = np.asarray(json_data['norm_factors'][random_index_selected], dtype=np.float32)
             selected_RT = np.asarray(json_data['RTs'][random_index_selected], dtype=np.float32)
             
-            instance_mask = np.equal(mask, int(selected_instance_id)) * selected_class_id
+            instance_mask = np.equal(mask, int(selected_instance_id)) * 1 #selected_class_id
             instance_mask = instance_mask.astype(np.uint8)
         
         else: # Sample without objects
             selected_quaterion = np.array([0,0,0,0], dtype=np.float32)
+            selected_RT = np.zeros((4,4), dtype=np.float32)
             selected_scale = np.array([0,0,0], dtype=np.float32)
             selected_norm = np.asarray(0, dtype=np.float32)
 
@@ -1018,7 +1019,10 @@ class NOCSPoseRegDataset(torch.utils.data.Dataset):
 
         # Storing mask and image into sample
         sample = {'image': image, 'depth': depth_image, 'mask': instance_mask}
-        #sample = self.crop_one_object(instance_mask, sample)
+        
+        # Cropping the sample to just have one object
+        zoom = 1
+        sample, zoom = self.crop_one_object(instance_mask, sample)
 
         # Convert dtypes for image and depth
         image = sample['image']
@@ -1035,7 +1039,10 @@ class NOCSPoseRegDataset(torch.utils.data.Dataset):
         if self.preprocessing:
             sample = self.preprocessing(image=image, mask=mask, depth=depth)
             image, depth, mask = sample['image'], sample['depth'], sample['mask']
-        """
+        #"""
+
+        # Normalize to maintain the -1 to +1 magnitude
+        #image /= np.max(image)
 
         # Changing dtype
         sample = {
@@ -1045,7 +1052,8 @@ class NOCSPoseRegDataset(torch.utils.data.Dataset):
             'quaternion': selected_quaterion,
             'RT': selected_RT,
             'scale': selected_scale,
-            'norm_factor': selected_norm
+            'norm_factor': selected_norm,
+            'zoom': zoom
         }
 
         return sample
@@ -1104,9 +1112,9 @@ class NOCSPoseRegDataset(torch.utils.data.Dataset):
         }
 
         # Crop the sample given the center and crop_size
-        cropped_sample = self.crop_sample(sample, mask_data)
+        cropped_sample, zoom = self.crop_sample(sample, mask_data)
 
-        return cropped_sample
+        return cropped_sample, zoom
 
     def crop_sample(self, sample, mask_data):
 
@@ -1118,7 +1126,7 @@ class NOCSPoseRegDataset(torch.utils.data.Dataset):
 
         # H,W of the mask
         crop_w, crop_h = mask_data['ext_right'][0] - mask_data['ext_left'][0], mask_data['ext_bot'][1] - mask_data['ext_top'][1]
-        padding = 10
+        padding = int(0.25 * np.average([crop_w, crop_h]))
 
         if crop_w > crop_h:
             diff = np.abs((crop_w - crop_h) // 2)
@@ -1170,7 +1178,10 @@ class NOCSPoseRegDataset(torch.utils.data.Dataset):
                 rcp2 = skimage.img_as_ubyte(rcp)
                 cropped_sample[key] = rcp2
 
-        return cropped_sample
+        # Calculate the zoom quantity
+        zoom = np.sqrt((w/(right-left))**2 + (h/(bottom-top))**2)
+
+        return cropped_sample, zoom
 
     def get_image_paths_in_dir(self, dir_path, max_size=None):
         """
@@ -1362,7 +1373,8 @@ def test_pose_nocs_dataset():
         translation_vector = translation_vector,
         norm_scale = test_sample['scale'],
         norm_factor = test_sample['norm_factor'],
-        intrinsics = project.constants.INTRINSICS
+        intrinsics = project.constants.INTRINSICS,
+        zoom = test_sample['zoom']
     )
     #"""
 
@@ -1377,6 +1389,7 @@ def test_pose_nocs_dataset():
     #"""
 
     plt.imshow(drawn_image)
+    plt.show()
 
     # Testing dataloader
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=2, shuffle=True)

@@ -62,7 +62,7 @@ class Centroid:
 def image_data_format(image):
 
     if len(image.shape) != 3:
-        return None
+        return 'channels_none'
     else:
         if image.shape[0] > image.shape[-1]:
             return 'channels_last'
@@ -75,7 +75,7 @@ def set_image_data_format(image, dataformat):
 
         current_dataformat = image_data_format(image)
 
-        if current_dataformat == dataformat:
+        if current_dataformat == dataformat or current_dataformat == 'channels_none':
             return image
         else:
             return np.moveaxis(image, 0, -1)
@@ -84,11 +84,58 @@ def set_image_data_format(image, dataformat):
 
         current_dataformat = image_data_format(image)
 
-        if current_dataformat == dataformat:
+        if current_dataformat == dataformat or current_dataformat == 'channels_none':
             return image
         else:
             return image.permute(2, 0, 1)
-            
+
+def standardize_image(image, get_original_data=False):
+
+    # ensure that it is numpy (np.uint8)
+    was_tensor = isinstance(image, torch.Tensor)
+    if was_tensor:
+        image = image.cpu().numpy()
+        was_tensor = True
+
+    # Ensure the right datatype
+    original_dtype = image.dtype
+    if image.dtype != np.uint8:
+        image = skimage.img_as_ubyte(image)
+
+    # ensure the correct dataformat
+    original_image_dataformat = image_data_format(image)
+    if original_image_dataformat != 'channels_last':
+        image = set_image_data_format(image, 'channels_last')
+
+    if get_original_data:
+        return image, was_tensor, original_dtype, original_image_dataformat
+    else:
+        return image
+
+def dec_correct_img_dataformat(function):
+
+    restore_like_input_image = False
+
+    def wrapper_function(image, *args, **kwargs):
+
+        # Standarize image to numpy np.uint8
+        image, was_tensor, original_dtype, original_image_dataformat = standardize_image(image, get_original_data=True)
+        
+        # Apply function
+        drawn_image = function(image, *args, **kwargs)
+
+        # Restore the image to the exact same as the input
+        if restore_like_input_image:
+            drawn_image = set_image_data_format(drawn_image, original_image_dataformat)
+            drawn_image = drawn_image.astype(original_dtype)
+
+            if was_tensor:
+                drawn_image = torch.from_numpy(drawn_image)
+
+        return drawn_image
+
+    return wrapper_function
+
 #-------------------------------------------------------------------------------
 # get Functions
 
@@ -372,7 +419,6 @@ def extract_translation_vector_from_RT(RT, intrinsics):
     translation_vector = create_translation_vector(projected_origin, origin_z, intrinsics)
 
     return translation_vector
-
 
 def create_translation_vector(cartesian_projections_2d_xy_origin, z, intrinsics):
     """
