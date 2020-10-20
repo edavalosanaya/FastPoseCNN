@@ -2,6 +2,7 @@ import os
 import sys
 import pathlib
 
+import math
 import numpy as np
 import cv2
 from pyquaternion import Quaternion
@@ -171,19 +172,23 @@ def draw_centroids(img, centroids, color=(0,255,0), thickness=4):
 @dm.dec_correct_img_dataformat
 def draw_3d_bbox(img, bbox_pts, color):
 
+    # Determine a good thickness
+    size = min(img.shape[:2])
+    thickness = int(math.ceil(size/75))
+
     # draw ground layer in darker color
     color_ground = (int(color[0] * 0.3), int(color[1] * 0.3), int(color[2] * 0.3))
     for i, j in zip([4, 5, 6, 7],[5, 7, 4, 6]):
-        img = cv2.line(img, tuple(bbox_pts[i]), tuple(bbox_pts[j]), color_ground, 3)
+        img = cv2.line(img, tuple(bbox_pts[i]), tuple(bbox_pts[j]), color_ground, thickness)
 
     # draw pillars in blue color
     color_pillar = (int(color[0]*0.6), int(color[1]*0.6), int(color[2]*0.6))
     for i, j in zip(range(4),range(4,8)):
-        img = cv2.line(img, tuple(bbox_pts[i]), tuple(bbox_pts[j]), color_pillar, 3)
+        img = cv2.line(img, tuple(bbox_pts[i]), tuple(bbox_pts[j]), color_pillar, thickness)
 
     # finally, draw top layer in color
     for i, j in zip([0, 1, 2, 3],[1, 3, 0, 2]):
-        img = cv2.line(img, tuple(bbox_pts[i]), tuple(bbox_pts[j]), color, 3)
+        img = cv2.line(img, tuple(bbox_pts[i]), tuple(bbox_pts[j]), color, thickness)
 
     return img
 
@@ -192,12 +197,17 @@ def draw_axes(img, axes):
 
     font = cv2.FONT_HERSHEY_TRIPLEX
 
+    # Determine a good thickness
+    size = min(img.shape[:2])
+    thickness = int(math.ceil(size/75))
+    font_scale = size/200
+
     # draw axes
     # axes[0] = center of axis, axes[X] = end point of an axis
-    img = cv2.line(img, tuple(axes[0]), tuple(axes[1]), (0, 0, 255), 3) # Red (x)
-    img = cv2.line(img, tuple(axes[0]), tuple(axes[3]), (255, 0, 0), 3) # Blue (y)
-    img = cv2.line(img, tuple(axes[0]), tuple(axes[2]), (0, 255, 0), 3) # Green (z)
-    img = cv2.circle(img, tuple(axes[0]), 5, (255,255,255), -1) # Center axis
+    img = cv2.line(img, tuple(axes[0]), tuple(axes[1]), (0, 0, 255), thickness) # Red (x)
+    img = cv2.line(img, tuple(axes[0]), tuple(axes[3]), (255, 0, 0), thickness) # Blue (y)
+    img = cv2.line(img, tuple(axes[0]), tuple(axes[2]), (0, 255, 0), thickness) # Green (z)
+    img = cv2.circle(img, tuple(axes[0]), thickness, (255,255,255), -1) # Center axis
 
     # Calculating the x,y,z text locations
     for letter, color, axis_index in zip(['x', 'y', 'z'], [(0,0,255),(255,0,0),(0,255,0)], [1,3,2]):
@@ -206,7 +216,7 @@ def draw_axes(img, axes):
         letter_place = ((axes[axis_index] - axes[0]) * np.array([1.2, 1.3])).astype(np.int) + axes[0] + text_center_shift
 
         # drawing letter (x, y, z) corresponding to the axes
-        cv2.putText(img, letter, tuple(letter_place), font, 1, color)
+        cv2.putText(img, letter, tuple(letter_place), font, font_scale, color)
 
     return img
 

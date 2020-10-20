@@ -271,7 +271,7 @@ class SegmentationDataModule(pl.LightningDataModule):
                 dataset_dir=project.cfg.CAMERA_TRAIN_DATASET, 
                 max_size=1000,
                 classes=project.constants.NOCS_CLASSES,
-                augmentation=transforms.get_training_augmentation(height=crop_size, width=crop_size),
+                augmentation=transforms.seg.get_training_augmentation(height=crop_size, width=crop_size),
                 preprocessing=transforms.get_preprocessing(preprocessing_fn),
                 balance=True,
                 crop_size=crop_size,
@@ -282,7 +282,7 @@ class SegmentationDataModule(pl.LightningDataModule):
                 dataset_dir=project.cfg.CAMERA_VALID_DATASET, 
                 max_size=100,
                 classes=project.constants.NOCS_CLASSES,
-                augmentation=transforms.get_validation_augmentation(height=crop_size, width=crop_size),
+                augmentation=transforms.seg.get_validation_augmentation(height=crop_size, width=crop_size),
                 preprocessing=transforms.get_preprocessing(preprocessing_fn),
                 balance=False,
                 crop_size=crop_size,
@@ -299,7 +299,7 @@ class SegmentationDataModule(pl.LightningDataModule):
                 voc_dir=project.cfg.VOC_DATASET,
                 is_train=True,
                 classes=project.constants.VOC_CLASSES,
-                augmentation=transforms.get_training_augmentation(),
+                augmentation=transforms.seg.get_training_augmentation(),
                 preprocessing=transforms.get_preprocessing(preprocessing_fn)
             )
 
@@ -307,7 +307,7 @@ class SegmentationDataModule(pl.LightningDataModule):
                 voc_dir=project.cfg.VOC_DATASET,
                 is_train=False,
                 classes=project.constants.VOC_CLASSES,
-                augmentation=transforms.get_validation_augmentation(),
+                augmentation=transforms.seg.get_validation_augmentation(),
                 preprocessing=transforms.get_preprocessing(preprocessing_fn)
             )
             
@@ -321,7 +321,7 @@ class SegmentationDataModule(pl.LightningDataModule):
                 project.cfg.CAMVID_DATASET,
                 train_valid_test='train', 
                 classes=project.constants.CAMVID_CLASSES,
-                augmentation=transforms.get_training_augmentation(), 
+                augmentation=transforms.seg.get_training_augmentation(), 
                 preprocessing=transforms.get_preprocessing(preprocessing_fn),
                 mask_dataformat='HW'
             )
@@ -330,7 +330,7 @@ class SegmentationDataModule(pl.LightningDataModule):
                 project.cfg.CAMVID_DATASET,
                 train_valid_test='val',
                 classes=project.constants.CAMVID_CLASSES,
-                augmentation=transforms.get_validation_augmentation(), 
+                augmentation=transforms.seg.get_validation_augmentation(), 
                 preprocessing=transforms.get_preprocessing(preprocessing_fn),
                 mask_dataformat='HW'
             )
@@ -339,7 +339,7 @@ class SegmentationDataModule(pl.LightningDataModule):
                 project.cfg.CAMVID_DATASET,
                 train_valid_test='test',
                 classes=project.constants.CAMVID_CLASSES,
-                augmentation=transforms.get_validation_augmentation(), 
+                augmentation=transforms.seg.get_validation_augmentation(), 
                 preprocessing=transforms.get_preprocessing(preprocessing_fn),
                 mask_dataformat='HW'
             )
@@ -381,14 +381,14 @@ class SegmentationDataModule(pl.LightningDataModule):
             train_dataset = ds.CARVANASegDataset(
                 images = np_images[train_indices].tolist(),
                 masks = np_masks[train_indices].tolist(),
-                transforms = transforms.train_transforms
+                transforms = transforms.seg.train_transforms
             )
 
             # Creates our valid dataset
             valid_dataset = ds.CARVANASegDataset(
                 images = np_images[valid_indices].tolist(),
                 masks = np_masks[valid_indices].tolist(),
-                transforms = transforms.valid_transforms
+                transforms = transforms.seg.valid_transforms
             )
 
             self.datasets = {'train': train_dataset,

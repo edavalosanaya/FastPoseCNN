@@ -1,22 +1,20 @@
 import albumentations as albu
 from albumentations.pytorch import ToTensor
 
+import general as g
+
 #-------------------------------------------------------------------------------
 # Pre-processing
-
-def to_tensor(x, **kwargs):
-    return x.transpose(2,0,1) if len(x.shape) == 3 else x
 
 def get_preprocessing(preprocessing_fn):
 
     preprocessing_transform = albu.Compose([
         albu.Lambda(image=preprocessing_fn),
-        albu.Lambda(image=to_tensor, mask=to_tensor)],
-        additional_targets = {'depth': 'mask'}
+        albu.Lambda(image=g.to_tensor)],
     )
 
     return preprocessing_transform
-    
+
 #-------------------------------------------------------------------------------
 # Train
 
@@ -81,7 +79,6 @@ def get_validation_augmentation(height=384, width=480):
 def pre_transforms(image_size=224):
     return [albu.Resize(image_size, image_size, p=1)]
 
-
 def hard_transforms():
     result = [
       albu.RandomRotate90(),
@@ -94,7 +91,6 @@ def hard_transforms():
     ]
 
     return result
-  
 
 def resize_transforms(image_size=224):
     BORDER_CONSTANT = 0
