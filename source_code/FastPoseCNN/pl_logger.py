@@ -22,6 +22,8 @@ class MyLogger(pl.loggers.LightningLoggerBase):
     @rank_zero_only
     def __init__(
         self, 
+        HPARAM,
+        pl_module,
         save_dir: Path = Path(pathlib.Path.cwd() / 'logs'), 
         name = 'model',
         **kwargs
@@ -33,6 +35,8 @@ class MyLogger(pl.loggers.LightningLoggerBase):
         # Saving parameters
         self.save_dir = str(save_dir)
         self.name = name
+        self.HPARAM = HPARAM
+        self.pl_module = pl_module
 
         # Creating the necessary directories
         self.run_dir = save_dir / self.name
@@ -61,13 +65,61 @@ class MyLogger(pl.loggers.LightningLoggerBase):
         }
 
     @rank_zero_only
+    def calculate_global_step(self, mode, batch_idx):
+
+        # Calculate the actual global step
+        if self.pl_module.trainer.train_dataloader is not None:
+            num_of_train_batchs = len(self.pl_module.trainer.train_dataloader)
+        else:
+            num_of_train_batchs = 0
+
+        if self.pl_module.trainer.val_dataloaders[0] is not None:
+            num_of_valid_batchs = len(self.pl_module.trainer.val_dataloaders[0])
+        else:
+            num_of_valid_batchs = 0
+
+        total_batchs = num_of_train_batchs + num_of_valid_batchs - 1
+
+        # Calculating the effective batch_size
+        if self.pl_module.use_ddp:
+            effective_batch_size = self.HPARAM.BATCH_SIZE * self.HPARAM.NUM_GPUS
+        elif self.pl_module.use_single_gpu or self.pl_module.use_dp:
+            effective_batch_size = self.HPARAM.BATCH_SIZE
+        else:
+            raise NotImplementedError('Invalid distributed backend option')
+
+        # Calculating the effective batch_idx
+        if self.pl_module.use_ddp:
+            effective_batch_idx = batch_idx * self.HPARAM.NUM_GPUS + 1
+        elif self.pl_module.use_single_gpu or self.pl_module.use_dp:
+            effective_batch_idx = batch_idx
+        else:
+            raise NotImplementedError('Invalid distributed backend option')
+
+        if mode == 'train':
+            epoch_start_point = self.pl_module.current_epoch * total_batchs * effective_batch_size
+            global_step = epoch_start_point + effective_batch_idx * self.HPARAM.BATCH_SIZE + 1
+        elif mode == 'valid':
+            epoch_start_point = self.pl_module.current_epoch * total_batchs * effective_batch_size + num_of_train_batchs * effective_batch_size
+            global_step = epoch_start_point + effective_batch_idx * self.HPARAM.BATCH_SIZE + 1
+        else:
+            epoch_start_point = 0
+            global_step = self.pl_module.global_step
+        
+        return global_step
+
+    @rank_zero_only
     def log_hyperparams(self, params):
         # params is an argparse.Namespace
         # your code to record hyperparameters goes here
         pass
 
     @rank_zero_only
-    def log_metrics(self, mode, metrics, step, store=True):
+    def log_metrics(self, mode, metrics, batch_idx, store=True):
+
+        # Calculate global step, since given information regarding the step is 
+        # given in batch_idx
+        step = self.calculate_global_step(mode, batch_idx)
 
         # Logging the metrics invidually to tensorboard
         for metric_name, metric_value in metrics.items():

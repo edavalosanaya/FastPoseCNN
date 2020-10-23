@@ -112,17 +112,34 @@ def standardize_image(image, get_original_data=False):
     else:
         return image
 
-def dec_correct_img_dataformat(function):
+def dec_correct_image_dataformat(function):
 
     restore_like_input_image = False
 
-    def wrapper_function(image, *args, **kwargs):
+    def wrapper_function(*args, **kwargs):
+
+        # Determine if args were used, instead of kwargs
+        args_used = True if len(list(args)) else False
+
+        # Finding the image in args and kwargs
+        if 'image' in list(kwargs.keys()):
+            image = kwargs['image']
+        else:
+            image = args[0]
 
         # Standarize image to numpy np.uint8
         image, was_tensor, original_dtype, original_image_dataformat = standardize_image(image, get_original_data=True)
+
+        # Store back the altered image
+        if args_used:
+            new_args = list(args)
+            new_args[0] = image
+            args = tuple(new_args)
+        else:
+            kwargs['image'] = image
         
         # Apply function
-        drawn_image = function(image, *args, **kwargs)
+        drawn_image = function(*args, **kwargs)
 
         # Restore the image to the exact same as the input
         if restore_like_input_image:
@@ -232,10 +249,13 @@ def get_mask_centroids(mask, class_id=None):
         if hie[0][i][3] != -1: 
             continue
 
-        M = cv2.moments(c)
-        cX = int(M["m10"] / M["m00"])
-        cY = int(M["m01"] / M["m00"])
-        centroids.append(Centroid(cX, cY, class_id))
+        try:
+            M = cv2.moments(c)
+            cX = int(M["m10"] / M["m00"])
+            cY = int(M["m01"] / M["m00"])
+            centroids.append(Centroid(cX, cY, class_id))
+        except ZeroDivisionError:
+            pass
 
     return centroids
 
@@ -262,16 +282,16 @@ def get_masks_centroids(masks):
 
     return total_centroids
 
-def get_data_from_centroids(centroids, img):
+def get_data_from_centroids(centroids, image):
 
-    if isinstance(img, torch.Tensor):
-        img = img.cpu().numpy()
+    if isinstance(image, torch.Tensor):
+        image = image.cpu().numpy()
 
     total_data = []
 
     for centroid in centroids:
 
-        data = img[centroid.y, centroid.x]
+        data = image[centroid.y, centroid.x]
 
         total_data.append(data)
 

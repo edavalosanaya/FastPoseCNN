@@ -262,8 +262,8 @@ class OLDNOCSDataset(torch.utils.data.Dataset):
         zs = np.zeros([1, h, w], dtype=np.float32)
         masks = np.zeros([h, w], dtype=np.uint8)
         #masks = np.zeros([1,h,w], dtype=np.uint8)
-        quat_img = np.zeros([4, h, w], dtype=np.float32)
-        scales_img = np.zeros([3, h, w], dtype=np.float32)
+        quat_image = np.zeros([4, h, w], dtype=np.float32)
+        scales_image = np.zeros([3, h, w], dtype=np.float32)
 
         for e_id, (i_id, c_id) in enumerate(instance_dict.items()):
 
@@ -286,20 +286,20 @@ class OLDNOCSDataset(torch.utils.data.Dataset):
             # Storing quaterions
             quaternion = quaternions[e_id,:]
             for i in range(4): # real, i, j, and k component
-                quat_img[i,:,:] = np.where(instance_mask != 0, quaternion[i], quat_img[i,:,:])
+                quat_image[i,:,:] = np.where(instance_mask != 0, quaternion[i], quat_image[i,:,:])
 
             # Storing scales
             scale = scales[e_id,:] / norm_factors[e_id]
             for i in range(3): # real, i, j, and k component
-                scales_img[i,:,:] = np.where(instance_mask != 0, scale[i], scales_img[i,:,:])
+                scales_image[i,:,:] = np.where(instance_mask != 0, scale[i], scales_image[i,:,:])
 
         sample = {'color_image': color_image,
                   'depth_image': depth_image,
                   'zs': zs,
                   'masks': masks,
                   'coord_map': coord_map,
-                  'scales_img': scales_img,
-                  'quat_img': quat_img}
+                  'scales_image': scales_image,
+                  'quat_image': quat_image}
 
         return sample 
 
@@ -1220,7 +1220,10 @@ class NOCSPoseRegDataset(torch.utils.data.Dataset):
 
             # Adding all the color images into the total_path_list
             color_images = [x for x in files if x.name.find('color') != -1 and x.suffix == '.png']
-            total_path_list += color_images
+
+            # Removing empty color images that do not have instances
+            good_color_images = self.remove_empty_samples(color_images)
+            total_path_list += good_color_images
 
             directories = [x for x in eval_path.iterdir() if x.is_dir()]
             eval_paths += directories
@@ -1238,6 +1241,25 @@ class NOCSPoseRegDataset(torch.utils.data.Dataset):
             total_path_list = total_path_list[:max_size]
 
         return total_path_list
+
+    def remove_empty_samples(self, file_paths):
+
+        good_samples_fps = []
+
+        for i in range(len(file_paths)):
+
+            # Obtain the json data
+            json_fp = str(file_paths[i]).replace('_color.png', '_meta+.json')
+            json_data = jt.load_from_json(json_fp)
+
+            # Get the instance data
+            instance_dict = json_data['instance_dict']
+
+            # If instances, save them as good samples
+            if instance_dict:
+                good_samples_fps.append(file_paths[i])
+
+        return good_samples_fps
 
     def get_random_batched_sample(self, batch_size=1):
 

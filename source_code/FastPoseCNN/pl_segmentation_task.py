@@ -67,11 +67,11 @@ To delete hanging Tensorboard processes use the following:
 # File Constants
 
 # Run hyperparameters
-class DEFAULT_HPARAM(argparse.Namespace):
+class DEFAULT_SEG_HPARAM(argparse.Namespace):
     DATASET_NAME = 'CAMVID'
-    BATCH_SIZE = 2
+    BATCH_SIZE = 4
     NUM_WORKERS = 8
-    NUM_GPUS = 4
+    NUM_GPUS = 1
     LEARNING_RATE = 0.001
     ENCODER_LEARNING_RATE = 0.0005
     BACKBONE_ARCH = 'FPN'
@@ -80,7 +80,7 @@ class DEFAULT_HPARAM(argparse.Namespace):
     NUM_EPOCHS = 3
     DISTRIBUTED_BACKEND = None if NUM_GPUS <= 1 else 'ddp'
 
-HPARAM = DEFAULT_HPARAM()
+HPARAM = DEFAULT_SEG_HPARAM()
 
 #-------------------------------------------------------------------------------
 # Classes
@@ -143,16 +143,13 @@ class SegmentationTask(pl.LightningModule):
         # Calculate the loss based on self.loss_function
         losses, metrics = self.loss_function(logits, batch['mask'])
 
-        # Calculate the effective global step
-        global_step = self.calculate_global_step(mode, batch_idx)
-
         # Logging the batch loss to Tensorboard
         for loss_name, loss_value in losses.items():
-            self.logger.log_metrics(mode, {f'{loss_name}/batch':loss_value}, global_step)
+            self.logger.log_metrics(mode, {f'{loss_name}/batch':loss_value}, batch_idx, self)
 
         # Logging the metric loss to Tensorboard
         for metric_name, metric_value in metrics.items():
-            self.logger.log_metrics(mode, {f'{metric_name}/batch':metric_value}, global_step) 
+            self.logger.log_metrics(mode, {f'{metric_name}/batch':metric_value}, batch_idx, self) 
 
         return losses, metrics
 
@@ -208,45 +205,6 @@ class SegmentationTask(pl.LightningModule):
         }
         
         return [optimizer], [scheduler]
-
-    def calculate_global_step(self, mode, batch_idx):
-
-        # Calculate the actual global step
-        if self.trainer.train_dataloader is not None:
-            num_of_train_batchs = len(self.trainer.train_dataloader)
-        else:
-            num_of_train_batchs = 0
-
-        if self.trainer.val_dataloaders[0] is not None:
-            num_of_valid_batchs = len(self.trainer.val_dataloaders[0])
-        else:
-            num_of_valid_batchs = 0
-
-        total_batchs = num_of_train_batchs + num_of_valid_batchs - 1
-
-        # Calculating the effective batch_size
-        if self.use_ddp:
-            effective_batch_size = HPARAM.BATCH_SIZE * HPARAM.NUM_GPUS
-        elif self.use_single_gpu or self.use_dp:
-            effective_batch_size = HPARAM.BATCH_SIZE
-
-        # Calculating the effective batch_idx
-        if self.use_ddp:
-            effective_batch_idx = batch_idx * HPARAM.NUM_GPUS + 1
-        elif self.use_single_gpu or self.use_dp:
-            effective_batch_idx = batch_idx
-
-        if mode == 'train':
-            epoch_start_point = self.current_epoch * total_batchs * effective_batch_size
-            global_step = epoch_start_point + effective_batch_idx * HPARAM.BATCH_SIZE + 1
-        elif mode == 'valid':
-            epoch_start_point = self.current_epoch * total_batchs * effective_batch_size + num_of_train_batchs * effective_batch_size
-            global_step = epoch_start_point + effective_batch_idx * HPARAM.BATCH_SIZE + 1
-        else:
-            epoch_start_point = 0
-            global_step = self.global_step
-        
-        return global_step
 
 class SegmentationDataModule(pl.LightningDataModule):
 
@@ -499,6 +457,7 @@ if __name__ == '__main__':
 
     # Creating my own logger
     tb_logger = pll.MyLogger(
+        HPARAM,
         save_dir=project.cfg.LOGS,
         name=run_name
     )

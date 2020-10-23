@@ -61,19 +61,19 @@ To delete hanging Tensorboard processes use the following:
 # File Constants
 
 # Run hyperparameters
-class DEFAULT_HPARAM(argparse.Namespace):
+class DEFAULT_POSE_HPARAM(argparse.Namespace):
     DATASET_NAME = 'NOCS'
-    BATCH_SIZE = 2
+    BATCH_SIZE = 12
     NUM_WORKERS = 8
-    NUM_GPUS = 1
+    NUM_GPUS = 4
     LEARNING_RATE = 0.001
-    NUM_EPOCHS = 3
+    NUM_EPOCHS = 100
     DISTRIBUTED_BACKEND = None if NUM_GPUS <= 1 else 'ddp'
 
     ENCODER = 'resnet18'
     ENCODER_WEIGHTS = 'imagenet'
 
-HPARAM = DEFAULT_HPARAM()
+HPARAM = DEFAULT_POSE_HPARAM()
 
 #-------------------------------------------------------------------------------
 # Classes
@@ -135,16 +135,13 @@ class PoseRegresssionTask(pl.LightningModule):
         # Calculate the loss based on self.loss_function
         losses, metrics = self.loss_function(logits, batch['quaternion'])
 
-        # Calculate the effective global step
-        global_step = self.calculate_global_step(mode, batch_idx)
-
         # Logging the batch loss to Tensorboard
         for loss_name, loss_value in losses.items():
-            self.logger.log_metrics(mode, {f'{loss_name}/batch':loss_value}, global_step)
+            self.logger.log_metrics(mode, {f'{loss_name}/batch':loss_value}, batch_idx, self)
 
         # Logging the metric loss to Tensorboard
         for metric_name, metric_value in metrics.items():
-            self.logger.log_metrics(mode, {f'{metric_name}/batch':metric_value}, global_step) 
+            self.logger.log_metrics(mode, {f'{metric_name}/batch':metric_value}, batch_idx, self) 
 
         return losses, metrics
 
@@ -195,49 +192,6 @@ class PoseRegresssionTask(pl.LightningModule):
         
         return [optimizer], [scheduler]
 
-    def calculate_global_step(self, mode, batch_idx):
-
-        # Calculate the actual global step
-        if self.trainer.train_dataloader is not None:
-            num_of_train_batchs = len(self.trainer.train_dataloader)
-        else:
-            num_of_train_batchs = 0
-
-        if self.trainer.val_dataloaders[0] is not None:
-            num_of_valid_batchs = len(self.trainer.val_dataloaders[0])
-        else:
-            num_of_valid_batchs = 0
-
-        total_batchs = num_of_train_batchs + num_of_valid_batchs - 1
-
-        # Calculating the effective batch_size
-        if self.use_ddp:
-            effective_batch_size = HPARAM.BATCH_SIZE * HPARAM.NUM_GPUS
-        elif self.use_single_gpu or self.use_dp:
-            effective_batch_size = HPARAM.BATCH_SIZE
-        else:
-            effective_batch_size = HPARAM.BATCH_SIZE
-
-        # Calculating the effective batch_idx
-        if self.use_ddp:
-            effective_batch_idx = batch_idx * HPARAM.NUM_GPUS + 1
-        elif self.use_single_gpu or self.use_dp:
-            effective_batch_idx = batch_idx
-        else: # cpu
-            effective_batch_idx = batch_idx
-
-        if mode == 'train':
-            epoch_start_point = self.current_epoch * total_batchs * effective_batch_size
-            global_step = epoch_start_point + effective_batch_idx * HPARAM.BATCH_SIZE + 1
-        elif mode == 'valid':
-            epoch_start_point = self.current_epoch * total_batchs * effective_batch_size + num_of_train_batchs * effective_batch_size
-            global_step = epoch_start_point + effective_batch_idx * HPARAM.BATCH_SIZE + 1
-        else:
-            epoch_start_point = 0
-            global_step = self.global_step
-        
-        return global_step
-
 class PoseRegressionDataModule(pl.LightningDataModule):
 
     def __init__(self, dataset_name='NOCS', batch_size=1, num_workers=0):
@@ -256,23 +210,27 @@ class PoseRegressionDataModule(pl.LightningDataModule):
 
         # NOCS
         if self.dataset_name == 'NOCS':
+            
+            # Dataset hyperparameters
             crop_size=100
+            train_size=5000
+            valid_size=200
 
             train_dataset = ds.NOCSPoseRegDataset(
                 dataset_dir=project.cfg.CAMERA_TRAIN_DATASET,
-                max_size=1000,
+                max_size=train_size,
                 classes=project.constants.NOCS_CLASSES,
-                augmentation=transforms.get_training_augmentation(height=crop_size, width=crop_size),
-                preprocessing=transforms.get_preprocessing(preprocessing_fn),
+                augmentation=transforms.pose.get_training_augmentation(),
+                preprocessing=transforms.pose.get_preprocessing(preprocessing_fn),
                 crop_size=crop_size
             )
 
             valid_dataset = ds.NOCSPoseRegDataset(
                 dataset_dir=project.cfg.CAMERA_VALID_DATASET, 
-                max_size=100,
+                max_size=valid_size,
                 classes=project.constants.NOCS_CLASSES,
-                augmentation=transforms.get_validation_augmentation(height=crop_size, width=crop_size),
-                preprocessing=transforms.get_preprocessing(preprocessing_fn),
+                augmentation=transforms.pose.get_validation_augmentation(),
+                preprocessing=transforms.pose.get_preprocessing(preprocessing_fn),
                 crop_size=crop_size,
             )
 
@@ -361,6 +319,8 @@ if __name__ == '__main__':
 
     # Creating my own logger
     tb_logger = pll.MyLogger(
+        HPARAM,
+        pl_module=model,
         save_dir=project.cfg.LOGS,
         name=run_name
     )

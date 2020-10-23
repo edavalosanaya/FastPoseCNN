@@ -139,8 +139,11 @@ def make_summary_figure(**images):
                 if j == 0:
                     plt.ylabel(' '.join(name.split('_')).title())
 
+                """
                 if len(img.shape) == 3: # CHW to HWC
                     img = np.moveaxis(img, 0, -1)
+                """
+                img = dm.standardize_image(img)
 
                 plt.imshow(img)
         else: # HW only
