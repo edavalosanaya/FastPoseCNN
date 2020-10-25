@@ -67,7 +67,7 @@ class DEFAULT_POSE_HPARAM(argparse.Namespace):
     NUM_WORKERS = 8
     NUM_GPUS = 4
     LEARNING_RATE = 0.001
-    NUM_EPOCHS = 100
+    NUM_EPOCHS = 2
     DISTRIBUTED_BACKEND = None if NUM_GPUS <= 1 else 'ddp'
 
     ENCODER = 'resnet18'
@@ -137,11 +137,11 @@ class PoseRegresssionTask(pl.LightningModule):
 
         # Logging the batch loss to Tensorboard
         for loss_name, loss_value in losses.items():
-            self.logger.log_metrics(mode, {f'{loss_name}/batch':loss_value}, batch_idx, self)
+            self.logger.log_metrics(mode, {f'{loss_name}/batch':loss_value}, batch_idx)
 
         # Logging the metric loss to Tensorboard
         for metric_name, metric_value in metrics.items():
-            self.logger.log_metrics(mode, {f'{metric_name}/batch':metric_value}, batch_idx, self) 
+            self.logger.log_metrics(mode, {f'{metric_name}/batch':metric_value}, batch_idx) 
 
         return losses, metrics
 

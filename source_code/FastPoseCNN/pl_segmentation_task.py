@@ -230,7 +230,7 @@ class SegmentationDataModule(pl.LightningDataModule):
                 max_size=1000,
                 classes=project.constants.NOCS_CLASSES,
                 augmentation=transforms.seg.get_training_augmentation(height=crop_size, width=crop_size),
-                preprocessing=transforms.get_preprocessing(preprocessing_fn),
+                preprocessing=transforms.seg.get_preprocessing(preprocessing_fn),
                 balance=True,
                 crop_size=crop_size,
                 mask_dataformat='HW'
@@ -241,7 +241,7 @@ class SegmentationDataModule(pl.LightningDataModule):
                 max_size=100,
                 classes=project.constants.NOCS_CLASSES,
                 augmentation=transforms.seg.get_validation_augmentation(height=crop_size, width=crop_size),
-                preprocessing=transforms.get_preprocessing(preprocessing_fn),
+                preprocessing=transforms.seg.get_preprocessing(preprocessing_fn),
                 balance=False,
                 crop_size=crop_size,
                 mask_dataformat='HW'
@@ -258,7 +258,7 @@ class SegmentationDataModule(pl.LightningDataModule):
                 is_train=True,
                 classes=project.constants.VOC_CLASSES,
                 augmentation=transforms.seg.get_training_augmentation(),
-                preprocessing=transforms.get_preprocessing(preprocessing_fn)
+                preprocessing=transforms.seg.get_preprocessing(preprocessing_fn)
             )
 
             valid_dataset = ds.VOCDataset(
@@ -266,7 +266,7 @@ class SegmentationDataModule(pl.LightningDataModule):
                 is_train=False,
                 classes=project.constants.VOC_CLASSES,
                 augmentation=transforms.seg.get_validation_augmentation(),
-                preprocessing=transforms.get_preprocessing(preprocessing_fn)
+                preprocessing=transforms.seg.get_preprocessing(preprocessing_fn)
             )
             
             self.datasets = {'train': train_dataset,
@@ -280,7 +280,7 @@ class SegmentationDataModule(pl.LightningDataModule):
                 train_valid_test='train', 
                 classes=project.constants.CAMVID_CLASSES,
                 augmentation=transforms.seg.get_training_augmentation(), 
-                preprocessing=transforms.get_preprocessing(preprocessing_fn),
+                preprocessing=transforms.seg.get_preprocessing(preprocessing_fn),
                 mask_dataformat='HW'
             )
 
@@ -289,7 +289,7 @@ class SegmentationDataModule(pl.LightningDataModule):
                 train_valid_test='val',
                 classes=project.constants.CAMVID_CLASSES,
                 augmentation=transforms.seg.get_validation_augmentation(), 
-                preprocessing=transforms.get_preprocessing(preprocessing_fn),
+                preprocessing=transforms.seg.get_preprocessing(preprocessing_fn),
                 mask_dataformat='HW'
             )
 
@@ -298,7 +298,7 @@ class SegmentationDataModule(pl.LightningDataModule):
                 train_valid_test='test',
                 classes=project.constants.CAMVID_CLASSES,
                 augmentation=transforms.seg.get_validation_augmentation(), 
-                preprocessing=transforms.get_preprocessing(preprocessing_fn),
+                preprocessing=transforms.seg.get_preprocessing(preprocessing_fn),
                 mask_dataformat='HW'
             )
 
@@ -458,6 +458,7 @@ if __name__ == '__main__':
     # Creating my own logger
     tb_logger = pll.MyLogger(
         HPARAM,
+        pl_module=model,
         save_dir=project.cfg.LOGS,
         name=run_name
     )

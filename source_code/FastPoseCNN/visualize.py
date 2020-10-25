@@ -38,125 +38,7 @@ import data_manipulation as dm
 # Class
 
 #-------------------------------------------------------------------------------
-# Visualization for Debugging
-
-def debug_show(**images):
-
-    num_rows = num_columns = round(len(list(images.keys()))/2)
-
-    if num_rows == 0:
-        num_rows = num_columns = 1
-
-    fig = plt.figure(figsize=(3*num_rows,3*num_columns))
-
-    for i, (name, image) in enumerate(images.items()):
-
-        plt.subplot(num_rows, num_columns, i+1)
-        plt.xticks([])
-        plt.yticks([])
-        plt.xlabel(' '.join(name.split('_')).title())
-
-        image = dm.standardize_image(image)
-        plt.imshow(image)
-
-    plt.show()
-
-#-------------------------------------------------------------------------------
-# Dimensional Compression Functions
-
-def vstack_multichannel_masks(multi_c_image, binary=True):
-
-    output = multi_c_image[0]
-
-    # Stacking
-    for i in range(1, multi_c_image.shape[0]):
-        output = np.concatenate([output, multi_c_image[i,:,:]])
-
-    # Converting to binary
-    output = (output != 0) * 255
-
-    return output
-
-def vstack_multichaknnel_quat_or_scales(multi_c_image):
-
-    n, _, h, w = multi_c_image.shape
-    output = np.empty((h*n,w))
-
-    for c in range(n):
-        for i in range(h):
-            for j in range(w):
-                output[i+h*c,j] = (multi_c_image[c,:,i,j] != 0).all() * 255
-
-    return output
-
-def collapse_multichannel_masks(multi_c_image):
-
-    output = multi_c_image[0]
-
-    # Collapsing
-    for i in range(1, multi_c_image.shape[0]):
-        output += multi_c_image[i,:,:]
-
-    # Converting to binary
-    output = (output != 0) * 255
-
-    output = torch.clamp(output, 0, 255)
-
-    return output
-
-def collapse_multichannel_quat_or_scales(multi_c_image):
-
-    n, _, h, w = multi_c_image.shape
-    output = multi_c_image[0]
-
-    for c in range(1, n):
-
-        for i in range(h):
-            for j in range(w):
-                output[i,j] += (multi_c_image[c,:,i,j] != 0).all() * 255
-
-    output = torch.clamp(output, 0, 255)
-
-    return output
-
-#-------------------------------------------------------------------------------
-# Main Visualization Functions
-
-def make_summary_figure(**images):
-
-    # Initializing the figure and axs
-    fig = plt.figure(figsize=(16,5))
-    nr = len(images)
-    nc = images[list(images.keys())[0]].shape[0]
-
-    for i, (name, image) in enumerate(images.items()):
-        if len(image.shape) >= 3: # NHW or NCHW
-            for j, img in enumerate(image):
-
-                plt.subplot(nr, nc, 1 + j + nc*i)
-                plt.xticks([])
-                plt.yticks([])
-                if j == 0:
-                    plt.ylabel(' '.join(name.split('_')).title())
-
-                """
-                if len(img.shape) == 3: # CHW to HWC
-                    img = np.moveaxis(img, 0, -1)
-                """
-                img = dm.standardize_image(img)
-
-                plt.imshow(img)
-        else: # HW only
-
-            plt.subplot(nr, nc, i + 1)
-            plt.xticks([])
-            plt.yticks([])
-            plt.title(' '.join(name.split('_')).title())
-            plt.imshow(image)
-
-    # Overall figure configurations
-
-    return fig    
+# Visualization of data
 
 def get_visualized_mask(mask, colormap):
 
@@ -194,52 +76,191 @@ def get_visualized_masks(masks, colormap):
     return colorized_masks
 
 #-------------------------------------------------------------------------------
-# PASCAL Functions
-# From this link: 
-# https://d2l.ai/chapter_computer-vision/semantic-segmentation-and-dataset.html
+# General Matplotlib Functions
 
-def read_voc_images(voc_dir, is_train=True):
-    """Read all VOC feature and label images."""
+def make_summary_figure(**images):
 
-    txt_fname = os.path.join(voc_dir, 'ImageSets', 'Segmentation',
-                             'train.txt' if is_train else 'val.txt')
-    with open(txt_fname, 'r') as f:
-        images = f.read().split()
-    features, labels = [], []
-    for i, fname in enumerate(images):
-        features.append(skimage.io.imread(os.path.join(
-            voc_dir, 'JPEGImages', f'{fname}.jpg')))
-        labels.append(skimage.io.imread(os.path.join(
-            voc_dir, 'SegmentationClass', f'{fname}.png')))
-    return features, labels
+    # Initializing the figure and axs
+    fig = plt.figure(figsize=(16,5))
+    nr = len(images)
+    nc = images[list(images.keys())[0]].shape[0]
 
-def build_colormap2label():
-    """Build an RGB color to label mapping for segmentation."""
-    colormap2label = np.zeros(256 ** 3)
+    for i, (name, image) in enumerate(images.items()):
+        if len(image.shape) >= 3: # NHW or NCHW
+            for j, img in enumerate(image):
 
-    for i, colormap in enumerate(project.constants.VOC_COLORMAP):
-        colormap2label[(colormap[0]*256 + colormap[1])*256 + colormap[2]] = i
+                plt.subplot(nr, nc, 1 + j + nc*i)
+                plt.xticks([])
+                plt.yticks([])
+                if j == 0:
+                    plt.ylabel(' '.join(name.split('_')).title())
+
+                """
+                if len(img.shape) == 3: # CHW to HWC
+                    img = np.moveaxis(img, 0, -1)
+                """
+                img = dm.standardize_image(img)
+
+                plt.imshow(img)
+        else: # HW only
+
+            plt.subplot(nr, nc, i + 1)
+            plt.xticks([])
+            plt.yticks([])
+            plt.title(' '.join(name.split('_')).title())
+            plt.imshow(image)
+
+    # Overall figure configurations
+
+    return fig    
+
+def debug_show(**images):
+
+    num_rows = num_columns = round(len(list(images.keys()))/2)
+
+    if num_rows == 0:
+        num_rows = num_columns = 1
+
+    fig = plt.figure(figsize=(3*num_rows,3*num_columns))
+
+    for i, (name, image) in enumerate(images.items()):
+
+        plt.subplot(num_rows, num_columns, i+1)
+        plt.xticks([])
+        plt.yticks([])
+        plt.xlabel(' '.join(name.split('_')).title())
+
+        image = dm.standardize_image(image)
+        plt.imshow(image)
+
+    plt.show()
+
+#-------------------------------------------------------------------------------
+# Batch Ground Truth and Prediction Visualization
+
+def compare_mask_performance(sample, pl_module, colormap):
+
+    # Selecting clean image and mask if available
+    image_key = 'clean image' if 'clean image' in sample.keys() else 'image'
+    mask_key = 'clean mask' if 'clean mask' in sample.keys() else 'mask'
     
-    return colormap2label
-
-def voc_label_indices(colormap, colormap2label):
-    """Map an RGB color to a label."""
-
-    colormap = colormap.astype(np.int32)
+    # Converting visual images into np.uint8 for matplotlib compatibility
+    image_vis = sample[image_key].astype(np.uint8)
+    gt_mask = sample[mask_key].astype(np.uint8)
     
-    idx = ((colormap[:, :, 0] * 256 + colormap[:, :, 1]) * 256
-           + colormap[:, :, 2])
-    
-    return colormap2label[idx]
+    # Given the sample, make the prediction with the PyTorch Lightning Module
+    logits = pl_module(torch.from_numpy(sample['image']).float().to(pl_module.device)).detach()
+    pr_mask = torch.nn.functional.sigmoid(logits).cpu().numpy()
 
-def voc_rand_crop(feature, label, height, width):
-    """Randomly crop for both feature and label images."""
-    from mxnet import image
+    # Target (ground truth) data format 
+    if len(gt_mask.shape) == len('BCHW'):
 
-    feature, rect = image.random_crop(feature, (width, height))
-    label = image.fixed_crop(label, *rect)
-    
-    return feature, label
+        if pr_mask.shape[1] == 1: # Binary segmentation
+            pr_mask = pr_mask[:,0,:,:]
+            gt_mask = gt_mask[:,0,:,:]
+
+        else: # Multi-class segmentation
+            pr_mask = np.argmax(pr_mask, axis=1)
+            gt_mask = np.argmax(gt_mask, axis=1)
+
+    elif len(gt_mask.shape) == len('BHW'):
+
+        if pr_mask.shape[1] == 1: # Binary segmentation
+            pr_mask = pr_mask[:,0,:,:]
+
+        else: # Multi-class segmentation
+            pr_mask = np.argmax(pr_mask, axis=1)
+
+    # Colorized the binary masks
+    gt_mask_vis = get_visualized_masks(gt_mask, colormap)
+    pr_mask = get_visualized_masks(pr_mask, colormap)
+
+    # Creating a matplotlib figure illustrating the inputs vs outputs
+    summary_fig = make_summary_figure(
+        image=image_vis,
+        ground_truth_mask=gt_mask_vis,
+        predicited_mask=pr_mask)
+
+    return summary_fig
+
+def compare_pose_performance(sample, pl_module):
+
+    # Selecting clean image and mask if available
+    image_key = 'clean image' if 'clean image' in sample.keys() else 'image'
+    mask_key = 'clean mask' if 'clean mask' in sample.keys() else 'mask'
+    depth_key = 'clean depth' if 'clean depth' in sample.keys() else 'depth'
+
+    # Getting the image, mask, and depth
+    image, mask, depth = sample[image_key], sample[mask_key], sample[depth_key]
+
+    # Given the sample, make the prediciton with the PyTorch Lightning Moduel
+    logits = pl_module(torch.from_numpy(sample['image']).float().to(pl_module.device)).detach()
+    pred_quaternion = logits.cpu().numpy()
+
+    # Creating the translation vector
+    modified_intrinsics = project.constants.INTRINSICS.copy()
+    modified_intrinsics[0,2] = sample['image'].shape[1] / 2
+    modified_intrinsics[1,2] = sample['image'].shape[0] / 2
+
+    # Create the drawn poses
+    gt_poses = []
+    pred_poses = []
+
+    for batch_id in range(image.shape[0]):
+        
+        # Obtain the centroids (x,y)
+        centroids = dm.get_masks_centroids(sample['mask'][batch_id])
+
+        # If no centroids are found, just skip
+        if not centroids:
+            continue
+        
+        # Obtain the depth located at the centroid (z)
+        zs = dm.get_data_from_centroids(centroids, sample['depth'][batch_id]) * 100000
+        
+        # Create translation vector given the (x,y,z)
+        translation_vectors = dm.create_translation_vectors(centroids, zs, modified_intrinsics)
+
+        # Selecting the first translation vector
+        translation_vector = translation_vectors[0]
+
+        # Draw the poses
+        gt_pose = draw.draw_quat(
+            image = image[batch_id],
+            quaternion = sample['quaternion'][batch_id],
+            translation_vector = translation_vector,
+            norm_scale = sample['scale'][batch_id],
+            norm_factor = sample['norm_factor'][batch_id],
+            intrinsics = modified_intrinsics,
+            zoom = sample['zoom'][batch_id]
+        )
+
+        pred_pose = draw.draw_quat(
+            image = image[batch_id],
+            quaternion = pred_quaternion[batch_id],
+            translation_vector = translation_vector,
+            norm_scale = sample['scale'][batch_id],
+            norm_factor = sample['norm_factor'][batch_id],
+            intrinsics = modified_intrinsics,
+            zoom = sample['zoom'][batch_id]
+        )
+
+        # Store the drawn pose to list
+        gt_poses.append(gt_pose)
+        pred_poses.append(pred_pose)
+
+    # Convert list to array 
+    gt_poses = np.array(gt_poses, dtype=np.uint8)
+    pred_poses = np.array(pred_poses, dtype=np.uint8)
+
+    # Creating a matplotlib figure illustrating the inputs vs outputs
+    summary_fig = make_summary_figure(
+        image=image,
+        gt_pose=gt_poses,
+        pred_pose=pred_poses
+    )
+
+    return summary_fig  
 
 #-------------------------------------------------------------------------------
 # File's Main

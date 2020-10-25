@@ -129,57 +129,11 @@ class MyCallback(pl.callbacks.Callback):
         sample = dataset.get_random_batched_sample(batch_size=3)
 
         # Create the summary figure
-        summary_fig = self.mask_check_tb(sample, pl_module, colormap)
+        summary_fig = vz.compare_mask_performance(sample, pl_module, colormap)
 
         # Log the figure to tensorboard
         pl_module.logger.writers[mode].add_figure(f'mask_gen/{mode}', summary_fig, trainer.global_step)
-
-    @rank_zero_only
-    def mask_check_tb(self, sample, pl_module, colormap):
-
-        # Selecting clean image and mask if available
-        image_key = 'clean image' if 'clean image' in sample.keys() else 'image'
-        mask_key = 'clean mask' if 'clean mask' in sample.keys() else 'mask'
-        
-        # Converting visual images into np.uint8 for matplotlib compatibility
-        image_vis = sample[image_key].astype(np.uint8)
-        gt_mask = sample[mask_key].astype(np.uint8)
-        
-        # Given the sample, make the prediction with the PyTorch Lightning Module
-        logits = pl_module(torch.from_numpy(sample['image']).float().to(pl_module.device)).detach()
-        pr_mask = torch.nn.functional.sigmoid(logits).cpu().numpy()
-
-        # Target (ground truth) data format 
-        if len(gt_mask.shape) == len('BCHW'):
-
-            if pr_mask.shape[1] == 1: # Binary segmentation
-                pr_mask = pr_mask[:,0,:,:]
-                gt_mask = gt_mask[:,0,:,:]
-
-            else: # Multi-class segmentation
-                pr_mask = np.argmax(pr_mask, axis=1)
-                gt_mask = np.argmax(gt_mask, axis=1)
-
-        elif len(gt_mask.shape) == len('BHW'):
-
-            if pr_mask.shape[1] == 1: # Binary segmentation
-                pr_mask = pr_mask[:,0,:,:]
-
-            else: # Multi-class segmentation
-                pr_mask = np.argmax(pr_mask, axis=1)
-
-        # Colorized the binary masks
-        gt_mask_vis = vz.get_visualized_masks(gt_mask, colormap)
-        pr_mask = vz.get_visualized_masks(pr_mask, colormap)
-
-        # Creating a matplotlib figure illustrating the inputs vs outputs
-        summary_fig = vz.make_summary_figure(
-            image=image_vis,
-            ground_truth_mask=gt_mask_vis,
-            predicited_mask=pr_mask)
-
-        return summary_fig
-
+    
     # POSE
     @rank_zero_only
     def log_epoch_pose(self, mode, trainer, pl_module):
@@ -194,90 +148,10 @@ class MyCallback(pl.callbacks.Callback):
         sample = dataset.get_random_batched_sample(batch_size=3)
 
         # Create the pose figure
-        summary_fig = self.pose_check_tb(sample, pl_module)
+        summary_fig = vz.compare_pose_performance(sample, pl_module)
 
         # Log the figure to tensorboard
-        pl_module.logger.writers[mode].add_figure(f'pose_gen/{mode}', summary_fig, trainer.global_step)
-
-    @rank_zero_only
-    def pose_check_tb(self, sample, pl_module):
-
-        # Selecting clean image and mask if available
-        image_key = 'clean image' if 'clean image' in sample.keys() else 'image'
-        mask_key = 'clean mask' if 'clean mask' in sample.keys() else 'mask'
-        depth_key = 'clean depth' if 'clean depth' in sample.keys() else 'depth'
-
-        # Getting the image, mask, and depth
-        image, mask, depth = sample[image_key], sample[mask_key], sample[depth_key]
-
-        # Given the sample, make the prediciton with the PyTorch Lightning Moduel
-        logits = pl_module(torch.from_numpy(sample['image']).float().to(pl_module.device)).detach()
-        pred_quaternion = logits.cpu().numpy()
-
-        # Creating the translation vector
-        modified_intrinsics = project.constants.INTRINSICS.copy()
-        modified_intrinsics[0,2] = sample['image'].shape[1] / 2
-        modified_intrinsics[1,2] = sample['image'].shape[0] / 2
-
-        # Create the drawn poses
-        gt_poses = []
-        pred_poses = []
-
-        for batch_id in range(image.shape[0]):
-            
-            # Obtain the centroids (x,y)
-            centroids = dm.get_masks_centroids(sample['mask'][batch_id])
-
-            # If no centroids are found, just skip
-            if not centroids:
-                continue
-            
-            # Obtain the depth located at the centroid (z)
-            zs = dm.get_data_from_centroids(centroids, sample['depth'][batch_id]) * 100000
-            
-            # Create translation vector given the (x,y,z)
-            translation_vectors = dm.create_translation_vectors(centroids, zs, modified_intrinsics)
-
-            # Selecting the first translation vector
-            translation_vector = translation_vectors[0]
-
-            # Draw the poses
-            gt_pose = draw.draw_quat(
-                image = image[batch_id],
-                quaternion = sample['quaternion'][batch_id],
-                translation_vector = translation_vector,
-                norm_scale = sample['scale'][batch_id],
-                norm_factor = sample['norm_factor'][batch_id],
-                intrinsics = modified_intrinsics,
-                zoom = sample['zoom'][batch_id]
-            )
-
-            pred_pose = draw.draw_quat(
-                image = image[batch_id],
-                quaternion = pred_quaternion[batch_id],
-                translation_vector = translation_vector,
-                norm_scale = sample['scale'][batch_id],
-                norm_factor = sample['norm_factor'][batch_id],
-                intrinsics = modified_intrinsics,
-                zoom = sample['zoom'][batch_id]
-            )
-
-            # Store the drawn pose to list
-            gt_poses.append(gt_pose)
-            pred_poses.append(pred_pose)
-
-        # Convert list to array 
-        gt_poses = np.array(gt_poses, dtype=np.uint8)
-        pred_poses = np.array(pred_poses, dtype=np.uint8)
-
-        # Creating a matplotlib figure illustrating the inputs vs outputs
-        summary_fig = vz.make_summary_figure(
-            image=image,
-            gt_pose=gt_poses,
-            pred_pose=pred_poses
-        )
-
-        return summary_fig        
+        pl_module.logger.writers[mode].add_figure(f'pose_gen/{mode}', summary_fig, trainer.global_step)      
 
     #---------------------------------------------------------------------------
     # End of Training
