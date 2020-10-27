@@ -13,6 +13,7 @@ logs/
 logs2/
 logs*/
 __pycache__/
+test_output/
 
 # Path-Specific Ignore
 

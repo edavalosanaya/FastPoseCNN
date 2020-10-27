@@ -1,0 +1,2 @@
+How to calculate loss on quaternion
+https://github.com/yuxng/PoseCNN/blob/9f3dd7b7bce21dcafc05e8f18ccc90da3caabd04/lib/fcn/train.py#L468

@@ -126,8 +126,8 @@ def debug_show(**images):
     for i, (name, image) in enumerate(images.items()):
 
         plt.subplot(num_rows, num_columns, i+1)
-        plt.xticks([])
-        plt.yticks([])
+        #plt.xticks([])
+        #plt.yticks([])
         plt.xlabel(' '.join(name.split('_')).title())
 
         image = dm.standardize_image(image)
@@ -138,7 +138,7 @@ def debug_show(**images):
 #-------------------------------------------------------------------------------
 # Batch Ground Truth and Prediction Visualization
 
-def compare_mask_performance(sample, pl_module, colormap):
+def compare_mask_performance(sample, pred_mask, colormap):
 
     # Selecting clean image and mask if available
     image_key = 'clean image' if 'clean image' in sample.keys() else 'image'
@@ -147,43 +147,39 @@ def compare_mask_performance(sample, pl_module, colormap):
     # Converting visual images into np.uint8 for matplotlib compatibility
     image_vis = sample[image_key].astype(np.uint8)
     gt_mask = sample[mask_key].astype(np.uint8)
-    
-    # Given the sample, make the prediction with the PyTorch Lightning Module
-    logits = pl_module(torch.from_numpy(sample['image']).float().to(pl_module.device)).detach()
-    pr_mask = torch.nn.functional.sigmoid(logits).cpu().numpy()
 
     # Target (ground truth) data format 
     if len(gt_mask.shape) == len('BCHW'):
 
-        if pr_mask.shape[1] == 1: # Binary segmentation
-            pr_mask = pr_mask[:,0,:,:]
+        if pred_mask.shape[1] == 1: # Binary segmentation
+            pred_mask = pred_mask[:,0,:,:]
             gt_mask = gt_mask[:,0,:,:]
 
         else: # Multi-class segmentation
-            pr_mask = np.argmax(pr_mask, axis=1)
+            pred_mask = np.argmax(pred_mask, axis=1)
             gt_mask = np.argmax(gt_mask, axis=1)
 
     elif len(gt_mask.shape) == len('BHW'):
 
-        if pr_mask.shape[1] == 1: # Binary segmentation
-            pr_mask = pr_mask[:,0,:,:]
+        if pred_mask.shape[1] == 1: # Binary segmentation
+            pred_mask = pred_mask[:,0,:,:]
 
         else: # Multi-class segmentation
-            pr_mask = np.argmax(pr_mask, axis=1)
+            pred_mask = np.argmax(pred_mask, axis=1)
 
     # Colorized the binary masks
     gt_mask_vis = get_visualized_masks(gt_mask, colormap)
-    pr_mask = get_visualized_masks(pr_mask, colormap)
+    pred_mask = get_visualized_masks(pred_mask, colormap)
 
     # Creating a matplotlib figure illustrating the inputs vs outputs
     summary_fig = make_summary_figure(
         image=image_vis,
         ground_truth_mask=gt_mask_vis,
-        predicited_mask=pr_mask)
+        predicited_mask=pred_mask)
 
     return summary_fig
 
-def compare_pose_performance(sample, pl_module):
+def compare_pose_performance(sample, pred_quaternion):
 
     # Selecting clean image and mask if available
     image_key = 'clean image' if 'clean image' in sample.keys() else 'image'
@@ -192,10 +188,6 @@ def compare_pose_performance(sample, pl_module):
 
     # Getting the image, mask, and depth
     image, mask, depth = sample[image_key], sample[mask_key], sample[depth_key]
-
-    # Given the sample, make the prediciton with the PyTorch Lightning Moduel
-    logits = pl_module(torch.from_numpy(sample['image']).float().to(pl_module.device)).detach()
-    pred_quaternion = logits.cpu().numpy()
 
     # Creating the translation vector
     modified_intrinsics = project.constants.INTRINSICS.copy()
@@ -208,6 +200,7 @@ def compare_pose_performance(sample, pl_module):
 
     for batch_id in range(image.shape[0]):
         
+        #"""
         # Obtain the centroids (x,y)
         centroids = dm.get_masks_centroids(sample['mask'][batch_id])
 
@@ -223,6 +216,13 @@ def compare_pose_performance(sample, pl_module):
 
         # Selecting the first translation vector
         translation_vector = translation_vectors[0]
+        #"""
+        """
+        translation_vector = dm.extract_translation_vector_from_RT(
+            sample['RT'], 
+            modified_intrinsics
+        )
+        """
 
         # Draw the poses
         gt_pose = draw.draw_quat(
@@ -262,26 +262,6 @@ def compare_pose_performance(sample, pl_module):
 
     return summary_fig  
 
-#-------------------------------------------------------------------------------
-# File's Main
-
-if __name__ == "__main__":
-
-    # Loading a test dataset
-    dataset = dataset.NOCSDataset(project.cfg.CAMERA_DATASET, dataset_max_size=2)
-
-    # Creating a dataloader to include the batch dimension
-    dataloader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=True)
-
-    # Obtaining a test sample
-    test_sample = next(iter(dataloader))
-
-    # Getting specific inputs
-    color_images = test_sample[0]
-    masks = test_sample[3]
-
-    # Create similar to the nets output
-    outputs = torch.stack((masks,masks),dim=1)
 
 
 

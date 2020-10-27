@@ -22,6 +22,12 @@ import project
 import data_manipulation as dm
 
 #-------------------------------------------------------------------------------
+# Draw Constants
+
+line_thickness_factor = 800
+font_size_factor = 1000
+
+#-------------------------------------------------------------------------------
 # Complete (old data structure) Routine Functions
 
 @dm.dec_correct_image_dataformat
@@ -74,6 +80,9 @@ def draw_detections(image, intrinsics, synset_names, bbox, class_ids, masks, coo
 
     return draw_image
 
+#-------------------------------------------------------------------------------
+# Drawing of Quaternion
+
 @dm.dec_correct_image_dataformat
 def draw_quat(
     image, 
@@ -82,7 +91,8 @@ def draw_quat(
     norm_scale, 
     norm_factor, 
     intrinsics,
-    zoom=1
+    zoom=1,
+    color=(0,0,255)
     ):
 
     # Convert quaternion to RT matrix
@@ -94,13 +104,14 @@ def draw_quat(
         scale = norm_scale,
         norm_factor = norm_factor, 
         intrinsics = intrinsics,
-        zoom = zoom
+        zoom = zoom,
+        color = color
     )
 
     return draw_image
 
 @dm.dec_correct_image_dataformat
-def draw_quat_detections(image, intrinsics, quaternions, translation_vectors, norm_scales):
+def draw_quats(image, intrinsics, quaternions, translation_vectors, norm_scales):
 
     draw_image = image.copy()
 
@@ -111,7 +122,7 @@ def draw_quat_detections(image, intrinsics, quaternions, translation_vectors, no
     return draw_image
 
 #-------------------------------------------------------------------------------
-# Complete (new data structure) Routine Functions
+# Drawing of Rotation Matrix
 
 @dm.dec_correct_image_dataformat
 def draw_RT(
@@ -120,7 +131,8 @@ def draw_RT(
     scale, 
     norm_factor, 
     intrinsics,
-    zoom = 1
+    zoom = 1,
+    color=(0,0,255)
     ):
 
     # Pts that will be displayed
@@ -135,8 +147,8 @@ def draw_RT(
     bbox_3d_projection = dm.transform_3d_camera_coords_to_2d_quantized_projections(bbox_3d, RT, intrinsics)
 
     # Drawing projections
+    draw_image = draw_3d_bbox(image, bbox_3d_projection, color=color)
     draw_image = draw_axes(image, xyz_projection)
-    draw_image = draw_3d_bbox(image, bbox_3d_projection, color=(0,0,255))
 
     return draw_image
 
@@ -163,9 +175,9 @@ def draw_centroids(image, centroids, color=(0,255,0), thickness=4):
 
     for centroid in centroids:
 
-        cv2.circle(draw_image, (centroid.x, centroid.y), thickness, color, -1)
+        cv2.circle(draw_image, (centroid[0], centroid[1]), thickness, color, -1)
         label = f'{project.constants.NOCS_CLASSES[centroid.class_id]}'
-        cv2.putText(draw_image, label, (centroid.x-20, centroid.y-20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
+        cv2.putText(draw_image, label, (centroid[0]-20, centroid[1]-20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
 
     return draw_image
 
@@ -173,22 +185,26 @@ def draw_centroids(image, centroids, color=(0,255,0), thickness=4):
 def draw_3d_bbox(image, bbox_pts, color):
 
     # Determine a good thickness
-    size = min(image.shape[:2])
-    thickness = int(math.ceil(size/75))
+    size = np.sqrt(image.shape[0]**2 + image.shape[1]**2)
+    thickness = int(math.ceil(size/line_thickness_factor))
 
     # draw ground layer in darker color
-    color_ground = (int(color[0] * 0.3), int(color[1] * 0.3), int(color[2] * 0.3))
+    color_ground = (int(color[0] * 0.7), int(color[1] * 0.7), int(color[2] * 0.7))
     for i, j in zip([4, 5, 6, 7],[5, 7, 4, 6]):
-        image = cv2.line(image, tuple(bbox_pts[i]), tuple(bbox_pts[j]), color_ground, thickness)
+        image = cv2.line(image, tuple(bbox_pts[i]), tuple(bbox_pts[j]), color_ground, thickness, cv2.LINE_AA)
 
     # draw pillars in blue color
-    color_pillar = (int(color[0]*0.6), int(color[1]*0.6), int(color[2]*0.6))
-    for i, j in zip(range(4),range(4,8)):
-        image = cv2.line(image, tuple(bbox_pts[i]), tuple(bbox_pts[j]), color_pillar, thickness)
+    color_pillar = (int(color[0]*0.9), int(color[1]*0.9), int(color[2]*0.9))
+    for i, j in zip([0, 1, 2, 3],[4, 5, 6, 7]):
+        image = cv2.line(image, tuple(bbox_pts[i]), tuple(bbox_pts[j]), color_pillar, thickness, cv2.LINE_AA)
 
     # finally, draw top layer in color
     for i, j in zip([0, 1, 2, 3],[1, 3, 0, 2]):
-        image = cv2.line(image, tuple(bbox_pts[i]), tuple(bbox_pts[j]), color, thickness)
+        image = cv2.line(image, tuple(bbox_pts[i]), tuple(bbox_pts[j]), color, thickness, cv2.LINE_AA)
+
+    # Drawing the corners as circles
+    for bbox_pt in bbox_pts:
+        cv2.circle(image, tuple(bbox_pt), thickness*2, color, -1)
 
     return image
 
@@ -198,34 +214,38 @@ def draw_axes(image, axes):
     font = cv2.FONT_HERSHEY_TRIPLEX
 
     # Determine a good thickness
-    size = min(image.shape[:2])
-    thickness = int(math.ceil(size/75))
-    font_scale = size/200
+    size = np.sqrt(image.shape[0]**2 + image.shape[1]**2)
+    thickness = int(math.ceil(size/line_thickness_factor))
+    font_scale = size/font_size_factor
 
     # draw axes
     # axes[0] = center of axis, axes[X] = end point of an axis
-    image = cv2.line(image, tuple(axes[0]), tuple(axes[1]), (0, 0, 255), thickness) # Red (x)
-    image = cv2.line(image, tuple(axes[0]), tuple(axes[3]), (255, 0, 0), thickness) # Blue (y)
-    image = cv2.line(image, tuple(axes[0]), tuple(axes[2]), (0, 255, 0), thickness) # Green (z)
-    image = cv2.circle(image, tuple(axes[0]), thickness, (255,255,255), -1) # Center axis
+    image = cv2.line(image, tuple(axes[0]), tuple(axes[1]), (100, 100, 255), 2*thickness) # Red (x)
+    image = cv2.line(image, tuple(axes[0]), tuple(axes[3]), (255, 100, 100), 2*thickness) # Blue (y)
+    image = cv2.line(image, tuple(axes[0]), tuple(axes[2]), (100, 255, 100), 2*thickness) # Green (z)
+    image = cv2.circle(image, tuple(axes[0]), 2*thickness, (255,255,255), -1) # Center axis
 
+    """
     # Calculating the x,y,z text locations
-    for letter, color, axis_index in zip(['x', 'y', 'z'], [(0,0,255),(255,0,0),(0,255,0)], [1,3,2]):
+    for letter, color, axis_index in zip(['x', 'y', 'z'], [(100,100,255),(255,100,100),(100,255,100)], [1,3,2]):
         text_size = cv2.getTextSize(letter, font, 1, 1)[0]
         text_center_shift = (np.array([-1 * text_size[0], text_size[1]]) / 3).astype(np.int)
         letter_place = ((axes[axis_index] - axes[0]) * np.array([1.2, 1.3])).astype(np.int) + axes[0] + text_center_shift
 
         # drawing letter (x, y, z) corresponding to the axes
         cv2.putText(image, letter, tuple(letter_place), font, font_scale, color)
+    """
 
     return image
 
 @dm.dec_correct_image_dataformat
-def draw_text(draw_image, bbox, text, draw_box=False):
+def draw_text(image, bbox, text, draw_box=False):
 
     font_face = cv2.FONT_HERSHEY_TRIPLEX
-    font_scale = 1
-    thickness = 1
+
+    size = np.sqrt(image.shape[0]**2 + image.shape[1]**2)
+    thickness = int(math.ceil(size/line_thickness_factor))
+    font_scale = size/font_size_factor
     
     retval, baseline = cv2.getTextSize(text, font_face, font_scale, thickness)
     
@@ -239,22 +259,22 @@ def draw_text(draw_image, bbox, text, draw_box=False):
     text_pos = (text_box_pos_tl[0] + text_margin, text_box_pos_br[1] - text_margin - 3)
     
     if draw_box:
-        cv2.rectangle(draw_image, 
+        cv2.rectangle(image, 
                       (bbox[1], bbox[0]),
                       (bbox[3], bbox[2]),
                       (255, 0, 0), 2)
 
-    cv2.rectangle(draw_image, 
+    cv2.rectangle(image, 
                   text_box_pos_tl,
                   text_box_pos_br,
                   (255,0,0), -1)
     
-    cv2.rectangle(draw_image, 
+    cv2.rectangle(image, 
                   text_box_pos_tl,
                   text_box_pos_br,
                   (0,0,0), 1)
 
-    cv2.putText(draw_image, text, text_pos,
+    cv2.putText(image, text, text_pos,
                 font_face, font_scale, (255,255,255), thickness)
 
-    return draw_image
+    return image

@@ -25,36 +25,7 @@ import torch
 # Local Imports
 
 #-------------------------------------------------------------------------------
-# Classes 
-
-class Centroid:
-
-    def __init__(self, x, y, class_id=None, instance_id=None):
-
-        self.x = x
-        self.y = y
-        
-        if class_id:
-            self.class_id = int(class_id)
-        else:
-            self.class_id = None
-        
-        if instance_id:
-            self.instance_id = int(instance_id)
-        else:
-            self.instance_id = None
-
-    def set_instance_id(self, value):
-        self.instance_id = int(value)
-
-    def get_instance_id(self):
-        return self.instance_id
-
-    def get_class_id(self, value):
-        self.class_id = int(value)
-
-    def get_class_id(self):
-        return self.class_id    
+# Classes     
 
 #-------------------------------------------------------------------------------
 # Simple Tool Function
@@ -253,7 +224,7 @@ def get_mask_centroids(mask, class_id=None):
             M = cv2.moments(c)
             cX = int(M["m10"] / M["m00"])
             cY = int(M["m01"] / M["m00"])
-            centroids.append(Centroid(cX, cY, class_id))
+            centroids.append(np.array([cX, cY]))
         except ZeroDivisionError:
             pass
 
@@ -291,7 +262,7 @@ def get_data_from_centroids(centroids, image):
 
     for centroid in centroids:
 
-        data = image[centroid.y, centroid.x]
+        data = image[centroid[1], centroid[0]]
 
         total_data.append(data)
 
@@ -428,13 +399,19 @@ def transform_3d_camera_coords_to_2d_quantized_projections(cartesian_camera_coor
 #-------------------------------------------------------------------------------
 # Translation Vector Functions
 
+def extract_z_from_RT(RT):
+
+    z = (np.linalg.inv(RT)[2, 3] * 1000)
+
+    return z
+
 def extract_translation_vector_from_RT(RT, intrinsics):
 
     xyz_axis = 0.3*np.array([[0, 0, 0], [0, 0, 1], [0, 1, 0], [1, 0, 0]]).transpose()
     perfect_projected_axes = transform_3d_camera_coords_to_2d_quantized_projections(xyz_axis, RT, intrinsics)
     
     projected_origin = perfect_projected_axes[0,:].reshape((-1, 1))
-    origin_z = (np.linalg.inv(RT)[2, 3] * 1000)
+    origin_z = extract_z_from_RT(RT)
 
     translation_vector = create_translation_vector(projected_origin, origin_z, intrinsics)
 
@@ -480,12 +457,25 @@ def create_translation_vectors(centroids, zs, intrinsics):
     for i, centroid in enumerate(centroids):
 
         z = zs[i]
-        formatted_centroid = np.array([centroid.x, centroid.y]).reshape((-1, 1))
+        formatted_centroid = centroid.reshape((-1, 1))
 
         translation_vector = create_translation_vector(formatted_centroid, z, intrinsics)
         translation_vectors.append(translation_vector)
 
     return translation_vectors
+
+def overwrite_RTs_translation_vector(translation_vector, RT):
+
+    #"""
+    inv_RT = np.linalg.inv(RT)
+    inv_RT[:-1, -1] = translation_vector.flatten()
+    new_RT = np.linalg.inv(inv_RT)
+    #"""
+
+    #RT[:-1, -1] = translation_vector.flatten()
+    #new_RT = RT
+    
+    return new_RT
 
 #-------------------------------------------------------------------------------
 # RT-Quaternion Functions

@@ -283,7 +283,7 @@ class OLDNOCSDataset(torch.utils.data.Dataset):
             #zs[:,:] += instance_mask * np.linalg.inv(RTs[e_id])[2,3] * 1000
             zs = np.where(instance_mask == 1, np.linalg.inv(RTs[e_id])[2,3] * 1000, zs)
 
-            # Storing quaterions
+            # Storing quaternions
             quaternion = quaternions[e_id,:]
             for i in range(4): # real, i, j, and k component
                 quat_image[i,:,:] = np.where(instance_mask != 0, quaternion[i], quat_image[i,:,:])
@@ -1001,7 +1001,7 @@ class NOCSPoseRegDataset(torch.utils.data.Dataset):
 
             selected_instance_id = keys[random_index_selected]
             selected_class_id = instance_dict[selected_instance_id]
-            selected_quaterion = np.asarray(json_data['quaternions'][random_index_selected], dtype=np.float32)
+            selected_quaternion = np.asarray(json_data['quaternions'][random_index_selected], dtype=np.float32)
             selected_scale = np.asarray(json_data['scales'][random_index_selected], dtype=np.float32)
             selected_norm = np.asarray(json_data['norm_factors'][random_index_selected], dtype=np.float32)
             selected_RT = np.asarray(json_data['RTs'][random_index_selected], dtype=np.float32)
@@ -1010,7 +1010,7 @@ class NOCSPoseRegDataset(torch.utils.data.Dataset):
             instance_mask = instance_mask.astype(np.uint8)
         
         else: # Sample without objects
-            selected_quaterion = np.array([0,0,0,0], dtype=np.float32)
+            selected_quaternion = np.array([0,0,0,0], dtype=np.float32)
             selected_RT = np.zeros((4,4), dtype=np.float32)
             selected_scale = np.array([0,0,0], dtype=np.float32)
             selected_norm = np.asarray(0, dtype=np.float32)
@@ -1018,21 +1018,34 @@ class NOCSPoseRegDataset(torch.utils.data.Dataset):
             instance_mask = np.zeros_like(mask).astype(np.uint8)
 
         # Storing mask and image into sample
-        sample = {'image': image, 'depth': depth_image, 'mask': instance_mask}
+        sample = {'image': image, 'depth': depth_image, 'mask': instance_mask, 'RT': selected_RT}
+
+        # Draw the pose before to more easily compare
+        translation_vector = dm.extract_translation_vector_from_RT(
+            RT = sample['RT'],
+            intrinsics = project.constants.INTRINSICS
+        )
+
+        sample['image'] = draw.draw_quat(
+            image = sample['image'],
+            quaternion = selected_quaternion,
+            translation_vector = translation_vector,
+            norm_scale = selected_scale,
+            norm_factor = selected_norm,
+            intrinsics = project.constants.INTRINSICS,
+            zoom = 1,
+            color=(255,255,0)
+        )
         
         # Cropping the sample to just have one object
         sample, zoom = self.crop_one_object(instance_mask, sample)
+        #zoom = 1
 
-        #"""
+        """
         # apply augmentations
         if self.augmentation:
             sample = self.augmentation(**sample)
-        
-        # TODO: 
-        # ? Determine why preprocessing has a distoring effect on the pose drawing
-        # ? maybe something to do with image shape?
 
-        #"""
         # apply preprocessing
         if self.preprocessing:
             sample = self.preprocessing(**sample)
@@ -1047,11 +1060,12 @@ class NOCSPoseRegDataset(torch.utils.data.Dataset):
             'image': skimage.img_as_float32(sample['image']), 
             'depth': skimage.img_as_float32(sample['depth']),
             'mask': sample['mask'].astype('long'),
-            'quaternion': selected_quaterion,
-            'RT': selected_RT,
+            'quaternion': selected_quaternion,
+            'RT': sample['RT'],
             'scale': selected_scale,
             'norm_factor': selected_norm,
-            'zoom': zoom
+            'zoom': zoom,
+            'modified_intrinsics': sample['modified_intrinsics']
         }
 
         return sample
@@ -1127,6 +1141,7 @@ class NOCSPoseRegDataset(torch.utils.data.Dataset):
         crop_w, crop_h = mask_data['ext_right'][0] - mask_data['ext_left'][0], mask_data['ext_bot'][1] - mask_data['ext_top'][1]
         padding = int(0.25 * np.average([crop_w, crop_h]))
         
+        """
         if crop_w > crop_h:
             diff = np.abs((crop_w - crop_h) // 2)
             left = mask_data['ext_left'][0] - padding
@@ -1144,6 +1159,11 @@ class NOCSPoseRegDataset(torch.utils.data.Dataset):
             right = mask_data['ext_right'][0] + padding
             top = mask_data['ext_top'][1] - padding
             bottom = mask_data['ext_bot'][1] + padding
+        """
+        left = mask_data['centroid'][0] - w//2
+        right = mask_data['centroid'][0] + w//2
+        top = mask_data['centroid'][1] - h//2
+        bottom = mask_data['centroid'][1] + h//2
 
         # Check if the left, right, top and bottom are outside the image
         left_pad = right_pad = top_pad = bottom_pad = 0
@@ -1163,21 +1183,69 @@ class NOCSPoseRegDataset(torch.utils.data.Dataset):
 
         # Crop the images in the sample
         for key in sample.keys():
+            if key == 'RT':
+                continue
             if len(sample[key].shape) == 2:
                 c = sample[key][top:bottom,left:right] # crop
                 cp = np.pad(c, ((top_pad,bottom_pad),(left_pad, right_pad)), mode='constant') # crop and pad
-                rcp = skimage.transform.resize(cp, (self.crop_size, self.crop_size), anti_aliasing=False)#.astype(np.float32) # crop, pad, and reshaped
-                #rcp = cp
+                #rcp = skimage.transform.resize(cp, (self.crop_size, self.crop_size), anti_aliasing=False)#.astype(np.float32) # crop, pad, and reshaped
+                rcp = cp
                 rcp2 = skimage.img_as_ubyte(rcp) # converted to np.uint8
                 cropped_sample[key] = rcp2
             
             elif len(sample[key].shape) == 3:
                 c = sample[key][top:bottom,left:right,:]
                 cp = np.pad(c, ((top_pad,bottom_pad),(left_pad, right_pad), (0,0)), mode='constant')
-                rcp = skimage.transform.resize(cp, (self.crop_size, self.crop_size, sample[key].shape[2]), anti_aliasing=False)#.astype(np.float32)
-                #rcp = cp
+                #rcp = skimage.transform.resize(cp, (self.crop_size, self.crop_size, sample[key].shape[2]), anti_aliasing=False)#.astype(np.float32)
+                rcp = cp
                 rcp2 = skimage.img_as_ubyte(rcp)
                 cropped_sample[key] = rcp2
+
+        # Modify the translation vector of the RT to account for the new crop image
+        center = np.array([[0,0,0]]).transpose()
+        original_projected_center = dm.transform_3d_camera_coords_to_2d_quantized_projections(center, sample['RT'], project.constants.INTRINSICS)[0]
+        z = dm.extract_z_from_RT(sample['RT'])
+
+        modified_projected_center = np.zeros_like(original_projected_center)
+        
+        # X component
+        modified_projected_center[0] = original_projected_center[0] - (left - left_pad)
+
+        # Y component
+        modified_projected_center[1] = original_projected_center[1] - (top - top_pad)
+        modified_projected_center = modified_projected_center.reshape((-1,1))
+
+        # Creating a modified intrinsics matrix (K) to account for the translation
+        # https://dsp.stackexchange.com/questions/6055/how-does-resizing-an-image-affect-the-intrinsic-camera-matrix
+        # https://ori.codes/artificial-intelligence/camera-calibration/camera-distortions/
+        # https://en.wikipedia.org/wiki/Transformation_matrix
+        # http://ksimek.github.io/2013/08/13/intrinsic/#:~:text=The%20Pinhole%20Camera,ideal%20pinhole%20camera%2C%20illustrated%20below.&text=Each%20intrinsic%20parameter%20describes%20a%20geometric%20property%20of%20the%20camera.
+        # https://robotacademy.net.au/lesson/image-formation/
+
+        # Accounting for the translation onto the camera matrix
+        x, y = mask_data['centroid'][0] - sample['image'].shape[1], mask_data['centroid'][1] - sample['image'].shape[0]
+        x, y = x / sample['image'].shape[1], y / sample['image'].shape[0]
+        translation_affine_matrix = np.array([[1, 0, x],[0, 1, y],[0, 0, 1]])
+
+        modified_intrinsics = project.constants.INTRINSICS.copy()
+        #modified_intrinsics = modified_intrinsics @ translation_affine_matrix
+        #modified_intrinsics = np.linalg.inv(np.linalg.inv(modified_intrinsics) @ translation_affine_matrix)
+        modified_intrinsics[0,2] = mask_data['centroid'][0]
+        modified_intrinsics[1,2] = mask_data['centroid'][1]
+
+        # Saving the modified intrinsics to use later
+        cropped_sample['modified_intrinsics'] = modified_intrinsics
+
+        # Constructing new translation vector
+        translation_vector = dm.create_translation_vector(modified_projected_center, z, modified_intrinsics)
+
+        # Overwriting the translation vector in the RT
+        cropped_sample['RT'] = dm.overwrite_RTs_translation_vector(translation_vector, sample['RT'])
+        #cropped_sample['RT'] = sample['RT']
+
+        # Calculating the centroid for debugging
+        new_center = dm.transform_3d_camera_coords_to_2d_quantized_projections(center, cropped_sample['RT'], modified_intrinsics)[0]
+        print(new_center)
 
         # Calculate the zoom quantity
         before_zoom_diag = np.sqrt(cp.shape[0]**2 + cp.shape[1]**2)
@@ -1372,58 +1440,61 @@ def test_pose_nocs_dataset():
     )
 
     # Testing dataset
-    sample = dataset[1]
+    for id in range(20):
 
-    """
-    # Creating the translation vector
-    modified_intrinsics = project.constants.INTRINSICS.copy()
-    modified_intrinsics[0,2] = sample['image'].shape[1] / 2
-    modified_intrinsics[1,2] = sample['image'].shape[0] / 2
+        sample = dataset[id]
 
-    centroids = dm.get_masks_centroids(sample['mask'])
-    zs = dm.get_data_from_centroids(centroids, sample['depth']) * 100000
-    translation_vectors = dm.create_translation_vectors(centroids, zs, modified_intrinsics)
+        """
+        # Creating the translation vector
+        centroids = dm.get_masks_centroids(sample['mask'])
+        zs = dm.get_data_from_centroids(centroids, sample['depth']) * 100000
+        translation_vectors = dm.create_translation_vectors(centroids, zs, modified_intrinsics)
 
-    # Selecting the first translation vector
-    translation_vector = translation_vectors[0]
-    #"""
+        # Selecting the first translation vector
+        translation_vector = translation_vectors[0]
+        #"""
 
-    # Extracting translation vector from RT
-    """
-    translation_vector = dm.extract_translation_vector_from_RT(
-        RT = sample['RT'],
-        intrinsics = project.constants.INTRINSICS
-    )
-    #"""
-    
-    """
-    drawn_image = draw.draw_quat(
-        image = sample['image'],
-        quaternion = sample['quaternion'],
-        translation_vector = translation_vector,
-        norm_scale = sample['scale'],
-        norm_factor = sample['norm_factor'],
-        intrinsics = modified_intrinsics,
-        zoom = sample['zoom']
-    )
-    #"""
+        # Extracting translation vector from RT
+        #"""
+        translation_vector = dm.extract_translation_vector_from_RT(
+            RT = sample['RT'],
+            intrinsics = sample['modified_intrinsics']
+        )
+        #"""
 
-    """
-    drawn_image = draw.draw_RT(
-        image = sample['image'],
-        RT = sample['RT'],
-        scale = sample['scale'],
-        norm_factor = sample['norm_factor'],
-        intrinsics = project.constants.INTRINSICS
-    )
-    #"""
+        #"""
+        drawn_image = draw.draw_quat(
+            image = sample['image'],
+            quaternion = sample['quaternion'],
+            translation_vector = translation_vector,
+            norm_scale = sample['scale'],
+            norm_factor = sample['norm_factor'],
+            intrinsics = sample['modified_intrinsics'],
+            zoom = sample['zoom'],
+            color=(0,255,255)
+        )
+        #"""
 
-    #plt.imshow(drawn_image)
-    #plt.show()
+        """
+        drawn_image = draw.draw_RT(
+            image = sample['image'],
+            RT = sample['RT'],
+            scale = sample['scale'],
+            norm_factor = sample['norm_factor'],
+            intrinsics = project.constants.INTRINSICS,
+            color=(0,255,255)
+        )
+        #"""
+
+        fig = plt.figure()
+        plt.imshow(drawn_image)
+        #plt.show()
+        fig.savefig(f'test_output/quat_zoom_test/{id}.png', dpi=fig.dpi)
+        #break
 
     # Testing dataloader
-    dataloader = torch.utils.data.DataLoader(dataset, batch_size=2, shuffle=True)
-    sample = next(iter(dataloader))
+    #dataloader = torch.utils.data.DataLoader(dataset, batch_size=2, shuffle=True)
+    #sample = next(iter(dataloader))
 
     return 0
 

@@ -128,8 +128,12 @@ class MyCallback(pl.callbacks.Callback):
         # Get random sample
         sample = dataset.get_random_batched_sample(batch_size=3)
 
+        # Given the sample, make the prediction with the PyTorch Lightning Module
+        logits = pl_module(torch.from_numpy(sample['image']).float().to(pl_module.device)).detach()
+        pred_mask = torch.nn.functional.sigmoid(logits).cpu().numpy()
+
         # Create the summary figure
-        summary_fig = vz.compare_mask_performance(sample, pl_module, colormap)
+        summary_fig = vz.compare_mask_performance(sample, pred_mask, colormap)
 
         # Log the figure to tensorboard
         pl_module.logger.writers[mode].add_figure(f'mask_gen/{mode}', summary_fig, trainer.global_step)
@@ -147,8 +151,12 @@ class MyCallback(pl.callbacks.Callback):
         # Get random sample
         sample = dataset.get_random_batched_sample(batch_size=3)
 
+        # Given the sample, make the prediciton with the PyTorch Lightning Moduel
+        logits = pl_module(torch.from_numpy(sample['image']).float().to(pl_module.device)).detach()
+        pred_quaternion = logits.cpu().numpy()
+
         # Create the pose figure
-        summary_fig = vz.compare_pose_performance(sample, pl_module)
+        summary_fig = vz.compare_pose_performance(sample, pred_quaternion)
 
         # Log the figure to tensorboard
         pl_module.logger.writers[mode].add_figure(f'pose_gen/{mode}', summary_fig, trainer.global_step)      
