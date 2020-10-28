@@ -973,27 +973,37 @@ class NOCSPoseRegDataset(torch.utils.data.Dataset):
         mask[mask == 255] = 0
 
         # Depth
+        """
         depth_fp = str(self.images_fps[i]).replace('_color.png', '_depth.png')
         depth = skimage.io.imread(depth_fp)
         depth = dm.standardize_depth(depth)
+        """
 
         # Other data
         json_fp = str(self.images_fps[i]).replace('_color.png', '_meta+.json')
         json_data = jt.load_from_json(json_fp)
 
+        # Remove objects not found within the instance_id
+        correct_obj_mask = np.zeros_like(mask)
+        
+        for instance_id in json_data['instance_dict'].keys():
+            correct_obj_mask += np.equal(mask, int(instance_id)) * int(instance_id)
+
+        mask = correct_obj_mask
+
         # Create dense quaternion
         quaternions = dm.create_dense_quaternion(mask, json_data)
         scales = dm.create_dense_scales(mask, json_data)
-        centers_3d = dm.create_3d_centers(mask, json_data)
+        xy, z = dm.create_dense_3d_centers(mask, json_data)
 
         # Storing mask and image into sample
         sample = {
             'image': image, 
-            'depth': depth, 
             'mask': mask, 
             'quaternions': quaternions,
             'scales': scales,
-            'centers_3d': centers_3d
+            'xy': xy,
+            'z': z
         }
 
         # apply augmentations
@@ -1010,8 +1020,7 @@ class NOCSPoseRegDataset(torch.utils.data.Dataset):
 
         # Changing dtype
         sample.update({
-            'image': skimage.img_as_float32(sample['image']), 
-            'depth': skimage.img_as_float32(sample['depth']),
+            'image': skimage.img_as_float32(sample['image']),
             'mask': sample['mask'].astype('long')
         })
 
@@ -1201,55 +1210,11 @@ def test_pose_nocs_dataset():
         preprocessing=transforms.pose.get_preprocessing(preprocessing_fn)
     )
 
-    sample = dataset[id]
+    sample = dataset[0]
 
-    """
-    # Creating the translation vector
-    centroids = dm.get_masks_centroids(sample['mask'])
-    zs = dm.get_data_from_centroids(centroids, sample['depth']) * 100000
-    translation_vectors = dm.create_translation_vectors(centroids, zs, modified_intrinsics)
-
-    # Selecting the first translation vector
-    translation_vector = translation_vectors[0]
-    #"""
-
-    # Extracting translation vector from RT
-    #"""
-    translation_vector = dm.extract_translation_vector_from_RT(
-        RT = sample['RT'],
-        intrinsics = sample['modified_intrinsics']
-    )
-    #"""
-
-    #"""
-    drawn_image = draw.draw_quat(
-        image = sample['image'],
-        quaternion = sample['quaternion'],
-        translation_vector = translation_vector,
-        norm_scale = sample['scale'],
-        norm_factor = sample['norm_factor'],
-        intrinsics = sample['modified_intrinsics'],
-        zoom = sample['zoom'],
-        color=(0,255,255)
-    )
-    #"""
-
-    """
-    drawn_image = draw.draw_RT(
-        image = sample['image'],
-        RT = sample['RT'],
-        scale = sample['scale'],
-        norm_factor = sample['norm_factor'],
-        intrinsics = project.constants.INTRINSICS,
-        color=(0,255,255)
-    )
-    #"""
-
-    fig = plt.figure()
-    plt.imshow(drawn_image)
-    #plt.show()
-    #fig.savefig(f'test_output/quat_zoom_test/{id}.png', dpi=fig.dpi)
-    #break
+    #vis_test = vz.get_visualized_unit_vector(sample['mask'], sample['xy'])
+    #vis_test = vz.get_visualized_quaternion(sample['quaternions'])
+    #plt.imshow(vis_test); plt.show()
 
     # Testing dataloader
     #dataloader = torch.utils.data.DataLoader(dataset, batch_size=2, shuffle=True)

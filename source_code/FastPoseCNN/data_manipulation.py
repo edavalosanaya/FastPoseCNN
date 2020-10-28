@@ -144,7 +144,7 @@ def standardize_depth(depth):
 def create_uniform_dense_image(mask, array):
     
     # Create the image for the output
-    output = np.zeros_like((mask.shape[0], mask.shape[1], array.size[0]))
+    output = np.zeros((mask.shape[0], mask.shape[1], array.shape[0]))
 
     for i in range(array.shape[0]):
 
@@ -155,7 +155,7 @@ def create_uniform_dense_image(mask, array):
 def create_dense_quaternion(mask, json_data):
 
     # Ultimately the output
-    quaternions = np.zeros_like((mask.shape[0], mask.shape[1], 4))
+    quaternions = np.zeros((mask.shape[0], mask.shape[1], 4))
 
     # Given the data, modify any data necessary
     instance_dict = json_data['instance_dict']
@@ -163,9 +163,10 @@ def create_dense_quaternion(mask, json_data):
     for instance_id in instance_dict.keys():
 
         selected_class_id = instance_dict[instance_id]
-        selected_quaternion = np.asarray(json_data['quaternions'][instance_id], dtype=np.float32)
+        location_id = list(instance_dict.keys()).index(instance_id)
+        selected_quaternion = np.asarray(json_data['quaternions'][location_id], dtype=np.float32)
         
-        instance_mask = np.equal(mask, int(selected_class_id)) * 1
+        instance_mask = np.equal(mask, int(instance_id)) * 1
         instance_mask = instance_mask.astype(np.uint8)
 
         dense_quaternion = create_uniform_dense_image(instance_mask, selected_quaternion)
@@ -176,7 +177,7 @@ def create_dense_quaternion(mask, json_data):
 def create_dense_scales(mask, json_data):
 
     # Ultimately the output
-    scales = np.zeros_like((mask.shape[0], mask.shape[1], 3))
+    scales = np.zeros((mask.shape[0], mask.shape[1], 3))
 
     # Given the data, modify any data necessary
     instance_dict = json_data['instance_dict']
@@ -184,12 +185,13 @@ def create_dense_scales(mask, json_data):
     for instance_id in instance_dict.keys():
 
         selected_class_id = instance_dict[instance_id]
-        selected_scale = np.asarray(json_data['scales'][selected_class_id], dtype=np.float32)
-        selected_norm = np.asarray(json_data['norm_factors'][selected_class_id], dtype=np.float32)
+        location_id = list(instance_dict.keys()).index(instance_id)
+        selected_scale = np.asarray(json_data['scales'][location_id], dtype=np.float32)
+        selected_norm = np.asarray(json_data['norm_factors'][location_id], dtype=np.float32)
         
         selected_norm_scale = selected_scale / selected_norm
 
-        instance_mask = np.equal(mask, int(selected_class_id)) * 1
+        instance_mask = np.equal(mask, int(instance_id)) * 1
         instance_mask = instance_mask.astype(np.uint8)
 
         dense_scale = create_uniform_dense_image(instance_mask, selected_norm_scale)
@@ -197,10 +199,11 @@ def create_dense_scales(mask, json_data):
 
     return scales
 
-def create_dense_3D_centers(mask, json_data):
+def create_dense_3d_centers(mask, json_data):
 
     # Ultimately the output
-    centers_3d = np.zeros_like((mask.shape[0], mask.shape[1], 3))
+    xys = np.zeros((mask.shape[0], mask.shape[1], 2))
+    zs = np.zeros_like(mask)
 
     # Getting mask shape
     h, w = mask.shape
@@ -211,40 +214,45 @@ def create_dense_3D_centers(mask, json_data):
     for instance_id in instance_dict.keys():
 
         selected_class_id = instance_dict[instance_id]
-        selected_RT = np.asarray(json_data['RT'][selected_class_id], dtype=np.float32)
+        location_id = list(instance_dict.keys()).index(instance_id)
+        selected_RT = np.asarray(json_data['RTs'][location_id], dtype=np.float32)
 
         # Creating the instance mask for the object
-        instance_mask = np.equal(mask, int(selected_class_id)) * 1
+        instance_mask = np.equal(mask, int(instance_id)) * 1
         instance_mask = instance_mask.astype(np.uint8)
 
         # Obtaining the 2D projection of the 3D center point
         center = np.array([[0,0,0]]).transpose()
-        center_2D = transform_3d_camera_coords_to_2d_quantized_projections(
-            center, 
+        center_2d = transform_3d_camera_coords_to_2d_quantized_projections(
+            center,
             selected_RT,
             project.constants.CAMERA_INTRINSICS
         )[0]
+        center_2d = np.flip(center_2d)
 
         # Constructing the unit vectors pointing to the center
         x_coord = np.mod(np.arange(w*h), w).reshape((h,w))
-        y_coord = np.mod(np.arange(w*h), h).reshape((h,w)).transpose()
+        y_coord = np.mod(np.arange(w*h), h).reshape((w,h)).transpose()
         coord = np.dstack([y_coord,x_coord])
-        vector = np.divide((center_2D - coord), np.expand_dims(np.linalg.norm(center_2D - coord, axis=-1), axis=-1))
+        vector = np.divide((center_2d - coord), np.expand_dims(np.linalg.norm(center_2d - coord, axis=-1), axis=-1))
 
         # Obtaining the z component for the 3D centroid
-        z = extract_z_from_RT(selected_RT)
+        z_value = extract_z_from_RT(selected_RT)
 
         # Applying the mask on the depth and the unit vectors
-        depth = instance_mask * z
-        vector = instance_mask * vector
+        z = instance_mask * z_value
+        y = np.where(instance_mask, vector[:,:,0], 0)
+        x = np.where(instance_mask, vector[:,:,1], 0)
+        xy = np.dstack([y,x])
 
-        # Staking the depth and the vector
-        center_3d = np.dstack((vector, depth))
+        # Removing infinities and nan values
+        xy = np.nan_to_num(xy)
+        z = np.nan_to_num(z)
 
-        #dense_scale = create_uniform_dense_image(instance_mask, selected_norm_scale)
-        centers_3d += center_3d
+        xys += xy
+        zs += z
 
-    return centers_3d
+    return xys, zs
 
 #-------------------------------------------------------------------------------
 # get Functions

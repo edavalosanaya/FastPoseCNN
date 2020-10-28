@@ -2,6 +2,8 @@ import os
 import sys
 import pathlib
 import warnings
+
+from skimage import color
 warnings.filterwarnings('ignore')
 
 import pdb
@@ -74,6 +76,42 @@ def get_visualized_masks(masks, colormap):
         raise RuntimeError('Wrong mask dataformat')
 
     return colorized_masks
+
+def get_visualized_unit_vector(mask, unit_vector, colormap='hsv'):
+
+    # Determing the angle of the unit vectors: f: R^2 -> R^1
+    angle = np.arctan2(unit_vector[:,:,0], unit_vector[:,:,1])
+
+    # Create norm function to shift data to [0:1]
+    norm = matplotlib.colors.Normalize(vmin=np.min(angle), vmax=np.max(angle))
+
+    # Obtain the colormap of choice
+    my_colormap = matplotlib.cm.get_cmap(colormap)
+    
+    # Normalize data, apply the colormap, make it bytes (np.array), and remove the alpha channel
+    colorized_angle = my_colormap(norm(angle), bytes=True)[:,:,:3] # removing alpha channel
+
+    # Removing background
+    colorized_angle = np.where(np.expand_dims(mask, axis=-1) == 0, 0, colorized_angle)
+
+    return colorized_angle
+
+def get_visualized_quaternion(quaternion):
+
+    # Selecting the i,j, and k components
+    ijk_component = quaternion[:,:,1:]
+
+    # creating norm function
+    norm = matplotlib.colors.Normalize(vmin=-1, vmax=1)
+
+    # Normalize data, apply the colormap, make it bytes (np.array), and remove the alpha channel
+    colorized_quat = norm(ijk_component)
+
+    # Remove background
+    black = np.zeros_like(colorized_quat)
+    colorized_quat = np.where(ijk_component == [0,0,0], black, colorized_quat)
+
+    return colorized_quat
 
 #-------------------------------------------------------------------------------
 # General Matplotlib Functions
