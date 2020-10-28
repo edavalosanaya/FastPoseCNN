@@ -71,7 +71,7 @@ constants.NUM_CLASSES = {}
 #-------------------------------------------------------------------------------
 # NOCS Dataset Constants
 
-constants.INTRINSICS = np.array([[577.5, 0, 319.5], [0., 577.5, 239.5], [0., 0., 1.]]) # CAMERA intrinsics
+constants.CAMERA_INTRINSICS = np.array([[577.5, 0, 319.5], [0., 577.5, 239.5], [0., 0., 1.]]) # CAMERA intrinsics
 
 constants.NOCS_CLASSES = ['bg', #0
                           'bottle', #1

@@ -91,7 +91,6 @@ def draw_quat(
     norm_scale, 
     norm_factor, 
     intrinsics,
-    zoom=1,
     color=(0,0,255)
     ):
 
@@ -104,7 +103,6 @@ def draw_quat(
         scale = norm_scale,
         norm_factor = norm_factor, 
         intrinsics = intrinsics,
-        zoom = zoom,
         color = color
     )
 
@@ -129,18 +127,17 @@ def draw_RT(
     image, 
     RT, 
     scale, 
-    norm_factor, 
     intrinsics,
-    zoom = 1,
+    norm_factor=1,
     color=(0,0,255)
     ):
 
     # Pts that will be displayed
     xyz = 0.3*np.array([[0,0,0],[1,0,0],[0,1,0],[0,0,1]], dtype=np.float32).transpose()
-    xyz /= norm_factor*zoom
+    xyz /= norm_factor
     
     bbox_3d = dm.get_3d_bbox(scale, 0)
-    bbox_3d /= norm_factor*zoom
+    bbox_3d /= norm_factor
 
     # Apply RT into a set of points
     xyz_projection = dm.transform_3d_camera_coords_to_2d_quantized_projections(xyz, RT, intrinsics)
