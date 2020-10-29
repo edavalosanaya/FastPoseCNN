@@ -1,17 +1,19 @@
+from typing import Optional, Union
+
 import numpy as np
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-import pretrainedmodels as ptm
+import segmentation_models_pytorch as smp
 
-# Local imports
-
-import custom_layers as cl
+# Local imports 
+import initialization as init
 
 #-------------------------------------------------------------------------------
 
+"""
 class PoseRegressor(nn.Module):
     def __init__(self, backbone='resnet18', encoder_weights='imagenet'):
         super().__init__()
@@ -67,6 +69,76 @@ class PoseRegressor(nn.Module):
         # Return logits
         return logits
 
+"""
+
+class PoseRegressor(torch.nn.Module):
+
+    # Inspired by 
+    # https://github.com/qubvel/segmentation_models.pytorch/blob/1f1be174738703af225b6d7c5da90c6c04ce275b/segmentation_models_pytorch/base/model.py#L5
+
+    def __init__(
+        self,
+        architecture: str = 'FPN',
+        encoder_name: str = "resnet34",
+        encoder_depth: int = 5,
+        encoder_weights: Optional[str] = "imagenet",
+        decoder_pyramid_channels: int = 256,
+        decoder_segmentation_channels: int = 128,
+        decoder_merge_policy: str = "add",
+        decoder_dropout: float = 0.2,
+        in_channels: int = 3,
+        classes: int = 1,
+        activation: Optional[str] = None,
+        upsampling: int = 4
+        ):
+
+        super().__init__()
+
+        # Obtain encoder
+        self.encoder = smp.encoders.get_encoder(
+            encoder_name,
+            in_channels=in_channels,
+            depth=encoder_depth,
+            weights=encoder_weights,
+        )
+
+        # Obtain decoder
+        if architecture == 'FPN':
+            self.decoder = smp.fpn.decoder.FPNDecoder(
+                encoder_channels=self.encoder.out_channels,
+                encoder_depth=encoder_depth,
+                pyramid_channels=decoder_pyramid_channels,
+                segmentation_channels=decoder_segmentation_channels,
+                dropout=decoder_dropout,
+                merge_policy=decoder_merge_policy,
+            )
+        
+        # Obtain segmentation head
+        self.segmentation_head = smp.base.SegmentationHead(
+            in_channels=self.decoder.out_channels,
+            out_channels=classes,
+            activation=activation,
+            kernel_size=1,
+            upsampling=upsampling,
+        )
+
+        # initialize the network
+        init.initialize_decoder(self.decoder)
+        init.initialize_head(self.segmentation_head)
+
+    def forward(self, x):
+
+        features = self.encoder(x)
+        decoder_output = self.decoder(*features)
+
+        mask = self.segmentation_head(decoder_output)
+
+        output = {
+            'mask': mask
+        }
+
+        return output
+
 #-------------------------------------------------------------------------------
 # File Main
 
@@ -86,4 +158,6 @@ if __name__ == '__main__':
     x = x1
 
     y = model.forward(x)
+
+    print(y)
 

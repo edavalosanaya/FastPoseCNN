@@ -19,7 +19,7 @@ cfg.SRC_DIR = cfg.ROOT_DIR.parent
 cfg.BEDROCK_DIR = cfg.SRC_DIR.parent
 
 cfg.DATASET_DIR = cfg.BEDROCK_DIR / 'datasets'
-cfg.NETS_DIR = cfg.ROOT_DIR / 'model_lib'
+cfg.NETS_DIR = cfg.ROOT_DIR / 'lib'
 cfg.SAVED_MODEL_DIR = cfg.NETS_DIR / 'saved_model_logs'
 cfg.LOGS = cfg.NETS_DIR / 'logs'
 cfg.TEST_OUTPUT = cfg.ROOT_DIR / 'tests_output'

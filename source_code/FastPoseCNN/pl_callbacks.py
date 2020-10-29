@@ -21,14 +21,11 @@ import tools
 class MyCallback(pl.callbacks.Callback):
 
     @rank_zero_only
-    def __init__(self, task, hparams, tracked_data):
+    def __init__(self, tasks, hparams, tracked_data):
         super().__init__()
 
-        # Checking parameters
-        assert task in ['segmentation', 'pose regression']
-
         # Saving parameters
-        self.task = task
+        self.tasks = tasks
 
         self.hparams = hparams
         self.tracked_data = tracked_data
@@ -58,14 +55,13 @@ class MyCallback(pl.callbacks.Callback):
         self.log_epoch_average(mode, trainer, pl_module)
 
         # Depending on the task, create the correct visualization
-        if self.task == 'segmentation':
+        if 'segmentation' in self.tasks:
             # Log visualization of the mask
             self.log_epoch_mask(mode, trainer, pl_module)
-        elif self.task == 'pose regression':
+        
+        elif 'pose regression' in self.tasks:
             # Log visulization of pose
             self.log_epoch_pose(mode, trainer, pl_module)
-        else:
-            raise RuntimeError('Invalid task')
 
     @rank_zero_only
     def log_epoch_average(self, mode, trainer, pl_module):
@@ -127,8 +123,11 @@ class MyCallback(pl.callbacks.Callback):
         sample = dataset.get_random_batched_sample(batch_size=3)
 
         # Given the sample, make the prediction with the PyTorch Lightning Module
-        logits = pl_module(torch.from_numpy(sample['image']).float().to(pl_module.device)).detach()
-        pred_mask = torch.nn.functional.sigmoid(logits).cpu().numpy()
+        with torch.no_grad():
+            outputs = pl_module(torch.from_numpy(sample['image']).float().to(pl_module.device))
+        
+        # Applying activation function to the mask
+        pred_mask = torch.nn.functional.sigmoid(outputs['mask']).cpu().numpy()
 
         # Create the summary figure
         summary_fig = tools.vz.compare_mask_performance(sample, pred_mask, colormap)
@@ -150,8 +149,8 @@ class MyCallback(pl.callbacks.Callback):
         sample = dataset.get_random_batched_sample(batch_size=3)
 
         # Given the sample, make the prediciton with the PyTorch Lightning Moduel
-        logits = pl_module(torch.from_numpy(sample['image']).float().to(pl_module.device)).detach()
-        pred_quaternion = logits.cpu().numpy()
+        outputs = pl_module(torch.from_numpy(sample['image']).float().to(pl_module.device)).detach()
+        pred_quaternion = outputs['quaternion'].cpu().numpy()
 
         # Create the pose figure
         summary_fig = tools.vz.compare_pose_performance(sample, pred_quaternion)

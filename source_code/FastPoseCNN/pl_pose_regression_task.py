@@ -62,14 +62,15 @@ To delete hanging Tensorboard processes use the following:
 # Run hyperparameters
 class DEFAULT_POSE_HPARAM(argparse.Namespace):
     DATASET_NAME = 'NOCS'
-    BATCH_SIZE = 12
+    BATCH_SIZE = 2
     NUM_WORKERS = 8
     NUM_GPUS = 4
     LEARNING_RATE = 0.001
+    ENCODER_LEARNING_RATE = 0.0005
     NUM_EPOCHS = 2
     DISTRIBUTED_BACKEND = None if NUM_GPUS <= 1 else 'ddp'
-
-    ENCODER = 'resnet18'
+    BACKBONE_ARCH = 'FPN'
+    ENCODER = 'resnext50_32x4d'
     ENCODER_WEIGHTS = 'imagenet'
 
 HPARAM = DEFAULT_POSE_HPARAM()
@@ -97,68 +98,107 @@ class PoseRegresssionTask(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         
         # Calculate the loss and metrics
-        losses, metrics = self.shared_step('train', batch, batch_idx)
+        multi_task_losses, multi_task_metrics = self.shared_step('train', batch, batch_idx)
 
         # Placing the main loss into Train Result to perform backpropagation
-        result = pl.TrainResult(minimize=losses['total_loss'])
+        result = pl.TrainResult(minimize=multi_task_losses['total_loss'])
 
-        # Logging the train loss
-        result.log('train_loss', losses['loss'])
+        # Logging the val loss for each task
+        for task_name in multi_task_losses.keys():
+
+            # If it is the total loss, skip it, it was already log in the
+            # previous line
+            if task_name == 'total_loss':
+                continue
+            
+            result.log(f'train_{task_name}_loss', multi_task_losses[task_name]['loss'])
+
+        # Compress the multi_task_losses and multi_task_metrics to make logging easier
+        loggable_metrics = tools.dm.compress_dict(multi_task_metrics)
 
         # Logging the train metrics
-        result.log_dict(metrics)
+        result.log_dict(loggable_metrics)
 
         return result
 
     def validation_step(self, batch, batch_idx):
         
         # Calculate the loss
-        losses, metrics = self.shared_step('valid', batch, batch_idx)
+        multi_task_losses, multi_task_metrics = self.shared_step('valid', batch, batch_idx)
         
         # Log the batch loss inside the pl.TrainResult to visualize in the
         # progress bar
-        result = pl.EvalResult(checkpoint_on=losses['total_loss'])
+        result = pl.EvalResult(checkpoint_on=multi_task_losses['total_loss'])
 
-        # Logging the val loss
-        result.log('val_loss', losses['loss'])
+        # Logging the val loss for each task
+        for task_name in multi_task_losses.keys():
+            
+            # If it is the total loss, skip it, it was already log in the
+            # previous line
+            if task_name == 'total_loss':
+                continue
+
+            result.log(f'val_{task_name}_loss', multi_task_losses[task_name]['loss'])
+
+        # Compress the multi_task_losses and multi_task_metrics to make logging easier
+        loggable_metrics = tools.dm.compress_dict(multi_task_metrics)
 
         # Logging the val metrics
-        result.log_dict(metrics)
+        result.log_dict(loggable_metrics)
 
         return result
 
     def shared_step(self, mode, batch, batch_idx):
         # Forward pass the input and generate the prediction of the NN
-        logits = self.model(batch['image'])
+        output = self.model(batch['image'])
+
+        # Storage for losses and metrics depending on the task
+        multi_task_losses = {'total_loss': torch.Tensor([0]).float().to(self.device)}
+        multi_task_metrics = {}
+
+        # Calculate separate task losses and metrics
+        for task_name in output.keys():
+            
+            # Calculate the loss based on self.loss_function
+            losses, metrics = self.loss_function(
+                task_name,
+                output[task_name], 
+                batch[task_name]
+            )
+
+            # Logging the batch loss to Tensorboard
+            for loss_name, loss_value in losses.items():
+                self.logger.log_metrics(mode, {f'{task_name}/{loss_name}/batch':loss_value}, batch_idx)
+
+            # Logging the metric loss to Tensorboard
+            for metric_name, metric_value in metrics.items():
+                self.logger.log_metrics(mode, {f'{task_name}/{metric_name}/batch':metric_value}, batch_idx) 
+
+            # Storing the losses and metrics for each task
+            multi_task_losses[task_name] = losses
+            multi_task_metrics[task_name] = metrics
+
+            # Summing all task total losses
+            multi_task_losses['total_loss'] += losses['task_total_loss']
+
+        return multi_task_losses, multi_task_metrics
+
+    def loss_function(self, task_name, pred, gt):
         
-        # Calculate the loss based on self.loss_function
-        losses, metrics = self.loss_function(logits, batch['quaternion'])
-
-        # Logging the batch loss to Tensorboard
-        for loss_name, loss_value in losses.items():
-            self.logger.log_metrics(mode, {f'{loss_name}/batch':loss_value}, batch_idx)
-
-        # Logging the metric loss to Tensorboard
-        for metric_name, metric_value in metrics.items():
-            self.logger.log_metrics(mode, {f'{metric_name}/batch':metric_value}, batch_idx) 
-
-        return losses, metrics
-
-    def loss_function(self, pred, gt):
-        
-        # Calculate the loss of each criterion and the metrics
         losses = {
-            k: v['F'](pred, gt) for k,v in self.criterion.items()
-        }
-        metrics = {
-            k: v(pred, gt) for k,v in self.metrics.items()
+            k: v['F'](pred, gt) for k,v in self.criterion[task_name].items()
         }
 
+        with torch.no_grad():
+            metrics = {
+                k: v(pred, gt) for k,v in self.metrics[task_name].items()
+            }
+        
         # Calculate total loss
         total_loss = torch.sum(torch.stack(list(losses.values())))
 
         # Calculate the loss multiplied by its corresponded weight
-        weighted_losses = [losses[key] * self.criterion[key]['weight'] for key in losses.keys()]
+        weighted_losses = [losses[key] * self.criterion[task_name][key]['weight'] for key in losses.keys()]
         
         # Now calculate the weighted sum
         weighted_sum = torch.sum(torch.stack(weighted_losses))
@@ -167,7 +207,7 @@ class PoseRegresssionTask(pl.LightningModule):
         losses['loss'] = weighted_sum
 
         # Saving the total loss
-        losses['total_loss'] = total_loss
+        losses['task_total_loss'] = total_loss
 
         return losses, metrics
 
@@ -268,6 +308,9 @@ class PoseRegressionDataModule(pl.LightningDataModule):
 
 if __name__ == '__main__':
 
+    # Ensuring that DISTRIBUTED_BACKEND doesn't cause problems
+    HPARAM.DISTRIBUTED_BACKEND = None if HPARAM.NUM_GPUS <= 1 else HPARAM.DISTRIBUTED_BACKEND
+
     # Creating data module
     dataset = PoseRegressionDataModule(
         dataset_name=HPARAM.DATASET_NAME,
@@ -276,25 +319,67 @@ if __name__ == '__main__':
     )
 
     # Creating base model
-    base_model = lib.PoseRegressor(
-        backbone=HPARAM.ENCODER,
-        encoder_weights=HPARAM.ENCODER_WEIGHTS
+    """
+    base_model = smp.__dict__[HPARAM.BACKBONE_ARCH](
+        encoder_name=HPARAM.ENCODER, 
+        encoder_weights=HPARAM.ENCODER_WEIGHTS, 
+        classes=tools.pj.constants.NUM_CLASSES[HPARAM.DATASET_NAME]
+    )
+    """
+
+    base_model = lib.models.PoseRegressor(
+        architecture=HPARAM.BACKBONE_ARCH,
+        encoder_name=HPARAM.ENCODER,
+        encoder_weights=HPARAM.ENCODER_WEIGHTS,
+        classes=tools.pj.constants.NUM_CLASSES[HPARAM.DATASET_NAME]
     )
 
-    # Selecting the criterion
+    # Selecting the criterion (specific to each task)
     criterion = {
-        'loss_mse': {'F': torch.nn.MSELoss(), 'weight': 1.0}
+        'mask': {
+            'loss_ce': {'F': torch.nn.CrossEntropyLoss(), 'weight': 0.8},
+            'loss_cce': {'F': lib.loss.CCE(), 'weight': 0.8},
+            'loss_focal': {'F': lib.loss.Focal(), 'weight': 1.0}
+        },
+        'quaternion': {
+            'loss_mse': {'F': torch.nn.MSELoss(), 'weight': 1.0}
+        },
+        'scales': {
+            'loss_mse': {'F': torch.nn.MSELoss(), 'weight': 1.0}
+        },
+        'xy': {
+            'loss_mse': {'F': torch.nn.MSELoss(), 'weight': 1.0}
+        },
+        'z': {
+            'loss_mse': {'F': torch.nn.MSELoss(), 'weight': 1.0}
+        }
     }
 
     # Selecting metrics
     metrics = {
-        'mae': pl.metrics.functional.regression.mae
+        'mask': {
+            'dice': pl.metrics.functional.dice_score,
+            'iou': pl.metrics.functional.iou,
+            'f1': pl.metrics.functional.f1_score
+        },
+        'quaternion': {
+            'mae': pl.metrics.functional.regression.mae
+        },
+        'scales': {
+            'mae': pl.metrics.functional.regression.mae
+        },
+        'xy': {
+            'mae': pl.metrics.functional.regression.mae
+        },
+        'z': {
+            'mae': pl.metrics.functional.regression.mae
+        }
     }
 
     # Noting what are the items that we want to see as the training develops
     tracked_data = {
-        'minimize': list(criterion.keys()) + ['loss'],
-        'maximize': list(metrics.keys())
+        'minimize': list(tools.dm.compress_dict(criterion, additional_subkey='loss').keys()),
+        'maximize': list(tools.dm.compress_dict(metrics).keys())
     }
 
     # Attaching PyTorch Lightning logic to base model
@@ -326,7 +411,7 @@ if __name__ == '__main__':
 
     # Creating my own callback
     custom_callback = plc.MyCallback(
-        task='pose regression',
+        tasks=['segmentation'],
         hparams=runs_hparams,
         tracked_data=tracked_data
     )

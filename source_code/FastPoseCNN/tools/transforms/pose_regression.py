@@ -9,6 +9,7 @@ import general as g
 def get_preprocessing(preprocessing_fn):
 
     preprocessing_transform = albu.Compose([
+        albu.Lambda(image=preprocessing_fn),
         albu.Lambda(image=g.to_tensor)],
     )
 

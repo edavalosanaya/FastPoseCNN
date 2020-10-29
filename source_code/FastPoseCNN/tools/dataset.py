@@ -1012,11 +1012,11 @@ class NOCSPoseRegDataset(torch.utils.data.Dataset):
         """
         if self.augmentation:
             sample = self.augmentation(**sample)
+        """
 
         # apply preprocessing
         if self.preprocessing:
             sample = self.preprocessing(**sample)
-        """
 
         # Normalize to maintain the -1 to +1 magnitude
         if sample['image'].dtype != np.uint8:

@@ -9,3 +9,6 @@ https://github.com/qubvel/segmentation_models.pytorch/blob/1f1be174738703af225b6
 
 A method for RANSAC voting (PVNet):
 https://github.com/zju3dv/pvnet/blob/ad840bc8447494f73c4405161f2ddeffe44b2abf/lib/ransac_voting_gpu_layer/ransac_voting_gpu.py#L600
+
+How to make your model run really fast:
+https://paulbridger.com/posts/video-analytics-deepstream-pipeline/

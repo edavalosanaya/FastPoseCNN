@@ -67,7 +67,7 @@ To delete hanging Tensorboard processes use the following:
 
 # Run hyperparameters
 class DEFAULT_SEG_HPARAM(argparse.Namespace):
-    DATASET_NAME = 'CAMVID'
+    DATASET_NAME = 'NOCS'
     BATCH_SIZE = 4
     NUM_WORKERS = 8
     NUM_GPUS = 1
