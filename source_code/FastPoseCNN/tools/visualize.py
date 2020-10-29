@@ -14,13 +14,12 @@ import PIL
 import io
 import random
 import skimage.io
+import scipy.ndimage
 
 import torch
 import torchvision
 
 import matplotlib
-if os.environ.get('DISPLAY', '') == '':
-    matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.cm
 
@@ -28,9 +27,8 @@ import matplotlib.cm
 root = next(path for path in pathlib.Path(os.path.abspath(__file__)).parents if path.name == 'FastPoseCNN')
 sys.path.append(str(pathlib.Path(__file__).parent))
 
-import project
-import dataset
-import draw
+import project as pj
+import draw as dr
 import data_manipulation as dm
 
 #-------------------------------------------------------------------------------
@@ -95,6 +93,17 @@ def get_visualized_unit_vector(mask, unit_vector, colormap='hsv'):
     colorized_angle = np.where(np.expand_dims(mask, axis=-1) == 0, 0, colorized_angle)
 
     return colorized_angle
+
+def get_visualized_simple_center_2d(center_2d):
+
+    # Create a holder of the data
+    norm_center_2d = np.zeros((center_2d.shape[0], center_2d.shape[1], 3))
+
+    # Convert the integer data into float [0,1]
+    norm_center_2d[:,:,0] = center_2d[:,:,0] # Y (Red)
+    norm_center_2d[:,:,2] = center_2d[:,:,1] # X (Blue)
+
+    return norm_center_2d
 
 def get_visualized_quaternion(quaternion):
 
@@ -228,7 +237,7 @@ def compare_pose_performance(sample, pred_quaternion):
     image, mask, depth = sample[image_key], sample[mask_key], sample[depth_key]
 
     # Creating the translation vector
-    modified_intrinsics = project.constants.INTRINSICS.copy()
+    modified_intrinsics = pj.constants.INTRINSICS.copy()
     modified_intrinsics[0,2] = sample['image'].shape[1] / 2
     modified_intrinsics[1,2] = sample['image'].shape[0] / 2
 
@@ -263,7 +272,7 @@ def compare_pose_performance(sample, pred_quaternion):
         """
 
         # Draw the poses
-        gt_pose = draw.draw_quat(
+        gt_pose = dr.draw_quat(
             image = image[batch_id],
             quaternion = sample['quaternion'][batch_id],
             translation_vector = translation_vector,
@@ -273,7 +282,7 @@ def compare_pose_performance(sample, pred_quaternion):
             zoom = sample['zoom'][batch_id]
         )
 
-        pred_pose = draw.draw_quat(
+        pred_pose = dr.draw_quat(
             image = image[batch_id],
             quaternion = pred_quaternion[batch_id],
             translation_vector = translation_vector,

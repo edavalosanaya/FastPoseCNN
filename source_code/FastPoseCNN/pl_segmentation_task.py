@@ -26,10 +26,9 @@ import sklearn
 import segmentation_models_pytorch as smp
 
 # Local Imports
-import project
-import model_lib
-import transforms
-import dataset as ds
+import tools
+import lib
+
 import pl_logger as pll
 import pl_callbacks as plc
 
@@ -43,7 +42,7 @@ Do the following in Lamda machine:
 
     tensorboard --logdir=logs --port 6006 --host=localhost
 
-    tensorboard --logdir=model_lib/logs --port 6006 --host=localhost
+    tensorboard --logdir=lib/logs --port 6006 --host=localhost
 
 Then run this on the local machine
 
@@ -225,23 +224,23 @@ class SegmentationDataModule(pl.LightningDataModule):
         # NOCS
         if self.dataset_name == 'NOCS':
             crop_size = 224
-            train_dataset = ds.NOCSSegDataset(
-                dataset_dir=project.cfg.CAMERA_TRAIN_DATASET, 
+            train_dataset = tools.ds.NOCSSegDataset(
+                dataset_dir=tools.pj.cfg.CAMERA_TRAIN_DATASET, 
                 max_size=1000,
-                classes=project.constants.NOCS_CLASSES,
-                augmentation=transforms.seg.get_training_augmentation(height=crop_size, width=crop_size),
-                preprocessing=transforms.seg.get_preprocessing(preprocessing_fn),
+                classes=tools.pj.constants.NOCS_CLASSES,
+                augmentation=tools.transforms.seg.get_training_augmentation(height=crop_size, width=crop_size),
+                preprocessing=tools.transforms.seg.get_preprocessing(preprocessing_fn),
                 balance=True,
                 crop_size=crop_size,
                 mask_dataformat='HW'
             )
 
-            valid_dataset = ds.NOCSSegDataset(
-                dataset_dir=project.cfg.CAMERA_VALID_DATASET, 
+            valid_dataset = tools.ds.NOCSSegDataset(
+                dataset_dir=tools.pj.cfg.CAMERA_VALID_DATASET, 
                 max_size=100,
-                classes=project.constants.NOCS_CLASSES,
-                augmentation=transforms.seg.get_validation_augmentation(height=crop_size, width=crop_size),
-                preprocessing=transforms.seg.get_preprocessing(preprocessing_fn),
+                classes=tools.pj.constants.NOCS_CLASSES,
+                augmentation=tools.transforms.seg.get_validation_augmentation(height=crop_size, width=crop_size),
+                preprocessing=tools.transforms.seg.get_preprocessing(preprocessing_fn),
                 balance=False,
                 crop_size=crop_size,
                 mask_dataformat='HW'
@@ -253,20 +252,20 @@ class SegmentationDataModule(pl.LightningDataModule):
         # VOC
         if self.dataset_name == 'VOC':
             
-            train_dataset = ds.VOCDataset(
-                voc_dir=project.cfg.VOC_DATASET,
+            train_dataset = tools.ds.VOCDataset(
+                voc_dir=tools.pj.cfg.VOC_DATASET,
                 is_train=True,
-                classes=project.constants.VOC_CLASSES,
-                augmentation=transforms.seg.get_training_augmentation(),
-                preprocessing=transforms.seg.get_preprocessing(preprocessing_fn)
+                classes=tools.pj.constants.VOC_CLASSES,
+                augmentation=tools.transforms.seg.get_training_augmentation(),
+                preprocessing=tools.transforms.seg.get_preprocessing(preprocessing_fn)
             )
 
-            valid_dataset = ds.VOCDataset(
-                voc_dir=project.cfg.VOC_DATASET,
+            valid_dataset = tools.ds.VOCDataset(
+                voc_dir=tools.pj.cfg.VOC_DATASET,
                 is_train=False,
-                classes=project.constants.VOC_CLASSES,
-                augmentation=transforms.seg.get_validation_augmentation(),
-                preprocessing=transforms.seg.get_preprocessing(preprocessing_fn)
+                classes=tools.pj.constants.VOC_CLASSES,
+                augmentation=tools.transforms.seg.get_validation_augmentation(),
+                preprocessing=tools.transforms.seg.get_preprocessing(preprocessing_fn)
             )
             
             self.datasets = {'train': train_dataset,
@@ -275,37 +274,37 @@ class SegmentationDataModule(pl.LightningDataModule):
         # CAMVID
         if self.dataset_name == 'CAMVID':
 
-            train_dataset = ds.CAMVIDSegDataset(
-                project.cfg.CAMVID_DATASET,
+            train_dataset = tools.ds.CAMVIDSegDataset(
+                tools.pj.cfg.CAMVID_DATASET,
                 train_valid_test='train', 
-                classes=project.constants.CAMVID_CLASSES,
-                augmentation=transforms.seg.get_training_augmentation(), 
-                preprocessing=transforms.seg.get_preprocessing(preprocessing_fn),
+                classes=tools.pj.constants.CAMVID_CLASSES,
+                augmentation=tools.transforms.seg.get_training_augmentation(), 
+                preprocessing=tools.transforms.seg.get_preprocessing(preprocessing_fn),
                 mask_dataformat='HW'
             )
 
-            valid_dataset = ds.CAMVIDSegDataset(
-                project.cfg.CAMVID_DATASET,
+            valid_dataset = tools.ds.CAMVIDSegDataset(
+                tools.pj.cfg.CAMVID_DATASET,
                 train_valid_test='val',
-                classes=project.constants.CAMVID_CLASSES,
-                augmentation=transforms.seg.get_validation_augmentation(), 
-                preprocessing=transforms.seg.get_preprocessing(preprocessing_fn),
+                classes=tools.pj.constants.CAMVID_CLASSES,
+                augmentation=tools.transforms.seg.get_validation_augmentation(), 
+                preprocessing=tools.transforms.seg.get_preprocessing(preprocessing_fn),
                 mask_dataformat='HW'
             )
 
-            test_dataset = ds.CAMVIDSegDataset(
-                project.cfg.CAMVID_DATASET,
+            test_dataset = tools.ds.CAMVIDSegDataset(
+                tools.pj.cfg.CAMVID_DATASET,
                 train_valid_test='test',
-                classes=project.constants.CAMVID_CLASSES,
-                augmentation=transforms.seg.get_validation_augmentation(), 
-                preprocessing=transforms.seg.get_preprocessing(preprocessing_fn),
+                classes=tools.pj.constants.CAMVID_CLASSES,
+                augmentation=tools.transforms.seg.get_validation_augmentation(), 
+                preprocessing=tools.transforms.seg.get_preprocessing(preprocessing_fn),
                 mask_dataformat='HW'
             )
 
-            test_dataset_vis = ds.CAMVIDSegDataset(
-                project.cfg.CAMVID_DATASET,
+            test_dataset_vis = tools.ds.CAMVIDSegDataset(
+                tools.pj.cfg.CAMVID_DATASET,
                 train_valid_test='test',
-                classes=project.constants.CAMVID_CLASSES,
+                classes=tools.pj.constants.CAMVID_CLASSES,
                 mask_dataformat='HW'
             )
 
@@ -316,9 +315,9 @@ class SegmentationDataModule(pl.LightningDataModule):
         # CARVANA
         if self.dataset_name == 'CARVANA':
 
-            train_image_path = pathlib.Path(project.cfg.CARVANA_DATASET) / 'train'
-            train_mask_path = pathlib.Path(project.cfg.CARVANA_DATASET) / 'train_masks'
-            test_image_path = pathlib.Path(project.cfg.CARVANA_DATASET) / 'test'
+            train_image_path = pathlib.Path(tools.pj.cfg.CARVANA_DATASET) / 'train'
+            train_mask_path = pathlib.Path(tools.pj.cfg.CARVANA_DATASET) / 'train_masks'
+            test_image_path = pathlib.Path(tools.pj.cfg.CARVANA_DATASET) / 'test'
 
             ALL_IMAGES = sorted(train_image_path.glob("*.jpg"))
             ALL_MASKS = sorted(train_mask_path.glob("*.gif"))
@@ -336,17 +335,17 @@ class SegmentationDataModule(pl.LightningDataModule):
             np_masks = np.array(ALL_MASKS)
 
             # Creates our train dataset
-            train_dataset = ds.CARVANASegDataset(
+            train_dataset = tools.ds.CARVANASegDataset(
                 images = np_images[train_indices].tolist(),
                 masks = np_masks[train_indices].tolist(),
-                transforms = transforms.seg.train_transforms
+                tools.transforms = tools.transforms.seg.train_transforms
             )
 
             # Creates our valid dataset
-            valid_dataset = ds.CARVANASegDataset(
+            valid_dataset = tools.ds.CARVANASegDataset(
                 images = np_images[valid_indices].tolist(),
                 masks = np_masks[valid_indices].tolist(),
-                transforms = transforms.seg.valid_transforms
+                tools.transforms = tools.transforms.seg.valid_transforms
             )
 
             self.datasets = {'train': train_dataset,
@@ -413,14 +412,14 @@ if __name__ == '__main__':
     base_model = smp.__dict__[HPARAM.BACKBONE_ARCH](
         encoder_name=HPARAM.ENCODER, 
         encoder_weights=HPARAM.ENCODER_WEIGHTS, 
-        classes=project.constants.NUM_CLASSES[HPARAM.DATASET_NAME]
+        classes=tools.pj.constants.NUM_CLASSES[HPARAM.DATASET_NAME]
     )
 
     # Selecting the criterion
     criterion = {
         'loss_ce': {'F': torch.nn.CrossEntropyLoss(), 'weight': 0.8},
-        'loss_cce': {'F': model_lib.loss.CCE(), 'weight': 0.8},
-        'loss_focal': {'F': model_lib.loss.Focal(), 'weight': 1.0}
+        'loss_cce': {'F': lib.loss.CCE(), 'weight': 0.8},
+        'loss_focal': {'F': lib.loss.Focal(), 'weight': 1.0}
     }
 
     # Selecting metrics
@@ -459,7 +458,7 @@ if __name__ == '__main__':
     tb_logger = pll.MyLogger(
         HPARAM,
         pl_module=model,
-        save_dir=project.cfg.LOGS,
+        save_dir=tools.pj.cfg.LOGS,
         name=run_name
     )
 

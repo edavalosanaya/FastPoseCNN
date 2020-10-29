@@ -7,8 +7,6 @@ from torch.utils.tensorboard.writer import SummaryWriter
 import pytorch_lightning as pl
 from pytorch_lightning.utilities import rank_zero_only
 
-import pdb
-
 #-------------------------------------------------------------------------------
 # Classes
 

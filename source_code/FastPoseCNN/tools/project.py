@@ -14,7 +14,7 @@ import numpy as np
 
 cfg = EasyDict()
 
-cfg.ROOT_DIR = pathlib.Path(os.path.dirname(os.path.abspath(__file__)))
+cfg.ROOT_DIR = pathlib.Path(os.path.dirname(os.path.abspath(__file__))).parent
 cfg.SRC_DIR = cfg.ROOT_DIR.parent
 cfg.BEDROCK_DIR = cfg.SRC_DIR.parent
 

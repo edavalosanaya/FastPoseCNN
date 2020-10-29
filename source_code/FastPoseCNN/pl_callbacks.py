@@ -7,15 +7,13 @@ import numpy as np
 import torch
 import torch.nn
 
+import matplotlib.pyplot as plt
+
 import pytorch_lightning as pl
 from pytorch_lightning.utilities import rank_zero_only
 
-# Local Imports
-import visualize as vz
-import project
-import data_manipulation as dm
-import draw
-import matplotlib.pyplot as plt
+# Local import
+import tools
 
 #-------------------------------------------------------------------------------
 # Classes
@@ -133,7 +131,7 @@ class MyCallback(pl.callbacks.Callback):
         pred_mask = torch.nn.functional.sigmoid(logits).cpu().numpy()
 
         # Create the summary figure
-        summary_fig = vz.compare_mask_performance(sample, pred_mask, colormap)
+        summary_fig = tools.vz.compare_mask_performance(sample, pred_mask, colormap)
 
         # Log the figure to tensorboard
         pl_module.logger.writers[mode].add_figure(f'mask_gen/{mode}', summary_fig, trainer.global_step)
@@ -156,7 +154,7 @@ class MyCallback(pl.callbacks.Callback):
         pred_quaternion = logits.cpu().numpy()
 
         # Create the pose figure
-        summary_fig = vz.compare_pose_performance(sample, pred_quaternion)
+        summary_fig = tools.vz.compare_pose_performance(sample, pred_quaternion)
 
         # Log the figure to tensorboard
         pl_module.logger.writers[mode].add_figure(f'pose_gen/{mode}', summary_fig, trainer.global_step)      

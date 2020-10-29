@@ -38,8 +38,8 @@ sys.path.append(str(pathlib.Path(__file__).parent))
 
 import json_tools as jt
 import data_manipulation as dm
-import project
-import draw
+import project as pj
+import draw as dr
 import visualize as vz
 import transforms
 
@@ -250,7 +250,7 @@ class OLDNOCSDataset(torch.utils.data.Dataset):
         """
 
         # Creating data into multi-label structure
-        num_classes = len(project.constants.NOCS_CLASSES)
+        num_classes = len(pj.constants.NOCS_CLASSES)
         class_ids = list(instance_dict.values())
         h, w = mask_cdata.shape
 
@@ -276,7 +276,7 @@ class OLDNOCSDataset(torch.utils.data.Dataset):
             for cnt in contour:
                 cv2.drawContours(instance_mask,[cnt],0,1,-1)
 
-            assert c_id > 0 and c_id < len(project.constants.NOCS_CLASSES), f'Invalid class id: {c_id}'
+            assert c_id > 0 and c_id < len(pj.constants.NOCS_CLASSES), f'Invalid class id: {c_id}'
             
             # Converting the instances in the mask to classes
             masks = np.where(instance_mask == 1, c_id, masks)
@@ -453,8 +453,8 @@ class CAMVIDSegDataset(torch.utils.data.Dataset):
     
     """
     
-    CLASSES = project.constants.CAMVID_CLASSES
-    COLORMAP = project.constants.CAMVID_COLORMAP
+    CLASSES = pj.constants.CAMVID_CLASSES
+    COLORMAP = pj.constants.CAMVID_COLORMAP
     
     def __init__(
             self, 
@@ -542,8 +542,8 @@ class VOCSegDataset(torch.utils.data.Dataset):
     
     """
     
-    CLASSES = project.constants.VOC_CLASSES
-    COLORMAP = project.constants.VOC_COLORMAP
+    CLASSES = pj.constants.VOC_CLASSES
+    COLORMAP = pj.constants.VOC_COLORMAP
     
     def __init__(
             self, 
@@ -615,8 +615,8 @@ class NOCSSegDataset(torch.utils.data.Dataset):
             (e.g. noralization, shape manipulation, etc.)
     """
     
-    CLASSES = project.constants.NOCS_CLASSES
-    COLORMAP = project.constants.NOCS_COLORMAP
+    CLASSES = pj.constants.NOCS_CLASSES
+    COLORMAP = pj.constants.NOCS_COLORMAP
     
     def __init__(
             self, 
@@ -937,8 +937,8 @@ class NOCSPoseRegDataset(torch.utils.data.Dataset):
             (e.g. noralization, shape manipulation, etc.)
     """
 
-    CLASSES = project.constants.NOCS_CLASSES
-    COLORMAP = project.constants.NOCS_COLORMAP
+    CLASSES = pj.constants.NOCS_CLASSES
+    COLORMAP = pj.constants.NOCS_COLORMAP
     
     def __init__(
         self,
@@ -983,18 +983,20 @@ class NOCSPoseRegDataset(torch.utils.data.Dataset):
         json_fp = str(self.images_fps[i]).replace('_color.png', '_meta+.json')
         json_data = jt.load_from_json(json_fp)
 
+        # Create dense quaternion
+        quaternions = dm.create_dense_quaternion(mask, json_data)
+        scales = dm.create_dense_scales(mask, json_data)
+        #xy, z = dm.create_dense_3d_centers(mask, json_data)
+        xy, z = dm.create_simple_dense_3d_centers(mask, json_data)
+
         # Remove objects not found within the instance_id
         correct_obj_mask = np.zeros_like(mask)
         
         for instance_id in json_data['instance_dict'].keys():
-            correct_obj_mask += np.equal(mask, int(instance_id)) * int(instance_id)
+            class_id = json_data['instance_dict'][instance_id]
+            correct_obj_mask += np.equal(mask, int(instance_id)) * int(class_id)
 
         mask = correct_obj_mask
-
-        # Create dense quaternion
-        quaternions = dm.create_dense_quaternion(mask, json_data)
-        scales = dm.create_dense_scales(mask, json_data)
-        xy, z = dm.create_dense_3d_centers(mask, json_data)
 
         # Storing mask and image into sample
         sample = {
@@ -1007,12 +1009,14 @@ class NOCSPoseRegDataset(torch.utils.data.Dataset):
         }
 
         # apply augmentations
+        """
         if self.augmentation:
             sample = self.augmentation(**sample)
 
         # apply preprocessing
         if self.preprocessing:
             sample = self.preprocessing(**sample)
+        """
 
         # Normalize to maintain the -1 to +1 magnitude
         if sample['image'].dtype != np.uint8:
@@ -1129,9 +1133,9 @@ def test_seg_camvid_dataset():
     preprocessing_fn = smp.encoders.get_preprocessing_fn(ENCODER, ENCODER_WEIGHTS)
 
     dataset = CAMVIDSegDataset(
-        project.cfg.CAMVID_DATASET,
+        pj.cfg.CAMVID_DATASET,
         train_valid_test='train', 
-        classes=project.constants.CAMVID_CLASSES,
+        classes=pj.constants.CAMVID_CLASSES,
         augmentation=transforms.get_training_augmentation(), 
         preprocessing=transforms.get_preprocessing(preprocessing_fn),
         mask_dataformat='HW'
@@ -1148,9 +1152,9 @@ def test_seg_nocs_dataset():
 
     print('Loading dataset')
     dataset = NOCSSegDataset(
-        dataset_dir=project.cfg.CAMERA_TRAIN_DATASET, 
+        dataset_dir=pj.cfg.CAMERA_TRAIN_DATASET, 
         max_size=1000,
-        classes=project.constants.NOCS_CLASSES,
+        classes=pj.constants.NOCS_CLASSES,
         augmentation=transforms.get_training_augmentation(height=crop_size, width=crop_size),
         preprocessing=transforms.get_preprocessing(preprocessing_fn),
         balance=True,
@@ -1203,18 +1207,35 @@ def test_pose_nocs_dataset():
     preprocessing_fn = smp.encoders.get_preprocessing_fn(ENCODER, ENCODER_WEIGHTS)
 
     dataset = NOCSPoseRegDataset(
-        dataset_dir=project.cfg.CAMERA_TRAIN_DATASET,
+        dataset_dir=pj.cfg.CAMERA_TRAIN_DATASET,
         max_size=1000,
-        classes=project.constants.NOCS_CLASSES,
+        classes=pj.constants.NOCS_CLASSES,
         augmentation=transforms.pose.get_training_augmentation(),
         preprocessing=transforms.pose.get_preprocessing(preprocessing_fn)
     )
 
-    sample = dataset[0]
+    for id in range(20):
 
-    #vis_test = vz.get_visualized_unit_vector(sample['mask'], sample['xy'])
-    #vis_test = vz.get_visualized_quaternion(sample['quaternions'])
-    #plt.imshow(vis_test); plt.show()
+        sample = dataset[id]
+
+        #vis_test = vz.get_visualized_unit_vector(sample['mask'], sample['xy'])
+        #vis_test = vz.get_visualized_quaternion(sample['quaternions'])
+        #vis_test = vz.get_visualized_simple_center_2d(sample['xy'])
+        #vis_test = vz.get_visualized_pose(sample)
+        output_data = dm.decompose_dense_representations(sample, pj.constants.CAMERA_INTRINSICS)
+        
+        vis_test = dr.draw_quats(
+            image = sample['image'], 
+            intrinsics = pj.constants.CAMERA_INTRINSICS,
+            quaternions = output_data['quaternion'],
+            translation_vectors = output_data['translation_vector'],
+            norm_scales = output_data['scales'],
+            color=(0,255,255)
+        )
+
+        fig = plt.figure()
+        plt.imshow(vis_test)
+        fig.savefig(f'/home/students/edavalos/GitHub/MastersProject/source_code/FastPoseCNN/test_output/global_pose/{id}.png')
 
     # Testing dataloader
     #dataloader = torch.utils.data.DataLoader(dataset, batch_size=2, shuffle=True)

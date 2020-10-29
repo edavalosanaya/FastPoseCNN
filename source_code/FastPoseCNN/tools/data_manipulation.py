@@ -27,7 +27,7 @@ import torch
 import project
 
 #-------------------------------------------------------------------------------
-# Classes     
+# Classes   
 
 #-------------------------------------------------------------------------------
 # Simple Tool Function
@@ -254,6 +254,59 @@ def create_dense_3d_centers(mask, json_data):
 
     return xys, zs
 
+def create_simple_dense_3d_centers(mask, json_data):
+
+    # Ultimately the output
+    xys = np.zeros((mask.shape[0], mask.shape[1], 2))
+    zs = np.zeros_like(mask)
+
+    # Getting mask shape
+    h, w = mask.shape
+
+    # Given the data, modify any data necessary
+    instance_dict = json_data['instance_dict']
+
+    for instance_id in instance_dict.keys():
+
+        selected_class_id = instance_dict[instance_id]
+        location_id = list(instance_dict.keys()).index(instance_id)
+        selected_RT = np.asarray(json_data['RTs'][location_id], dtype=np.float32)
+
+        # Creating the instance mask for the object
+        instance_mask = np.equal(mask, int(instance_id)) * 1
+        instance_mask = instance_mask.astype(np.uint8)
+
+        # Obtaining the 2D projection of the 3D center point
+        center = np.array([[0,0,0]]).transpose()
+        center_2d = transform_3d_camera_coords_to_2d_quantized_projections(
+            center,
+            selected_RT,
+            project.constants.CAMERA_INTRINSICS
+        )[0]
+
+        # Constructing the unit vectors pointing to the center
+        x_coord = np.ones_like(mask, dtype=np.float32) * (center_2d[0] / w)
+        y_coord = np.ones_like(mask, dtype=np.float32) * (center_2d[1] / h)
+        coord = np.dstack([x_coord,y_coord])
+
+        # Obtaining the z component for the 3D centroid
+        z_value = extract_z_from_RT(selected_RT)
+
+        # Applying the mask on the depth and the unit vectors
+        z = instance_mask * z_value
+        y = np.where(instance_mask, coord[:,:,0], 0)
+        x = np.where(instance_mask, coord[:,:,1], 0)
+        xy = np.dstack([x,y])
+
+        # Removing infinities and nan values
+        xy = np.nan_to_num(xy)
+        z = np.nan_to_num(z)
+
+        xys += xy
+        zs += z
+
+    return xys, zs
+
 #-------------------------------------------------------------------------------
 # get Functions
 
@@ -397,6 +450,77 @@ def get_data_from_centroids(centroids, image):
         total_data.append(data)
 
     return np.array(total_data)
+
+def decompose_dense_representations(sample, intrinsics):
+
+    # Sample contains the following keys: 
+        # image, mask, quaternions, scales, xy, and z
+
+    # The output should be an array of quaternions, translation vectors, and scales
+    output = {
+        'class_id': [],
+        'instance_id': [],
+        'instance_mask': [],
+        'quaternion': [],
+        'translation_vector': [],
+        'scales': []
+    }
+
+    # Process data per class
+    for class_id in np.unique(sample['mask']):
+
+        # Ignore the background
+        if class_id == 0:
+            continue
+
+        # Selecting the class mask
+        class_mask = np.equal(sample['mask'], class_id) * 1
+
+        # Then shatter the segmentation into instances
+        instance_masks, num_of_instances = scipy.ndimage.label(class_mask)
+
+        # Process data per instance
+        for instance_id in range(1,num_of_instances+1):
+
+            # Selecting the instance mask
+            instance_mask = np.equal(instance_masks, instance_id) * 1
+
+            # Obtaining the z
+            z_img = np.where(instance_mask, sample['z'], 0)
+
+            # Obtaining the pertaining xy
+            xy_mask = np.dstack([instance_mask, instance_mask])
+            xy_img = np.where(xy_mask, sample['xy'], 0)
+
+            # Obtaining the pertaining scales
+            scales_mask = np.concatenate([xy_mask, np.expand_dims(instance_mask, axis=-1)], axis=-1)
+            scales_img = np.where(scales_mask, sample['scales'], 0)
+
+            # Obtaning the pertaining quaternion
+            quaternion_mask = np.concatenate([scales_mask, np.expand_dims(instance_mask, axis=-1)], axis=-1)
+            quaternion_img = np.where(quaternion_mask, sample['quaternions'], 0)
+
+            # For now use the naive average
+            z = np.sum(z_img, axis=(0,1)) / np.sum(instance_mask)
+            xy = np.sum(xy_img, axis=(0,1)) / np.sum(instance_mask)
+            scales = np.sum(scales_img, axis=(0,1)) / np.sum(instance_mask)
+            quaternion = np.sum(quaternion_img, axis=(0,1)) / np.sum(instance_mask)
+
+            # Calculating the translation vector
+            pixel_xy = xy.copy()
+            pixel_xy[0] = xy[1] * instance_mask.shape[1]
+            pixel_xy[1] = xy[0] * instance_mask.shape[0]
+            pixel_xy = pixel_xy.reshape((-1,1))
+            translation_vector = create_translation_vector(pixel_xy, z, intrinsics)
+
+            # Storing data
+            output['class_id'].append(class_id)
+            output['instance_id'].append(instance_id)
+            output['quaternion'].append(quaternion)
+            output['translation_vector'].append(translation_vector)
+            output['scales'].append(scales)
+
+    return output
 
 #-------------------------------------------------------------------------------
 # Pure Geometric Functions

@@ -20,10 +20,9 @@ import catalyst.contrib.nn
 import segmentation_models_pytorch as smp
 
 # Local Imports
-import project
-import model_lib
-import transforms
-import dataset as ds
+import tools
+import lib
+
 import pl_logger as pll
 import pl_callbacks as plc
 
@@ -37,7 +36,7 @@ Do the following in Lamda machine:
 
     tensorboard --logdir=logs --port 6006 --host=localhost
 
-    tensorboard --logdir=model_lib/logs --port 6006 --host=localhost
+    tensorboard --logdir=lib/logs --port 6006 --host=localhost
 
 Then run this on the local machine
 
@@ -216,21 +215,21 @@ class PoseRegressionDataModule(pl.LightningDataModule):
             train_size=5000
             valid_size=200
 
-            train_dataset = ds.NOCSPoseRegDataset(
-                dataset_dir=project.cfg.CAMERA_TRAIN_DATASET,
+            train_dataset = tools.ds.NOCSPoseRegDataset(
+                dataset_dir=tools.pj.cfg.CAMERA_TRAIN_DATASET,
                 max_size=train_size,
-                classes=project.constants.NOCS_CLASSES,
-                augmentation=transforms.pose.get_training_augmentation(),
-                preprocessing=transforms.pose.get_preprocessing(preprocessing_fn),
+                classes=tools.pj.constants.NOCS_CLASSES,
+                augmentation=tools.transforms.pose.get_training_augmentation(),
+                preprocessing=tools.transforms.pose.get_preprocessing(preprocessing_fn),
                 crop_size=crop_size
             )
 
-            valid_dataset = ds.NOCSPoseRegDataset(
-                dataset_dir=project.cfg.CAMERA_VALID_DATASET, 
+            valid_dataset = tools.ds.NOCSPoseRegDataset(
+                dataset_dir=tools.pj.cfg.CAMERA_VALID_DATASET, 
                 max_size=valid_size,
-                classes=project.constants.NOCS_CLASSES,
-                augmentation=transforms.pose.get_validation_augmentation(),
-                preprocessing=transforms.pose.get_preprocessing(preprocessing_fn),
+                classes=tools.pj.constants.NOCS_CLASSES,
+                augmentation=tools.transforms.pose.get_validation_augmentation(),
+                preprocessing=tools.transforms.pose.get_preprocessing(preprocessing_fn),
                 crop_size=crop_size,
             )
 
@@ -277,7 +276,7 @@ if __name__ == '__main__':
     )
 
     # Creating base model
-    base_model = model_lib.PoseRegressor(
+    base_model = lib.PoseRegressor(
         backbone=HPARAM.ENCODER,
         encoder_weights=HPARAM.ENCODER_WEIGHTS
     )
@@ -321,7 +320,7 @@ if __name__ == '__main__':
     tb_logger = pll.MyLogger(
         HPARAM,
         pl_module=model,
-        save_dir=project.cfg.LOGS,
+        save_dir=tools.pj.cfg.LOGS,
         name=run_name
     )
 

@@ -18,7 +18,7 @@ import skimage
 
 # Local Imports
 
-import project
+import project as pj
 import data_manipulation as dm
 
 #-------------------------------------------------------------------------------
@@ -55,7 +55,7 @@ def draw_detections(image, intrinsics, synset_names, bbox, class_ids, masks, coo
 
         # Tag data 
         if draw_tag:
-            text = project.constants.NOCS_CLASSES[class_ids[i]]+'({:.2f})'.format(scores[i])
+            text = pj.constants.NOCS_CLASSES[class_ids[i]]+'({:.2f})'.format(scores[i])
             draw_image = draw_text(draw_image, bbox[i], text, draw_box=True)
 
         # Rotation and Translation data
@@ -88,9 +88,9 @@ def draw_quat(
     image, 
     quaternion, 
     translation_vector, 
-    norm_scale, 
-    norm_factor, 
+    norm_scale,
     intrinsics,
+    norm_factor=1,
     color=(0,0,255)
     ):
 
@@ -109,13 +109,27 @@ def draw_quat(
     return draw_image
 
 @dm.dec_correct_image_dataformat
-def draw_quats(image, intrinsics, quaternions, translation_vectors, norm_scales):
+def draw_quats(
+    image, 
+    intrinsics, 
+    quaternions, 
+    translation_vectors, 
+    norm_scales,
+    color=(0,0,255)
+    ):
 
     draw_image = image.copy()
 
     for i in range(len(quaternions)):
 
-        draw_image = draw_quat(draw_image, intrinsics, quaternions[i], translation_vectors[i], norm_scales[i])
+        draw_image = draw_quat(
+            image = draw_image, 
+            quaternion = quaternions[i], 
+            translation_vector = translation_vectors[i], 
+            norm_scale = norm_scales[i],
+            intrinsics = intrinsics,
+            color=color
+        )
 
     return draw_image
 
@@ -133,7 +147,7 @@ def draw_RT(
     ):
 
     # Pts that will be displayed
-    xyz = 0.3*np.array([[0,0,0],[1,0,0],[0,1,0],[0,0,1]], dtype=np.float32).transpose()
+    xyz = 0.075*np.array([[0,0,0],[1,0,0],[0,1,0],[0,0,1]], dtype=np.float32).transpose()
     xyz /= norm_factor
     
     bbox_3d = dm.get_3d_bbox(scale, 0)
@@ -173,7 +187,7 @@ def draw_centroids(image, centroids, color=(0,255,0), thickness=4):
     for centroid in centroids:
 
         cv2.circle(draw_image, (centroid[0], centroid[1]), thickness, color, -1)
-        label = f'{project.constants.NOCS_CLASSES[centroid.class_id]}'
+        label = f'{pj.constants.NOCS_CLASSES[centroid.class_id]}'
         cv2.putText(draw_image, label, (centroid[0]-20, centroid[1]-20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
 
     return draw_image
