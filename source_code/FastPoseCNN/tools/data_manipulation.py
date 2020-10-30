@@ -42,6 +42,17 @@ def image_data_format(image):
         else:
             return 'channels_first'
 
+def get_number_of_channels(image):
+
+    if image_data_format(image) == 'channels_last':
+        return image.shape[-1]
+
+    elif image_data_format(image) == 'channels_first':
+        return image.shape[0]
+
+    else:
+        return -1
+
 def set_image_data_format(image, dataformat):
 
     if isinstance(image, np.ndarray): # numpy

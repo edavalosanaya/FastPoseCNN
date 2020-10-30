@@ -6,11 +6,23 @@ import general as g
 #-------------------------------------------------------------------------------
 # Pre-processing
 
+def numpy_to_torch():
+
+    conversion_transformation = albu.Compose([
+        albu.Lambda(image=g.to_tensor)],
+        additional_targets={
+            'quaternion': 'image',
+            'scales': 'image',
+            'xy': 'image'
+        }
+    )
+
+    return conversion_transformation
+
 def get_preprocessing(preprocessing_fn):
 
     preprocessing_transform = albu.Compose([
-        albu.Lambda(image=preprocessing_fn),
-        albu.Lambda(image=g.to_tensor)],
+        albu.Lambda(image=preprocessing_fn)]
     )
 
     return preprocessing_transform

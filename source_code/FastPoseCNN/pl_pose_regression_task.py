@@ -63,11 +63,11 @@ To delete hanging Tensorboard processes use the following:
 class DEFAULT_POSE_HPARAM(argparse.Namespace):
     DATASET_NAME = 'NOCS'
     BATCH_SIZE = 2
-    NUM_WORKERS = 8
+    NUM_WORKERS = 36 # 36 total CPUs
     NUM_GPUS = 4
     LEARNING_RATE = 0.001
     ENCODER_LEARNING_RATE = 0.0005
-    NUM_EPOCHS = 2
+    NUM_EPOCHS = 100
     DISTRIBUTED_BACKEND = None if NUM_GPUS <= 1 else 'ddp'
     BACKBONE_ARCH = 'FPN'
     ENCODER = 'resnext50_32x4d'
@@ -251,7 +251,6 @@ class PoseRegressionDataModule(pl.LightningDataModule):
         if self.dataset_name == 'NOCS':
             
             # Dataset hyperparameters
-            crop_size=100
             train_size=5000
             valid_size=200
 
@@ -260,8 +259,7 @@ class PoseRegressionDataModule(pl.LightningDataModule):
                 max_size=train_size,
                 classes=tools.pj.constants.NOCS_CLASSES,
                 augmentation=tools.transforms.pose.get_training_augmentation(),
-                preprocessing=tools.transforms.pose.get_preprocessing(preprocessing_fn),
-                crop_size=crop_size
+                preprocessing=tools.transforms.pose.get_preprocessing(preprocessing_fn)
             )
 
             valid_dataset = tools.ds.NOCSPoseRegDataset(
@@ -269,8 +267,7 @@ class PoseRegressionDataModule(pl.LightningDataModule):
                 max_size=valid_size,
                 classes=tools.pj.constants.NOCS_CLASSES,
                 augmentation=tools.transforms.pose.get_validation_augmentation(),
-                preprocessing=tools.transforms.pose.get_preprocessing(preprocessing_fn),
-                crop_size=crop_size,
+                preprocessing=tools.transforms.pose.get_preprocessing(preprocessing_fn)
             )
 
             self.datasets = {
@@ -319,14 +316,6 @@ if __name__ == '__main__':
     )
 
     # Creating base model
-    """
-    base_model = smp.__dict__[HPARAM.BACKBONE_ARCH](
-        encoder_name=HPARAM.ENCODER, 
-        encoder_weights=HPARAM.ENCODER_WEIGHTS, 
-        classes=tools.pj.constants.NUM_CLASSES[HPARAM.DATASET_NAME]
-    )
-    """
-
     base_model = lib.models.PoseRegressor(
         architecture=HPARAM.BACKBONE_ARCH,
         encoder_name=HPARAM.ENCODER,
@@ -411,7 +400,7 @@ if __name__ == '__main__':
 
     # Creating my own callback
     custom_callback = plc.MyCallback(
-        tasks=['segmentation'],
+        tasks=['mask', 'quaternion'],
         hparams=runs_hparams,
         tracked_data=tracked_data
     )

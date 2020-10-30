@@ -77,6 +77,9 @@ def get_visualized_masks(masks, colormap):
 
 def get_visualized_unit_vector(mask, unit_vector, colormap='hsv'):
 
+    # Make channels_last in the image
+    unit_vector = dm.set_image_data_format(unit_vector, 'channels_last')
+
     # Determing the angle of the unit vectors: f: R^2 -> R^1
     angle = np.arctan2(unit_vector[:,:,0], unit_vector[:,:,1])
 
@@ -96,6 +99,9 @@ def get_visualized_unit_vector(mask, unit_vector, colormap='hsv'):
 
 def get_visualized_simple_center_2d(center_2d):
 
+    # Make channels_last in the image
+    center_2d = dm.set_image_data_format(center_2d, 'channels_last')
+
     # Create a holder of the data
     norm_center_2d = np.zeros((center_2d.shape[0], center_2d.shape[1], 3))
 
@@ -106,6 +112,9 @@ def get_visualized_simple_center_2d(center_2d):
     return norm_center_2d
 
 def get_visualized_quaternion(quaternion):
+
+    # Make channels_last in the image
+    quaternion = dm.set_image_data_format(quaternion, 'channels_last')
 
     # Selecting the i,j, and k components
     ijk_component = quaternion[:,:,1:]
@@ -121,6 +130,31 @@ def get_visualized_quaternion(quaternion):
     colorized_quat = np.where(ijk_component == [0,0,0], black, colorized_quat)
 
     return colorized_quat
+
+def get_visualized_quaternions(quaternions):
+
+    if len(quaternions.shape) == 3: # A single quaternion 
+
+        colorized_quaternions = get_visualized_quaternion(quaternions)
+
+    elif len(quaternions.shape) == 4: # Batched 3 channel quaternions
+
+        if dm.image_data_format(quaternions[0]) == 'channels_last':
+            b, h, w, c = quaternions.shape
+        elif dm.image_data_format(quaternions[0]) == 'channels_first':
+            b, c, h, w = quaternions.shape
+        else:
+            raise RuntimeError('Invalid quaternion image input: 1')
+
+        colorized_quaternions = np.zeros((b,h,w,3))
+
+        for id in range(b):
+            colorized_quaternions[id,:,:,:] = get_visualized_quaternion(quaternions[id])
+
+    else:
+        raise RuntimeError('Invalid quaternion image input: 2')
+        
+    return colorized_quaternions
 
 #-------------------------------------------------------------------------------
 # General Matplotlib Functions
@@ -142,11 +176,8 @@ def make_summary_figure(**images):
                 if j == 0:
                     plt.ylabel(' '.join(name.split('_')).title())
 
-                """
-                if len(img.shape) == 3: # CHW to HWC
-                    img = np.moveaxis(img, 0, -1)
-                """
-                img = dm.standardize_image(img)
+                #img = dm.standardize_image(img)
+                img = dm.set_image_data_format(img, "channels_last")
 
                 plt.imshow(img)
         else: # HW only
@@ -192,7 +223,7 @@ def compare_mask_performance(sample, pred_mask, colormap):
     mask_key = 'clean mask' if 'clean mask' in sample.keys() else 'mask'
     
     # Converting visual images into np.uint8 for matplotlib compatibility
-    image_vis = sample[image_key].astype(np.uint8)
+    image_vis = sample[image_key]#.astype(np.uint8)
     gt_mask = sample[mask_key].astype(np.uint8)
 
     # Target (ground truth) data format 
@@ -223,6 +254,28 @@ def compare_mask_performance(sample, pred_mask, colormap):
         image=image_vis,
         ground_truth_mask=gt_mask_vis,
         predicited_mask=pred_mask)
+
+    return summary_fig
+
+def compare_quat_performance(sample, pred_quaternion):
+
+    # Selecting clean image and mask if available
+    image_key = 'clean image' if 'clean image' in sample.keys() else 'image'
+    mask_key = 'clean mask' if 'clean mask' in sample.keys() else 'mask'
+
+    # Converting visual images into np.uint8 for matplotlib compatibility
+    image_vis = sample[image_key]#.astype(np.uint8)
+
+    # Get colorized dense quaternion info
+    gt_quat_vis = get_visualized_quaternions(sample['quaternion'])
+    pred_quat_vis = get_visualized_quaternions(pred_quaternion)
+
+    # Create a matplotlib figure illustrating the inputs vs outputs
+    summary_fig = make_summary_figure(
+        image = image_vis,
+        ground_truth_quaternion = gt_quat_vis,
+        predicted_quaternion = pred_quat_vis
+    )
 
     return summary_fig
 

@@ -946,8 +946,7 @@ class NOCSPoseRegDataset(torch.utils.data.Dataset):
         max_size=None,
         classes=None,
         augmentation=None,
-        preprocessing=None,
-        crop_size=100
+        preprocessing=None
         ):
 
         # Obtaining the filepaths for the images
@@ -959,7 +958,6 @@ class NOCSPoseRegDataset(torch.utils.data.Dataset):
         # Saving parameters
         self.augmentation = augmentation
         self.preprocessing = preprocessing
-        self.crop_size = crop_size
 
     def __getitem__(self, i):
 
@@ -1002,7 +1000,7 @@ class NOCSPoseRegDataset(torch.utils.data.Dataset):
         sample = {
             'image': image, 
             'mask': mask, 
-            'quaternions': quaternions,
+            'quaternion': quaternions,
             'scales': scales,
             'xy': xy,
             'z': z
@@ -1018,6 +1016,9 @@ class NOCSPoseRegDataset(torch.utils.data.Dataset):
         if self.preprocessing:
             sample = self.preprocessing(**sample)
 
+        # Converting numpyt to Torch dataformat convention
+        sample = transforms.pose.numpy_to_torch()(**sample)
+
         # Normalize to maintain the -1 to +1 magnitude
         if sample['image'].dtype != np.uint8:
             sample['image'] /= np.max(np.abs(sample['image']))
@@ -1025,7 +1026,8 @@ class NOCSPoseRegDataset(torch.utils.data.Dataset):
         # Changing dtype
         sample.update({
             'image': skimage.img_as_float32(sample['image']),
-            'mask': sample['mask'].astype('long')
+            'mask': sample['mask'].astype('long'),
+            'quaternion': skimage.img_as_float32(sample['quaternion'])
         })
 
         return sample
@@ -1216,14 +1218,17 @@ def test_pose_nocs_dataset():
 
     for id in range(20):
 
-        sample = dataset[id]
+        
+        #sample = dataset[id]
+        sample = dataset.get_random_batched_sample(batch_size=2)
 
         #vis_test = vz.get_visualized_unit_vector(sample['mask'], sample['xy'])
-        #vis_test = vz.get_visualized_quaternion(sample['quaternions'])
+        vis_test = vz.get_visualized_quaternions(sample['quaternion'])
         #vis_test = vz.get_visualized_simple_center_2d(sample['xy'])
         #vis_test = vz.get_visualized_pose(sample)
-        output_data = dm.decompose_dense_representations(sample, pj.constants.CAMERA_INTRINSICS)
+        #output_data = dm.decompose_dense_representations(sample, pj.constants.CAMERA_INTRINSICS)
         
+        """
         vis_test = dr.draw_quats(
             image = sample['image'], 
             intrinsics = pj.constants.CAMERA_INTRINSICS,
@@ -1232,10 +1237,12 @@ def test_pose_nocs_dataset():
             norm_scales = output_data['scales'],
             color=(0,255,255)
         )
+        """
 
-        fig = plt.figure()
-        plt.imshow(vis_test)
-        fig.savefig(f'/home/students/edavalos/GitHub/MastersProject/source_code/FastPoseCNN/test_output/global_pose/{id}.png')
+        summary_fig = vz.make_summary_figure(vis_test = vis_test)
+        plt.show()
+        break
+        #fig.savefig(f'/home/students/edavalos/GitHub/MastersProject/source_code/FastPoseCNN/test_output/global_pose/{id}.png')
 
     # Testing dataloader
     #dataloader = torch.utils.data.DataLoader(dataset, batch_size=2, shuffle=True)

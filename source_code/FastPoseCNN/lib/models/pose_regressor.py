@@ -75,6 +75,8 @@ class PoseRegressor(torch.nn.Module):
 
     # Inspired by 
     # https://github.com/qubvel/segmentation_models.pytorch/blob/1f1be174738703af225b6d7c5da90c6c04ce275b/segmentation_models_pytorch/base/model.py#L5
+    # https://github.com/qubvel/segmentation_models.pytorch/blob/master/segmentation_models_pytorch/fpn/decoder.py
+    # https://github.com/qubvel/segmentation_models.pytorch/blob/1f1be174738703af225b6d7c5da90c6c04ce275b/segmentation_models_pytorch/encoders/__init__.py#L32
 
     def __init__(
         self,
@@ -104,7 +106,16 @@ class PoseRegressor(torch.nn.Module):
 
         # Obtain decoder
         if architecture == 'FPN':
-            self.decoder = smp.fpn.decoder.FPNDecoder(
+            self.mask_decoder = smp.fpn.decoder.FPNDecoder(
+                encoder_channels=self.encoder.out_channels,
+                encoder_depth=encoder_depth,
+                pyramid_channels=decoder_pyramid_channels,
+                segmentation_channels=decoder_segmentation_channels,
+                dropout=decoder_dropout,
+                merge_policy=decoder_merge_policy,
+            )
+
+            self.quat_decoder = smp.fpn.decoder.FPNDecoder(
                 encoder_channels=self.encoder.out_channels,
                 encoder_depth=encoder_depth,
                 pyramid_channels=decoder_pyramid_channels,
@@ -115,26 +126,44 @@ class PoseRegressor(torch.nn.Module):
         
         # Obtain segmentation head
         self.segmentation_head = smp.base.SegmentationHead(
-            in_channels=self.decoder.out_channels,
+            in_channels=self.mask_decoder.out_channels,
             out_channels=classes,
             activation=activation,
             kernel_size=1,
             upsampling=upsampling,
         )
 
+        self.quat_head = smp.base.SegmentationHead(
+            in_channels=self.quat_decoder.out_channels,
+            out_channels=4,
+            activation=activation,
+            kernel_size=1,
+            upsampling=upsampling,
+        )
+
         # initialize the network
-        init.initialize_decoder(self.decoder)
+        init.initialize_decoder(self.mask_decoder)
         init.initialize_head(self.segmentation_head)
+
+        init.initialize_decoder(self.quat_decoder)
+        init.initialize_head(self.quat_head)
 
     def forward(self, x):
 
+        # Encoder
         features = self.encoder(x)
-        decoder_output = self.decoder(*features)
+        
+        # Decoders
+        mask_decoder_output = self.mask_decoder(*features)
+        quat_decoder_output = self.quat_decoder(*features)
 
-        mask = self.segmentation_head(decoder_output)
+        # Heads 
+        mask = self.segmentation_head(mask_decoder_output)
+        quat = self.quat_head(quat_decoder_output)
 
         output = {
-            'mask': mask
+            'mask': mask,
+            'quaternion': quat
         }
 
         return output

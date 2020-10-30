@@ -55,13 +55,13 @@ class MyCallback(pl.callbacks.Callback):
         self.log_epoch_average(mode, trainer, pl_module)
 
         # Depending on the task, create the correct visualization
-        if 'segmentation' in self.tasks:
+        if 'mask' in self.tasks:
             # Log visualization of the mask
             self.log_epoch_mask(mode, trainer, pl_module)
         
-        elif 'pose regression' in self.tasks:
+        if 'quaternion' in self.tasks:
             # Log visulization of pose
-            self.log_epoch_pose(mode, trainer, pl_module)
+            self.log_epoch_quat(mode, trainer, pl_module)
 
     @rank_zero_only
     def log_epoch_average(self, mode, trainer, pl_module):
@@ -137,7 +137,7 @@ class MyCallback(pl.callbacks.Callback):
     
     # POSE
     @rank_zero_only
-    def log_epoch_pose(self, mode, trainer, pl_module):
+    def log_epoch_quat(self, mode, trainer, pl_module):
         
         # Obtaining the LightningDataModule
         datamodule = trainer.datamodule
@@ -149,14 +149,20 @@ class MyCallback(pl.callbacks.Callback):
         sample = dataset.get_random_batched_sample(batch_size=3)
 
         # Given the sample, make the prediciton with the PyTorch Lightning Moduel
-        outputs = pl_module(torch.from_numpy(sample['image']).float().to(pl_module.device)).detach()
+        with torch.no_grad():
+            outputs = pl_module(torch.from_numpy(sample['image']).float().to(pl_module.device))
+        
+        # Selecting the quaternion from the output
+        # https://pytorch.org/docs/stable/nn.functional.html?highlight=activation%20functions
         pred_quaternion = outputs['quaternion'].cpu().numpy()
+        #pred_quaternion = torch.nn.functional.tanh(outputs['quaternion']).cpu().numpy()
+        pred_quaternion /= np.max(np.abs(pred_quaternion))
 
         # Create the pose figure
-        summary_fig = tools.vz.compare_pose_performance(sample, pred_quaternion)
+        summary_fig = tools.vz.compare_quat_performance(sample, pred_quaternion)
 
         # Log the figure to tensorboard
-        pl_module.logger.writers[mode].add_figure(f'pose_gen/{mode}', summary_fig, trainer.global_step)      
+        pl_module.logger.writers[mode].add_figure(f'quat_gen/{mode}', summary_fig, trainer.global_step)      
 
     #---------------------------------------------------------------------------
     # End of Training
