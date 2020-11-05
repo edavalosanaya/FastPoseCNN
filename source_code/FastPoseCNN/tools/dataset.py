@@ -949,11 +949,18 @@ class NOCSPoseRegDataset(torch.utils.data.Dataset):
         preprocessing=None
         ):
 
+        # If None or just all the classes, no nead of class values map
+        if classes is None or classes == self.CLASSES:
+            self.selected_classes = self.CLASSES
+            self.class_values_map = {self.CLASSES.index(cls.lower()):self.CLASSES.index(cls.lower()) for cls in self.selected_classes}
+        # else if classes are provided with partial amount of classes,
+        # then create class values map
+        elif classes:
+            self.selected_classes = classes
+            self.class_values_map = {self.CLASSES.index(cls.lower()):self.selected_classes.index(cls) for cls in self.selected_classes}
+
         # Obtaining the filepaths for the images
         self.images_fps = self.get_image_paths_in_dir(dataset_dir, max_size=max_size)
-
-        # convert str names to class values on masks
-        self.class_values = [self.CLASSES.index(cls.lower()) for cls in classes]
 
         # Saving parameters
         self.augmentation = augmentation
@@ -981,20 +988,26 @@ class NOCSPoseRegDataset(torch.utils.data.Dataset):
         json_fp = str(self.images_fps[i]).replace('_color.png', '_meta+.json')
         json_data = jt.load_from_json(json_fp)
 
+        # Removing destraction objects
+        new_mask = np.zeros_like(mask)
+        for instance_id in json_data['instance_dict'].keys():
+            new_mask[mask == int(instance_id)] = int(instance_id)
+        mask = new_mask
+
+        # Removing the unwanted classes
+        json_data['instance_dict'], mask = self.keep_only_wanted_classes(json_data['instance_dict'], mask)
+
         # Create dense quaternion
         quaternions = dm.create_dense_quaternion(mask, json_data)
         scales = dm.create_dense_scales(mask, json_data)
         #xy, z = dm.create_dense_3d_centers(mask, json_data)
         xy, z = dm.create_simple_dense_3d_centers(mask, json_data)
 
-        # Remove objects not found within the instance_id
-        correct_obj_mask = np.zeros_like(mask)
-        
-        for instance_id in json_data['instance_dict'].keys():
-            class_id = json_data['instance_dict'][instance_id]
-            correct_obj_mask += np.equal(mask, int(instance_id)) * int(class_id)
-
-        mask = correct_obj_mask
+        # Converting instances mask to classes mask
+        new_mask = np.zeros_like(mask)
+        for instance_id, class_id in json_data['instance_dict'].items():
+            new_mask[mask == int(instance_id)] = class_id
+        mask = new_mask
 
         # Storing mask and image into sample
         sample = {
@@ -1103,11 +1116,35 @@ class NOCSPoseRegDataset(torch.utils.data.Dataset):
             # Get the instance data
             instance_dict = json_data['instance_dict']
 
+            # Trim the classes that are not wanted
+            good_instance_dict = self.keep_only_wanted_classes(instance_dict)
+
             # If instances, save them as good samples
-            if instance_dict:
+            if good_instance_dict:
                 good_samples_fps.append(file_paths[i])
 
         return good_samples_fps
+
+    def keep_only_wanted_classes(self, instance_dict, instances_mask=None):
+
+        good_instance_dict = {}
+        
+        if instances_mask is not None:
+            good_instances_mask = np.zeros_like(instances_mask)
+
+        for id_value, class_value in instance_dict.items():
+
+            # If the class is in the wanted class values, then keep it
+            if class_value in self.class_values_map.keys():
+                good_instance_dict[int(id_value)] = self.class_values_map[class_value]
+
+                if instances_mask is not None:
+                    good_instances_mask[instances_mask == int(id_value)] = int(id_value)
+
+        if instances_mask is not None:
+            return good_instance_dict, good_instances_mask       
+        else:
+            return good_instance_dict
 
     def get_random_batched_sample(self, batch_size=1):
 
@@ -1211,14 +1248,13 @@ def test_pose_nocs_dataset():
     dataset = NOCSPoseRegDataset(
         dataset_dir=pj.cfg.CAMERA_TRAIN_DATASET,
         max_size=1000,
-        classes=pj.constants.NOCS_CLASSES,
+        classes=['bg','camera'],#pj.constants.NOCS_CLASSES,
         augmentation=transforms.pose.get_training_augmentation(),
         preprocessing=transforms.pose.get_preprocessing(preprocessing_fn)
     )
 
     for id in range(20):
 
-        
         #sample = dataset[id]
         sample = dataset.get_random_batched_sample(batch_size=2)
 
@@ -1239,7 +1275,8 @@ def test_pose_nocs_dataset():
         )
         """
 
-        summary_fig = vz.make_summary_figure(vis_test = vis_test)
+        #plt.imshow(vis_test)
+        summary_fig = vz.make_summary_figure(image = sample['image'], vis_test = vis_test)
         plt.show()
         break
         #fig.savefig(f'/home/students/edavalos/GitHub/MastersProject/source_code/FastPoseCNN/test_output/global_pose/{id}.png')

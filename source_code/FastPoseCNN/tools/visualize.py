@@ -111,8 +111,10 @@ def get_visualized_simple_center_2d(center_2d):
 
     return norm_center_2d
 
-def get_visualized_quaternion(quaternion):
+def get_visualized_quaternion(quaternion, bg='black'):
 
+    """
+    # METHOD 1
     # Make channels_last in the image
     quaternion = dm.set_image_data_format(quaternion, 'channels_last')
 
@@ -122,12 +124,40 @@ def get_visualized_quaternion(quaternion):
     # creating norm function
     norm = matplotlib.colors.Normalize(vmin=-1, vmax=1)
 
-    # Normalize data, apply the colormap, make it bytes (np.array), and remove the alpha channel
+    # Normalize data
     colorized_quat = norm(ijk_component)
 
     # Remove background
     black = np.zeros_like(colorized_quat)
     colorized_quat = np.where(ijk_component == [0,0,0], black, colorized_quat)
+    
+    return colorized_quat
+    """
+
+    # METHOD 2
+    # Make channels_last in the image
+    quaternion = dm.set_image_data_format(quaternion, 'channels_last')
+    empty_quaternion = np.zeros_like(quaternion)
+
+    # creating norm function
+    norm = matplotlib.colors.Normalize(vmin=-1, vmax=1)
+
+    # Normalize data
+    norm_quat = norm(quaternion)
+    empty_norm_quat = norm(empty_quaternion)
+
+    # Colorized quat
+    colorized_quat = cmyk_to_rgb(norm_quat)
+    empty_colorized_norm_quat = cmyk_to_rgb(empty_norm_quat)
+
+    # Remove background
+    black = np.zeros_like(colorized_quat)
+    white = np.ones_like(colorized_quat)
+
+    if bg == 'black':
+        colorized_quat = np.where(colorized_quat == empty_colorized_norm_quat, black, colorized_quat)
+    elif bg == 'white':
+        colorized_quat = np.where(colorized_quat == empty_colorized_norm_quat, white, colorized_quat)
 
     return colorized_quat
 
@@ -155,6 +185,21 @@ def get_visualized_quaternions(quaternions):
         raise RuntimeError('Invalid quaternion image input: 2')
         
     return colorized_quaternions
+
+def cmyk_to_rgb(image):
+
+    new_image = np.zeros((image.shape[0], image.shape[1], 3))
+
+    # Red Channel: R = 255 * (1-C) * (1-K)
+    new_image[:,:,0] = (1 - image[:,:,0]) * (image[:,:,3])
+
+    # Green Channel: G = 255 * (1 - M) * (1 - K)
+    new_image[:,:,1] = (1 - image[:,:,1]) * (image[:,:,3])
+
+    # Blue Channel: B = 255 * (1 -Y) * (1 - K)
+    new_image[:,:,2] = (1 - image[:,:,2]) * (image[:,:,3])
+
+    return new_image
 
 #-------------------------------------------------------------------------------
 # General Matplotlib Functions

@@ -62,12 +62,13 @@ To delete hanging Tensorboard processes use the following:
 # Run hyperparameters
 class DEFAULT_POSE_HPARAM(argparse.Namespace):
     DATASET_NAME = 'NOCS'
+    SELECTED_CLASSES = tools.pj.constants.NUM_CLASSES[DATASET_NAME]
     BATCH_SIZE = 2
     NUM_WORKERS = 36 # 36 total CPUs
-    NUM_GPUS = 4
+    NUM_GPUS = 1
     LEARNING_RATE = 0.001
     ENCODER_LEARNING_RATE = 0.0005
-    NUM_EPOCHS = 100
+    NUM_EPOCHS = 20
     DISTRIBUTED_BACKEND = None if NUM_GPUS <= 1 else 'ddp'
     BACKBONE_ARCH = 'FPN'
     ENCODER = 'resnext50_32x4d'
@@ -233,11 +234,19 @@ class PoseRegresssionTask(pl.LightningModule):
 
 class PoseRegressionDataModule(pl.LightningDataModule):
 
-    def __init__(self, dataset_name='NOCS', batch_size=1, num_workers=0):
+    def __init__(
+        self, 
+        dataset_name='NOCS', 
+        batch_size=1, 
+        num_workers=0,
+        selected_classes=None
+        ):
+
         super().__init__()
         
         # Saving parameters
         self.dataset_name = dataset_name
+        self.selected_classes = selected_classes
         self.batch_size = batch_size
         self.num_workers = num_workers
 
@@ -254,10 +263,14 @@ class PoseRegressionDataModule(pl.LightningDataModule):
             train_size=5000
             valid_size=200
 
+            # If no specific classes are used, use all the classes from NOCS
+            if self.selected_classes is None:
+                self.selected_classes = tools.pj.constants.NOCS_CLASSES
+
             train_dataset = tools.ds.NOCSPoseRegDataset(
                 dataset_dir=tools.pj.cfg.CAMERA_TRAIN_DATASET,
                 max_size=train_size,
-                classes=tools.pj.constants.NOCS_CLASSES,
+                classes=self.selected_classes,
                 augmentation=tools.transforms.pose.get_training_augmentation(),
                 preprocessing=tools.transforms.pose.get_preprocessing(preprocessing_fn)
             )
@@ -265,7 +278,7 @@ class PoseRegressionDataModule(pl.LightningDataModule):
             valid_dataset = tools.ds.NOCSPoseRegDataset(
                 dataset_dir=tools.pj.cfg.CAMERA_VALID_DATASET, 
                 max_size=valid_size,
-                classes=tools.pj.constants.NOCS_CLASSES,
+                classes=self.selected_classes,
                 augmentation=tools.transforms.pose.get_validation_augmentation(),
                 preprocessing=tools.transforms.pose.get_preprocessing(preprocessing_fn)
             )
@@ -305,12 +318,16 @@ class PoseRegressionDataModule(pl.LightningDataModule):
 
 if __name__ == '__main__':
 
+    # Modification of hyperparameters
+    HPARAM.SELECTED_CLASSES = ['bg','camera']
+
     # Ensuring that DISTRIBUTED_BACKEND doesn't cause problems
     HPARAM.DISTRIBUTED_BACKEND = None if HPARAM.NUM_GPUS <= 1 else HPARAM.DISTRIBUTED_BACKEND
 
     # Creating data module
     dataset = PoseRegressionDataModule(
         dataset_name=HPARAM.DATASET_NAME,
+        selected_classes=HPARAM.SELECTED_CLASSES,
         batch_size=HPARAM.BATCH_SIZE,
         num_workers=HPARAM.NUM_WORKERS
     )
@@ -320,7 +337,7 @@ if __name__ == '__main__':
         architecture=HPARAM.BACKBONE_ARCH,
         encoder_name=HPARAM.ENCODER,
         encoder_weights=HPARAM.ENCODER_WEIGHTS,
-        classes=tools.pj.constants.NUM_CLASSES[HPARAM.DATASET_NAME]
+        classes=len(HPARAM.SELECTED_CLASSES)
     )
 
     # Selecting the criterion (specific to each task)
@@ -376,7 +393,7 @@ if __name__ == '__main__':
 
     # Saving the run
     model_name = f"{HPARAM.ENCODER}-{HPARAM.ENCODER_WEIGHTS}"
-    now = datetime.datetime.now().strftime('%d-%m-%y--%H-%M')
+    now = datetime.datetime.now().strftime('%y-%m-%d--%H-%M')
     run_name = f"pose-{now}-{HPARAM.DATASET_NAME}-{model_name}"
 
     # Construct hparams data to send it to MyCallback
