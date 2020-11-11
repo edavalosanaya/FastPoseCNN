@@ -34,13 +34,20 @@ import project
 
 def image_data_format(image):
 
-    if len(image.shape) != 3:
-        return 'channels_none'
-    else:
+    if len(image.shape) == 4: # Batched sample
+        if image.shape[1] > image.shape[-1]:
+            return 'channels_last'
+        else:
+            return 'channels_first'
+
+    elif len(image.shape) == 3: # Simple RGB image
         if image.shape[0] > image.shape[-1]:
             return 'channels_last'
         else:
             return 'channels_first'
+
+    else: # 2 channel (HxW)
+        return 'channels_none'
 
 def get_number_of_channels(image):
 
@@ -62,7 +69,10 @@ def set_image_data_format(image, dataformat):
         if current_dataformat == dataformat or current_dataformat == 'channels_none':
             return image
         else:
-            return np.moveaxis(image, 0, -1)
+            if len(image.shape) == 4:
+                return np.moveaxis(image, 1, -1)
+            elif len(image.shape) == 3:
+                return np.moveaxis(image, 0, -1)
 
     elif isinstance(image, torch.Tensor): # tensor
 
@@ -71,7 +81,10 @@ def set_image_data_format(image, dataformat):
         if current_dataformat == dataformat or current_dataformat == 'channels_none':
             return image
         else:
-            return image.permute(2, 0, 1)
+            if len(image.shape) == 4:
+                return image.permute(0, 3, 2, 1)
+            elif len(image.shape) == 3:
+                return image.permute(2, 0, 1)
 
 def standardize_image(image, get_original_data=False):
 
@@ -194,6 +207,10 @@ def create_dense_quaternion(mask, json_data):
         instance_mask = np.equal(mask, int(instance_id)) * 1
         instance_mask = instance_mask.astype(np.uint8)
 
+        # If the instance mask is empty, simply skip this instance
+        if (np.unique(instance_mask) == np.array([0])).all():
+            continue
+
         dense_quaternion = create_uniform_dense_image(instance_mask, selected_quaternion)
         quaternions += dense_quaternion
 
@@ -218,6 +235,10 @@ def create_dense_scales(mask, json_data):
 
         instance_mask = np.equal(mask, int(instance_id)) * 1
         instance_mask = instance_mask.astype(np.uint8)
+
+        # If the instance mask is empty, simply skip this instance
+        if (np.unique(instance_mask) == np.array([0])).all():
+            continue
 
         dense_scale = create_uniform_dense_image(instance_mask, selected_norm_scale)
         scales += dense_scale
@@ -245,6 +266,10 @@ def create_dense_3d_centers(mask, json_data):
         # Creating the instance mask for the object
         instance_mask = np.equal(mask, int(instance_id)) * 1
         instance_mask = instance_mask.astype(np.uint8)
+
+        # If the instance mask is empty, simply skip this instance
+        if (np.unique(instance_mask) == np.array([0])).all():
+            continue
 
         # Obtaining the 2D projection of the 3D center point
         center = np.array([[0,0,0]]).transpose()
@@ -300,6 +325,10 @@ def create_simple_dense_3d_centers(mask, json_data):
         # Creating the instance mask for the object
         instance_mask = np.equal(mask, int(instance_id)) * 1
         instance_mask = instance_mask.astype(np.uint8)
+
+        # If the instance mask is empty, simply skip this instance
+        if (np.unique(instance_mask) == np.array([0])).all():
+            continue
 
         # Obtaining the 2D projection of the 3D center point
         center = np.array([[0,0,0]]).transpose()
@@ -481,11 +510,16 @@ def decompose_dense_representations(sample, intrinsics):
     # Sample contains the following keys: 
         # image, mask, quaternions, scales, xy, and z
 
+    # Ensuring that the dataformats are channels_last
+    sample = {k:set_image_data_format(v, "channels_last") for k,v in sample.items()}
+
     # The output should be an array of quaternions, translation vectors, and scales
     output = {
         'class_id': [],
         'instance_id': [],
         'instance_mask': [],
+        'z': [],
+        'xy': [],
         'quaternion': [],
         'translation_vector': [],
         'scales': []
@@ -523,7 +557,7 @@ def decompose_dense_representations(sample, intrinsics):
 
             # Obtaning the pertaining quaternion
             quaternion_mask = np.concatenate([scales_mask, np.expand_dims(instance_mask, axis=-1)], axis=-1)
-            quaternion_img = np.where(quaternion_mask, sample['quaternions'], 0)
+            quaternion_img = np.where(quaternion_mask, sample['quaternion'], 0)
 
             # For now use the naive average
             z = np.sum(z_img, axis=(0,1)) / np.sum(instance_mask)
@@ -533,6 +567,8 @@ def decompose_dense_representations(sample, intrinsics):
 
             # Calculating the translation vector
             pixel_xy = xy.copy()
+
+            # Converting image ratio to pixel location
             pixel_xy[0] = xy[1] * instance_mask.shape[1]
             pixel_xy[1] = xy[0] * instance_mask.shape[0]
             pixel_xy = pixel_xy.reshape((-1,1))
@@ -541,6 +577,9 @@ def decompose_dense_representations(sample, intrinsics):
             # Storing data
             output['class_id'].append(class_id)
             output['instance_id'].append(instance_id)
+            output['instance_mask'].append(instance_mask)
+            output['z'].append(z)
+            output['xy'].append(pixel_xy)
             output['quaternion'].append(quaternion)
             output['translation_vector'].append(translation_vector)
             output['scales'].append(scales)

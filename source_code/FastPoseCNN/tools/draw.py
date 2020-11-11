@@ -122,14 +122,17 @@ def draw_quats(
 
     for i in range(len(quaternions)):
 
-        draw_image = draw_quat(
-            image = draw_image, 
-            quaternion = quaternions[i], 
-            translation_vector = translation_vectors[i], 
-            norm_scale = norm_scales[i],
-            intrinsics = intrinsics,
-            color=color
-        )
+        try:
+            draw_image = draw_quat(
+                image = draw_image, 
+                quaternion = quaternions[i], 
+                translation_vector = translation_vectors[i], 
+                norm_scale = norm_scales[i],
+                intrinsics = intrinsics,
+                color=color
+            )
+        except Exception as e:
+            print(f'draw_quat error: {e}')
 
     return draw_image
 

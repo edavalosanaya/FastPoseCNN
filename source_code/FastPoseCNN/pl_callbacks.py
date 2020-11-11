@@ -60,8 +60,12 @@ class MyCallback(pl.callbacks.Callback):
             self.log_epoch_mask(mode, trainer, pl_module)
         
         if 'quaternion' in self.tasks:
-            # Log visulization of pose
+            # Log visualization of quat
             self.log_epoch_quat(mode, trainer, pl_module)
+
+        if 'pose' in self.tasks:
+            # Log visualization of pose
+            self.log_epoch_pose(mode, trainer, pl_module)
 
     @rank_zero_only
     def log_epoch_average(self, mode, trainer, pl_module):
@@ -135,7 +139,7 @@ class MyCallback(pl.callbacks.Callback):
         # Log the figure to tensorboard
         pl_module.logger.writers[mode].add_figure(f'mask_gen/{mode}', summary_fig, trainer.global_step)
     
-    # POSE
+    # QUAT
     @rank_zero_only
     def log_epoch_quat(self, mode, trainer, pl_module):
         
@@ -152,17 +156,65 @@ class MyCallback(pl.callbacks.Callback):
         with torch.no_grad():
             outputs = pl_module(torch.from_numpy(sample['image']).float().to(pl_module.device))
         
+        # Applying activation function to the mask
+        pred_mask = torch.nn.functional.sigmoid(outputs['mask']).cpu().numpy()
+
         # Selecting the quaternion from the output
         # https://pytorch.org/docs/stable/nn.functional.html?highlight=activation%20functions
         pred_quaternion = outputs['quaternion'].cpu().numpy()
-        #pred_quaternion = torch.nn.functional.tanh(outputs['quaternion']).cpu().numpy()
         pred_quaternion /= np.max(np.abs(pred_quaternion))
 
         # Create the pose figure
-        summary_fig = tools.vz.compare_quat_performance(sample, pred_quaternion)
+        summary_fig = tools.vz.compare_quat_performance(sample, pred_quaternion, pred_mask=pred_mask, mask_colormap=dataset.COLORMAP)
 
         # Log the figure to tensorboard
         pl_module.logger.writers[mode].add_figure(f'quat_gen/{mode}', summary_fig, trainer.global_step)      
+
+    # POSE
+    @rank_zero_only
+    def log_epoch_pose(self, mode, trainer, pl_module):
+
+        # Obtaining the LightningDataModule
+        datamodule = trainer.datamodule
+
+        # Accessing the corresponding dataset
+        dataset = datamodule.datasets[mode]
+
+        # Get random sample
+        sample = dataset.get_random_batched_sample(batch_size=2)
+
+        # Given the sample, make the prediciton with the PyTorch Lightning Moduel
+        with torch.no_grad():
+            outputs = pl_module(torch.from_numpy(sample['image']).float().to(pl_module.device))
+
+        # Applying activation function to the mask
+        pred_mask = torch.nn.functional.sigmoid(outputs['mask']).cpu().numpy()
+
+        # Create numpy version of the outputs container
+        numpy_outputs = sample.copy()
+        """
+        numpy_outputs = {
+            'clean_image': sample['clean_image'],
+            'image': np.moveaxis(sample['image'], 1, -1),
+            'mask': sample['mask'],#pred_mask,
+            'quaternion': np.moveaxis(outputs['quaternion'].cpu().numpy(), 1, -1),
+            'scales': np.moveaxis(sample['scales'], 1, -1),#outputs['scales'].cpu().numpy(),
+            'xy': np.moveaxis(sample['xy'], 1, -1),#outputs['xy'].cpu().numpy(),
+            'z': sample['z']#outputs['z'].cpu().numpy()
+        }
+        """
+
+        # Placing the predicted information into the numpy outputs
+        numpy_outputs['quaternion'] = outputs['quaternion'].cpu().numpy()
+        
+        # Ensure that the value of quaternion is between -1 and 1
+        numpy_outputs['quaternion'] /= np.max(np.abs(numpy_outputs['quaternion']))
+
+        # Create summary for the pose
+        summary_fig = tools.vz.compare_pose_performance_v2(numpy_outputs, sample, dataset.INTRINSICS)
+
+        # Log the figure to tensorboard
+        pl_module.logger.writers[mode].add_figure(f'pose_gen/{mode}', summary_fig, trainer.global_step)      
 
     #---------------------------------------------------------------------------
     # End of Training

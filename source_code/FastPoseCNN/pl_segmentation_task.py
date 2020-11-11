@@ -338,14 +338,14 @@ class SegmentationDataModule(pl.LightningDataModule):
             train_dataset = tools.ds.CARVANASegDataset(
                 images = np_images[train_indices].tolist(),
                 masks = np_masks[train_indices].tolist(),
-                tools.transforms = tools.transforms.seg.train_transforms
+                transforms = tools.transforms.seg.train_transforms
             )
 
             # Creates our valid dataset
             valid_dataset = tools.ds.CARVANASegDataset(
                 images = np_images[valid_indices].tolist(),
                 masks = np_masks[valid_indices].tolist(),
-                tools.transforms = tools.transforms.seg.valid_transforms
+                transforms = tools.transforms.seg.valid_transforms
             )
 
             self.datasets = {'train': train_dataset,

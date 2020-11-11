@@ -147,8 +147,8 @@ def get_visualized_quaternion(quaternion, bg='black'):
     empty_norm_quat = norm(empty_quaternion)
 
     # Colorized quat
-    colorized_quat = cmyk_to_rgb(norm_quat)
-    empty_colorized_norm_quat = cmyk_to_rgb(empty_norm_quat)
+    colorized_quat = d4_to_d3(norm_quat)
+    empty_colorized_norm_quat = d4_to_d3(empty_norm_quat)
 
     # Remove background
     black = np.zeros_like(colorized_quat)
@@ -186,18 +186,18 @@ def get_visualized_quaternions(quaternions):
         
     return colorized_quaternions
 
-def cmyk_to_rgb(image):
+def d4_to_d3(image):
 
     new_image = np.zeros((image.shape[0], image.shape[1], 3))
 
     # Red Channel: R = 255 * (1-C) * (1-K)
-    new_image[:,:,0] = (1 - image[:,:,0]) * (image[:,:,3])
+    new_image[:,:,0] = (image[:,:,0]) * (image[:,:,3])
 
     # Green Channel: G = 255 * (1 - M) * (1 - K)
-    new_image[:,:,1] = (1 - image[:,:,1]) * (image[:,:,3])
+    new_image[:,:,1] = (image[:,:,1]) * (image[:,:,3])
 
     # Blue Channel: B = 255 * (1 -Y) * (1 - K)
-    new_image[:,:,2] = (1 - image[:,:,2]) * (image[:,:,3])
+    new_image[:,:,2] = (image[:,:,2]) * (image[:,:,3])
 
     return new_image
 
@@ -206,10 +206,20 @@ def cmyk_to_rgb(image):
 
 def make_summary_figure(**images):
 
-    # Initializing the figure and axs
-    fig = plt.figure(figsize=(16,5))
+    # Calculating the number of rows and columns
     nr = len(images)
     nc = images[list(images.keys())[0]].shape[0]
+
+    # Initializing the figure and axs
+    fig = plt.figure()
+    fig.subplots_adjust(
+        left=0,
+        bottom=0,
+        right=1,
+        top=1,
+        wspace=0,
+        hspace=0
+    )
 
     for i, (name, image) in enumerate(images.items()):
         if len(image.shape) >= 3: # NHW or NCHW
@@ -220,8 +230,8 @@ def make_summary_figure(**images):
                 plt.yticks([])
                 if j == 0:
                     plt.ylabel(' '.join(name.split('_')).title())
+                    plt.text(25, 25, ' '.join(name.split('_')).title(), bbox=dict(facecolor='white', alpha=0.5), color=(0,0,0))
 
-                #img = dm.standardize_image(img)
                 img = dm.set_image_data_format(img, "channels_last")
 
                 plt.imshow(img)
@@ -239,23 +249,7 @@ def make_summary_figure(**images):
 
 def debug_show(**images):
 
-    num_rows = num_columns = round(len(list(images.keys()))/2)
-
-    if num_rows == 0:
-        num_rows = num_columns = 1
-
-    fig = plt.figure(figsize=(3*num_rows,3*num_columns))
-
-    for i, (name, image) in enumerate(images.items()):
-
-        plt.subplot(num_rows, num_columns, i+1)
-        #plt.xticks([])
-        #plt.yticks([])
-        plt.xlabel(' '.join(name.split('_')).title())
-
-        image = dm.standardize_image(image)
-        plt.imshow(image)
-
+    fig = make_summary_figure(**images)
     plt.show()
 
 #-------------------------------------------------------------------------------
@@ -264,8 +258,8 @@ def debug_show(**images):
 def compare_mask_performance(sample, pred_mask, colormap):
 
     # Selecting clean image and mask if available
-    image_key = 'clean image' if 'clean image' in sample.keys() else 'image'
-    mask_key = 'clean mask' if 'clean mask' in sample.keys() else 'mask'
+    image_key = 'clean_image' if 'clean_image' in sample.keys() else 'image'
+    mask_key = 'clean_mask' if 'clean_mask' in sample.keys() else 'mask'
     
     # Converting visual images into np.uint8 for matplotlib compatibility
     image_vis = sample[image_key]#.astype(np.uint8)
@@ -302,34 +296,46 @@ def compare_mask_performance(sample, pred_mask, colormap):
 
     return summary_fig
 
-def compare_quat_performance(sample, pred_quaternion):
+def compare_quat_performance(sample, pred_quaternion, pred_mask=None, mask_colormap=None):
 
     # Selecting clean image and mask if available
-    image_key = 'clean image' if 'clean image' in sample.keys() else 'image'
-    mask_key = 'clean mask' if 'clean mask' in sample.keys() else 'mask'
+    image_key = 'clean_image' if 'clean_image' in sample.keys() else 'image'
+    mask_key = 'clean_mask' if 'clean_mask' in sample.keys() else 'mask'
 
     # Converting visual images into np.uint8 for matplotlib compatibility
     image_vis = sample[image_key]#.astype(np.uint8)
+
+    if pred_mask is not None:
+        pred_mask = np.argmax(pred_mask, axis=1)
+        pred_mask = get_visualized_masks(pred_mask, mask_colormap)
 
     # Get colorized dense quaternion info
     gt_quat_vis = get_visualized_quaternions(sample['quaternion'])
     pred_quat_vis = get_visualized_quaternions(pred_quaternion)
 
     # Create a matplotlib figure illustrating the inputs vs outputs
-    summary_fig = make_summary_figure(
-        image = image_vis,
-        ground_truth_quaternion = gt_quat_vis,
-        predicted_quaternion = pred_quat_vis
-    )
+    if pred_mask is None:
+        summary_fig = make_summary_figure(
+            image = image_vis,
+            gt_quaternion = gt_quat_vis,
+            pred_quaternion = pred_quat_vis
+        )
+    else:
+        summary_fig = make_summary_figure(
+            image = image_vis,
+            gt_quaternion = gt_quat_vis,
+            pred_quaternion = pred_quat_vis,
+            pred_mask=pred_mask
+        )
 
     return summary_fig
 
 def compare_pose_performance(sample, pred_quaternion):
 
     # Selecting clean image and mask if available
-    image_key = 'clean image' if 'clean image' in sample.keys() else 'image'
-    mask_key = 'clean mask' if 'clean mask' in sample.keys() else 'mask'
-    depth_key = 'clean depth' if 'clean depth' in sample.keys() else 'depth'
+    image_key = 'clean_image' if 'clean_image' in sample.keys() else 'image'
+    mask_key = 'clean_mask' if 'clean_mask' in sample.keys() else 'mask'
+    depth_key = 'clean_depth' if 'clean_depth' in sample.keys() else 'depth'
 
     # Getting the image, mask, and depth
     image, mask, depth = sample[image_key], sample[mask_key], sample[depth_key]
@@ -407,7 +413,60 @@ def compare_pose_performance(sample, pred_quaternion):
 
     return summary_fig  
 
+def compare_pose_performance_v2(preds, gts, intrinsics):
 
+    # Selecting clean image if available
+    image_key = 'clean_image' if 'clean_image' in gts.keys() else 'image'
 
+    # Create the drawn poses
+    gt_poses = []
+    pred_poses = []
 
+    # For each sample inside the batch
+    for i in range(gts['mask'].shape[0]):
 
+        # Obtain the single sample data
+        single_preds = {k:v[i] for k,v in preds.items()}
+        single_gts = {k:v[i] for k,v in gts.items()}
+
+        # Obtain the data for the predictions via aggregation
+        preds_aggregated_data = dm.decompose_dense_representations(single_preds, intrinsics)
+
+        # Obtain the data for the gts via aggregation
+        gts_aggregated_data = dm.decompose_dense_representations(single_gts, intrinsics)
+
+        # Draw a sample's poses
+        pred_pose = dr.draw_quats(
+            image = single_preds[image_key], 
+            intrinsics = intrinsics,
+            quaternions = preds_aggregated_data['quaternion'],
+            translation_vectors = preds_aggregated_data['translation_vector'],
+            norm_scales = preds_aggregated_data['scales'],
+            color=(0,255,255)
+        )
+
+        # Draw a sample's poses
+        gt_pose = dr.draw_quats(
+            image = single_gts[image_key], 
+            intrinsics = intrinsics,
+            quaternions = gts_aggregated_data['quaternion'],
+            translation_vectors = gts_aggregated_data['translation_vector'],
+            norm_scales = gts_aggregated_data['scales'],
+            color=(0,255,255)
+        )
+
+        # Store the drawn pose to list
+        gt_poses.append(gt_pose)
+        pred_poses.append(pred_pose)
+
+    # Convert list to array 
+    gt_poses = np.array(gt_poses)
+    pred_poses = np.array(pred_poses)
+
+    # Creating a matplotlib figure illustrating the inputs vs outputs
+    summary_fig = make_summary_figure(
+        gt_pose=gt_poses,
+        pred_pose=pred_poses
+    )
+
+    return summary_fig

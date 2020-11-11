@@ -939,6 +939,7 @@ class NOCSPoseRegDataset(torch.utils.data.Dataset):
 
     CLASSES = pj.constants.NOCS_CLASSES
     COLORMAP = pj.constants.NOCS_COLORMAP
+    INTRINSICS = pj.constants.CAMERA_INTRINSICS
     
     def __init__(
         self,
@@ -953,7 +954,6 @@ class NOCSPoseRegDataset(torch.utils.data.Dataset):
         if classes is None or classes == self.CLASSES:
             self.selected_classes = self.CLASSES
             self.class_values_map = {self.CLASSES.index(cls.lower()):self.CLASSES.index(cls.lower()) for cls in self.selected_classes}
-        # else if classes are provided with partial amount of classes,
         # then create class values map
         elif classes:
             self.selected_classes = classes
@@ -995,13 +995,16 @@ class NOCSPoseRegDataset(torch.utils.data.Dataset):
         mask = new_mask
 
         # Removing the unwanted classes
-        json_data['instance_dict'], mask = self.keep_only_wanted_classes(json_data['instance_dict'], mask)
+        new_instance_dict, mask = self.keep_only_wanted_classes(json_data['instance_dict'], mask)
 
-        # Create dense quaternion
+        # Create dense representation of the data
         quaternions = dm.create_dense_quaternion(mask, json_data)
         scales = dm.create_dense_scales(mask, json_data)
         #xy, z = dm.create_dense_3d_centers(mask, json_data)
         xy, z = dm.create_simple_dense_3d_centers(mask, json_data)
+
+        # After creating the dense data, replace the json_data['instance_dict']
+        json_data['instance_dict'] = new_instance_dict
 
         # Converting instances mask to classes mask
         new_mask = np.zeros_like(mask)
@@ -1011,6 +1014,7 @@ class NOCSPoseRegDataset(torch.utils.data.Dataset):
 
         # Storing mask and image into sample
         sample = {
+            'clean_image': image,
             'image': image, 
             'mask': mask, 
             'quaternion': quaternions,
@@ -1247,7 +1251,7 @@ def test_pose_nocs_dataset():
 
     dataset = NOCSPoseRegDataset(
         dataset_dir=pj.cfg.CAMERA_TRAIN_DATASET,
-        max_size=1000,
+        max_size=1,
         classes=['bg','camera'],#pj.constants.NOCS_CLASSES,
         augmentation=transforms.pose.get_training_augmentation(),
         preprocessing=transforms.pose.get_preprocessing(preprocessing_fn)
@@ -1255,28 +1259,28 @@ def test_pose_nocs_dataset():
 
     for id in range(20):
 
-        #sample = dataset[id]
-        sample = dataset.get_random_batched_sample(batch_size=2)
+        sample = dataset[id]
+        #sample = dataset.get_random_batched_sample(batch_size=2)
 
         #vis_test = vz.get_visualized_unit_vector(sample['mask'], sample['xy'])
-        vis_test = vz.get_visualized_quaternions(sample['quaternion'])
+        #vis_test = vz.get_visualized_quaternions(sample['quaternion'])
         #vis_test = vz.get_visualized_simple_center_2d(sample['xy'])
         #vis_test = vz.get_visualized_pose(sample)
-        #output_data = dm.decompose_dense_representations(sample, pj.constants.CAMERA_INTRINSICS)
+        output_data = dm.decompose_dense_representations(sample, pj.constants.CAMERA_INTRINSICS)
         
-        """
+        #"""
         vis_test = dr.draw_quats(
-            image = sample['image'], 
+            image = sample['clean_image'], 
             intrinsics = pj.constants.CAMERA_INTRINSICS,
             quaternions = output_data['quaternion'],
             translation_vectors = output_data['translation_vector'],
             norm_scales = output_data['scales'],
             color=(0,255,255)
         )
-        """
+        #"""
 
-        #plt.imshow(vis_test)
-        summary_fig = vz.make_summary_figure(image = sample['image'], vis_test = vis_test)
+        plt.imshow(vis_test)
+        #summary_fig = vz.make_summary_figure(image = sample['image'], vis_test = vis_test)
         plt.show()
         break
         #fig.savefig(f'/home/students/edavalos/GitHub/MastersProject/source_code/FastPoseCNN/test_output/global_pose/{id}.png')

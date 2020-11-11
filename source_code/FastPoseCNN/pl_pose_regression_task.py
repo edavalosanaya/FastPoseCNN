@@ -63,12 +63,12 @@ To delete hanging Tensorboard processes use the following:
 class DEFAULT_POSE_HPARAM(argparse.Namespace):
     DATASET_NAME = 'NOCS'
     SELECTED_CLASSES = tools.pj.constants.NUM_CLASSES[DATASET_NAME]
-    BATCH_SIZE = 2
+    BATCH_SIZE = 8
     NUM_WORKERS = 36 # 36 total CPUs
-    NUM_GPUS = 1
+    NUM_GPUS = 4
     LEARNING_RATE = 0.001
     ENCODER_LEARNING_RATE = 0.0005
-    NUM_EPOCHS = 20
+    NUM_EPOCHS = 50
     DISTRIBUTED_BACKEND = None if NUM_GPUS <= 1 else 'ddp'
     BACKBONE_ARCH = 'FPN'
     ENCODER = 'resnext50_32x4d'
@@ -151,20 +151,20 @@ class PoseRegresssionTask(pl.LightningModule):
 
     def shared_step(self, mode, batch, batch_idx):
         # Forward pass the input and generate the prediction of the NN
-        output = self.model(batch['image'])
+        outputs = self.model(batch['image'])
 
         # Storage for losses and metrics depending on the task
         multi_task_losses = {'total_loss': torch.Tensor([0]).float().to(self.device)}
         multi_task_metrics = {}
 
         # Calculate separate task losses and metrics
-        for task_name in output.keys():
+        for task_name in outputs.keys():
             
             # Calculate the loss based on self.loss_function
             losses, metrics = self.loss_function(
                 task_name,
-                output[task_name], 
-                batch[task_name]
+                outputs,
+                batch
             )
 
             # Logging the batch loss to Tensorboard
@@ -184,11 +184,15 @@ class PoseRegresssionTask(pl.LightningModule):
 
         return multi_task_losses, multi_task_metrics
 
-    def loss_function(self, task_name, pred, gt):
+    def loss_function(self, task_name, outputs, inputs):
         
         losses = {
-            k: v['F'](pred, gt) for k,v in self.criterion[task_name].items()
+            k: v['F'](outputs, inputs) for k,v in self.criterion[task_name].items()
         }
+
+        # Indexing the task specific output
+        pred = outputs[task_name]
+        gt = inputs[task_name]
 
         with torch.no_grad():
             metrics = {
@@ -319,7 +323,7 @@ class PoseRegressionDataModule(pl.LightningDataModule):
 if __name__ == '__main__':
 
     # Modification of hyperparameters
-    HPARAM.SELECTED_CLASSES = ['bg','camera']
+    HPARAM.SELECTED_CLASSES = ['bg','camera','laptop']
 
     # Ensuring that DISTRIBUTED_BACKEND doesn't cause problems
     HPARAM.DISTRIBUTED_BACKEND = None if HPARAM.NUM_GPUS <= 1 else HPARAM.DISTRIBUTED_BACKEND
@@ -333,7 +337,7 @@ if __name__ == '__main__':
     )
 
     # Creating base model
-    base_model = lib.models.PoseRegressor(
+    base_model = lib.PoseRegressor(
         architecture=HPARAM.BACKBONE_ARCH,
         encoder_name=HPARAM.ENCODER,
         encoder_weights=HPARAM.ENCODER_WEIGHTS,
@@ -343,21 +347,21 @@ if __name__ == '__main__':
     # Selecting the criterion (specific to each task)
     criterion = {
         'mask': {
-            'loss_ce': {'F': torch.nn.CrossEntropyLoss(), 'weight': 0.8},
+            'loss_ce': {'F': lib.loss.CE(), 'weight': 0.8},
             'loss_cce': {'F': lib.loss.CCE(), 'weight': 0.8},
             'loss_focal': {'F': lib.loss.Focal(), 'weight': 1.0}
         },
         'quaternion': {
-            'loss_mse': {'F': torch.nn.MSELoss(), 'weight': 1.0}
+            'loss_mse': {'F': lib.loss.MaskedMSELoss(key='quaternion'), 'weight': 1.0}
         },
         'scales': {
-            'loss_mse': {'F': torch.nn.MSELoss(), 'weight': 1.0}
+            'loss_mse': {'F': lib.loss.MaskedMSELoss(key='scales'), 'weight': 1.0}
         },
         'xy': {
-            'loss_mse': {'F': torch.nn.MSELoss(), 'weight': 1.0}
+            'loss_mse': {'F': lib.loss.MaskedMSELoss(key='xy'), 'weight': 1.0}
         },
         'z': {
-            'loss_mse': {'F': torch.nn.MSELoss(), 'weight': 1.0}
+            'loss_mse': {'F': lib.loss.MaskedMSELoss(key='z'), 'weight': 1.0}
         }
     }
 
@@ -417,7 +421,7 @@ if __name__ == '__main__':
 
     # Creating my own callback
     custom_callback = plc.MyCallback(
-        tasks=['mask', 'quaternion'],
+        tasks=['mask', 'quaternion', 'pose'],
         hparams=runs_hparams,
         tracked_data=tracked_data
     )

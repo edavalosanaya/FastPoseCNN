@@ -10,6 +10,7 @@ import segmentation_models_pytorch as smp
 
 # Local imports 
 import initialization as init
+import torch_functions
 
 #-------------------------------------------------------------------------------
 
@@ -89,7 +90,7 @@ class PoseRegressor(torch.nn.Module):
         decoder_merge_policy: str = "add",
         decoder_dropout: float = 0.2,
         in_channels: int = 3,
-        classes: int = 1,
+        classes: int = 2, # bg and one more class
         activation: Optional[str] = None,
         upsampling: int = 4
         ):
@@ -135,7 +136,7 @@ class PoseRegressor(torch.nn.Module):
 
         self.quat_head = smp.base.SegmentationHead(
             in_channels=self.quat_decoder.out_channels,
-            out_channels=4,
+            out_channels=4*(classes-1), # Removing the background
             activation=activation,
             kernel_size=1,
             upsampling=upsampling,
@@ -160,6 +161,15 @@ class PoseRegressor(torch.nn.Module):
         # Heads 
         mask = self.segmentation_head(mask_decoder_output)
         quat = self.quat_head(quat_decoder_output)
+
+
+        #"""
+        # Compressing the quaternion output to account for the segmentation output
+        quat = torch_functions.class_compress_quaternion(
+            mask_logits=mask,
+            quaternion=quat
+        )
+        #"""
 
         output = {
             'mask': mask,
