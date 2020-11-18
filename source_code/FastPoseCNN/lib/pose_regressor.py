@@ -165,11 +165,21 @@ class PoseRegressor(torch.nn.Module):
 
         #"""
         # Compressing the quaternion output to account for the segmentation output
-        quat = torch_functions.class_compress_quaternion(
+        quat, cat_mask = torch_functions.class_compress_quaternion(
             mask_logits=mask,
             quaternion=quat
         )
         #"""
+
+        # Creating a binary mask of all objects
+        binary_mask = (cat_mask != 0)
+
+        # Unsqueeze and expand to match the shape of the quaternion
+        binary_mask = torch.unsqueeze(binary_mask, dim=1).expand_as(quat)
+
+        # Make only the components that match the mask regressive in the quaternion
+        if quat.requires_grad:
+            quat.register_hook(lambda grad: grad * binary_mask.float())
 
         output = {
             'mask': mask,

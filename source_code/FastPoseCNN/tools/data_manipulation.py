@@ -521,7 +521,7 @@ def decompose_dense_representations(sample, intrinsics):
         'z': [],
         'xy': [],
         'quaternion': [],
-        'translation_vector': [],
+        'RT': [],
         'scales': []
     }
 
@@ -572,7 +572,10 @@ def decompose_dense_representations(sample, intrinsics):
             pixel_xy[0] = xy[1] * instance_mask.shape[1]
             pixel_xy[1] = xy[0] * instance_mask.shape[0]
             pixel_xy = pixel_xy.reshape((-1,1))
+
+            # Creating the translation RT matrix
             translation_vector = create_translation_vector(pixel_xy, z, intrinsics)
+            RT = quat_2_RT_given_T_in_world(quaternion, translation_vector)
 
             # Storing data
             output['class_id'].append(class_id)
@@ -581,10 +584,203 @@ def decompose_dense_representations(sample, intrinsics):
             output['z'].append(z)
             output['xy'].append(pixel_xy)
             output['quaternion'].append(quaternion)
-            output['translation_vector'].append(translation_vector)
+            output['RT'].append(RT)
             output['scales'].append(scales)
 
     return output
+
+def find_matches(preds, gts, image_tag=None):
+    """ 
+    Match the predictions and ground truth data given the decomposed
+    dense representations. 
+
+    output = {
+            'class_id': [],
+            'instance_id': [],
+            'instance_mask': [],
+            'z': [],
+            'xy': [],
+            'quaternion': [],
+            'RT': [],
+            'scales': []
+    }
+    """
+
+    pred_gt_matches = []
+
+    taken_pred_ids = []
+
+    # For all instances in the ground truth data
+    for gt_id in range(len(gts['instance_id'])):
+
+        # Match the ground truth and preds given the 2D IoU between the 
+        # instance mask
+        all_iou_2d = np.zeros((len(preds['instance_id'])))
+
+        for pred_id in range(len(preds['instance_id'])):
+
+            # If the pred id has been used, avoid reusing
+            if pred_id in taken_pred_ids:
+                all_iou_2d[pred_id] = -1
+                continue
+            
+            iou_2d_mask = get_2d_iou(
+                preds['instance_mask'][pred_id],
+                gts['instance_mask'][gt_id]
+            )
+
+            all_iou_2d[pred_id] = iou_2d_mask
+
+        # Use the mask with the highest 2d iou score
+        max_id = np.argmax(all_iou_2d)
+
+        # Add it to the taken pred ids
+        taken_pred_ids.append(max_id)
+
+        # Store it into the matches
+        match = {
+            'class_id':  gts['class_id'][gt_id],
+            'z': np.stack((gts['z'][gt_id], preds['z'][max_id])),
+            'xy': np.stack((gts['xy'][gt_id], preds['xy'][max_id])),
+            'quaternion': np.stack((gts['quaternion'][gt_id], preds['quaternion'][max_id])),
+            'RT': np.stack((gts['RT'][gt_id], preds['RT'][max_id])),
+            'scales': np.stack((gts['scales'][gt_id], preds['scales'][max_id])),
+            'image_tag': image_tag
+        }
+
+        pred_gt_matches.append(match)
+
+    return pred_gt_matches
+
+#-------------------------------------------------------------------------------
+# Get Raw Metrics
+
+def get_2d_iou(mask_1, mask_2):
+
+    intersection = np.sum(np.logical_and(mask_1, mask_2))
+    union = np.sum(np.logical_or(mask_1, mask_2))
+    return intersection / union
+
+def get_asymmetric_3d_iou(RT_1, RT_2, scales_1, scales_2):
+
+    noc_cube_1 = get_3d_bbox(scales_1, 0)
+    bbox_3d_1 = transform_3d_camera_coords_to_3d_world_coords(noc_cube_1, RT_1)
+
+    noc_cube_2 = get_3d_bbox(scales_2, 0)
+    bbox_3d_2 = transform_3d_camera_coords_to_3d_world_coords(noc_cube_2, RT_2)
+
+    bbox_1_max = np.amax(bbox_3d_1, axis=0)
+    bbox_1_min = np.amin(bbox_3d_1, axis=0)
+    bbox_2_max = np.amax(bbox_3d_2, axis=0)
+    bbox_2_min = np.amin(bbox_3d_2, axis=0)
+
+    overlap_min = np.maximum(bbox_1_min, bbox_2_min)
+    overlap_max = np.minimum(bbox_1_max, bbox_2_max)
+
+    # intersections and union
+    if np.amin(overlap_max - overlap_min) <0:
+        intersections = 0
+    else:
+        intersections = np.prod(overlap_max - overlap_min)
+    union = np.prod(bbox_1_max - bbox_1_min) + np.prod(bbox_2_max - bbox_2_min) - intersections
+    overlaps = intersections / union
+    
+    return overlaps
+
+def get_symmetric_3d_iou(RT_1, RT_2, scales_1, scales_2):
+
+    def y_rotation_matrix(theta):
+            return np.array([[np.cos(theta), 0, np.sin(theta), 0],
+                             [0, 1, 0 , 0], 
+                             [-np.sin(theta), 0, np.cos(theta), 0],
+                             [0, 0, 0 , 1]])
+
+    n = 20
+    max_iou = 0
+    for i in range(n):
+        rotated_RT_1 = RT_1 @ y_rotation_matrix(2*math.pi*i/float(n))
+        max_iou = max(
+            max_iou, 
+            get_asymmetric_3d_iou(
+                rotated_RT_1, 
+                RT_2, 
+                scales_1, 
+                scales_2
+            )
+        )
+        
+    return max_iou
+
+def get_3d_iou(RT_1, RT_2, scales_1, scales_2):
+
+    #symmetry_flag = (class_name_1 in ['bottle', 'bowl', 'can'] and class_name_1 == class_name_2) or (class_name_1 == 'mug' and class_name_1 == class_name_2 and handle_visibility==0)
+    symetry_flag = False
+    if symetry_flag:
+        return get_symmetric_3d_iou(RT_1, RT_2, scales_1, scales_2)
+    else:
+        return get_asymmetric_3d_iou(RT_1, RT_2, scales_1, scales_2)
+    
+def get_R_degree_error(quaternion_1, quaternion_2):
+    return Quaternion.absolute_distance(
+        Quaternion(quaternion_1),
+        Quaternion(quaternion_2)
+    )
+
+def get_T_offset_error(center_3d_1, center_3d_2):
+    diff = center_3d_1 - center_3d_2
+    return np.sqrt(np.sum(np.power(diff,2)))
+
+#-------------------------------------------------------------------------------
+# Get Performance Metrics (AP, mAP)
+
+def calculate_aps(
+    cls_metrics,
+    metrics_ranges,
+    metrics_operators,
+    num_of_points=10,
+    ):
+
+    aps = {}
+
+    for metric_name, cls_metric in cls_metrics.items():
+
+        # Obtain the range of the metric
+        metric_range = metrics_ranges[metric_name]
+        metric_operator = metrics_operators[metric_name]
+
+        thresholds = np.linspace(*metric_range, num_of_points)
+        metric_aps = np.zeros((len(cls_metric), num_of_points))
+
+        # For each class
+        for i, cls_data in enumerate(cls_metric):
+
+            # If there is not instances, skip it
+            if not cls_data:
+                continue
+            
+            # Convert the volatile list of data into an effective np.array
+            np_cls_data = np.array(cls_data)
+        
+            # For each threshold, determine the average precision
+            for j, threshold in enumerate(thresholds):
+                
+                # Calculating the average precision
+                ap = np.sum(metric_operator(np_cls_data, threshold)) / np_cls_data.shape[0]
+
+                # Storing the average precision
+                metric_aps[i,j] = ap
+
+        # Storing the metric aps into the overall aps
+        aps[metric_name] = metric_aps
+
+    return aps
+
+
+
+
+
+
+
 
 #-------------------------------------------------------------------------------
 # Pure Geometric Functions
@@ -678,6 +874,7 @@ def transform_3d_camera_coords_to_2d_quantized_projections(cartesian_camera_coor
                 projections.
             (5) Convert homogeneous 2D projections into cartesian 2D projections.
     Output:
+        cartesian_projections_2d [2, N]
     """
 
     # Converting cartesian 3D coordinates to homogeneous 3D coordinates
@@ -713,6 +910,33 @@ def transform_3d_camera_coords_to_2d_quantized_projections(cartesian_camera_coor
     cartesian_projections_2d = cartesian_projections_2d.transpose()
 
     return cartesian_projections_2d
+
+def transform_3d_camera_coords_to_3d_world_coords(cartesian_camera_coordinates_3d, RT):
+    """
+    Input:
+        cartesian camera coordinates: [3, N]
+        RT: transformation matrix [4, 4]
+    Process:
+        Given the inputs, we do the following routine:
+            (1) Convert cartesian camera coordinates into homogeneous camera
+                coordinates.
+            (4) Convert homogeneous camera coordinate directly to homogeneous 3D
+                world coordinate by multiplying by the inverse of RT.
+            (5) Convert homogeneous 3D world coordinates into cartesian 3D world coordinates.
+    Output:
+        cartesian_projections_2d [2, N]
+    """
+
+    # Converting cartesian 3D coordinates to homogeneous 3D coordinates
+    homogeneous_camera_coordinates_3d = cartesian_2_homogeneous_coord(cartesian_camera_coordinates_3d)
+
+    # Obtaining the homogeneous world coordinates 3d
+    homogeneous_world_coordinates_3d = np.linalg.inv(RT) @ homogeneous_camera_coordinates_3d
+
+    # Converting the homogeneous projection into a cartesian projection
+    cartesian_world_coordinates_3d = homogeneous_2_cartesian_coord(homogeneous_world_coordinates_3d)
+
+    return cartesian_world_coordinates_3d    
 
 #-------------------------------------------------------------------------------
 # Translation Vector Functions

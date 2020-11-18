@@ -15,6 +15,7 @@ import torch
 import torch.nn.functional as F
 
 import pytorch_lightning as pl
+import pytorch_lightning.core.decorators as pld
 import catalyst.contrib.nn
 
 import segmentation_models_pytorch as smp
@@ -23,8 +24,8 @@ import segmentation_models_pytorch as smp
 import tools
 import lib
 
-import pl_logger as pll
-import pl_callbacks as plc
+import logger as pll
+import callbacks as plc
 
 #-------------------------------------------------------------------------------
 # Documentation
@@ -61,6 +62,7 @@ To delete hanging Tensorboard processes use the following:
 
 # Run hyperparameters
 class DEFAULT_POSE_HPARAM(argparse.Namespace):
+    EXPERIMENT_NAME = "quat_aggregation"
     DATASET_NAME = 'NOCS'
     SELECTED_CLASSES = tools.pj.constants.NUM_CLASSES[DATASET_NAME]
     BATCH_SIZE = 8
@@ -73,6 +75,8 @@ class DEFAULT_POSE_HPARAM(argparse.Namespace):
     BACKBONE_ARCH = 'FPN'
     ENCODER = 'resnext50_32x4d'
     ENCODER_WEIGHTS = 'imagenet'
+    TRAIN_SIZE=5000
+    VALID_SIZE=200
 
 HPARAM = DEFAULT_POSE_HPARAM()
 
@@ -81,11 +85,14 @@ HPARAM = DEFAULT_POSE_HPARAM()
 
 class PoseRegresssionTask(pl.LightningModule):
 
-    def __init__(self, model, criterion, metrics):
+    def __init__(self, conf, model, criterion, metrics):
         super().__init__()
 
         # Saving parameters
         self.model = model
+
+        # Saving the configuration (additional hyperparameters)
+        self.save_hyperparameters(conf)
 
         # Saving the criterion
         self.criterion = criterion
@@ -93,6 +100,7 @@ class PoseRegresssionTask(pl.LightningModule):
         # Saving the metrics
         self.metrics = metrics
 
+    @pld.auto_move_data
     def forward(self, x):
         return self.model(x)
 
@@ -239,11 +247,15 @@ class PoseRegresssionTask(pl.LightningModule):
 class PoseRegressionDataModule(pl.LightningDataModule):
 
     def __init__(
-        self, 
+        self,
         dataset_name='NOCS', 
         batch_size=1, 
         num_workers=0,
-        selected_classes=None
+        selected_classes=None,
+        encoder=None,
+        encoder_weights=None,
+        train_size=None,
+        valid_size=None
         ):
 
         super().__init__()
@@ -253,19 +265,22 @@ class PoseRegressionDataModule(pl.LightningDataModule):
         self.selected_classes = selected_classes
         self.batch_size = batch_size
         self.num_workers = num_workers
+        self.encoder = encoder
+        self.encoder_weights = encoder_weights
+        self.train_size = train_size
+        self.valid_size = valid_size
 
     def setup(self, stage=None):
 
         # Obtaining the preprocessing_fn depending on the encoder and the encoder
         # weights
-        preprocessing_fn = smp.encoders.get_preprocessing_fn(HPARAM.ENCODER, HPARAM.ENCODER_WEIGHTS)
+        if self.encoder and self.encoder_weights:
+            preprocessing_fn = smp.encoders.get_preprocessing_fn(self.encoder, self.encoder_weights)
+        else:
+            preprocessing_fn = None
 
         # NOCS
         if self.dataset_name == 'NOCS':
-            
-            # Dataset hyperparameters
-            train_size=5000
-            valid_size=200
 
             # If no specific classes are used, use all the classes from NOCS
             if self.selected_classes is None:
@@ -273,7 +288,7 @@ class PoseRegressionDataModule(pl.LightningDataModule):
 
             train_dataset = tools.ds.NOCSPoseRegDataset(
                 dataset_dir=tools.pj.cfg.CAMERA_TRAIN_DATASET,
-                max_size=train_size,
+                max_size=self.train_size,
                 classes=self.selected_classes,
                 augmentation=tools.transforms.pose.get_training_augmentation(),
                 preprocessing=tools.transforms.pose.get_preprocessing(preprocessing_fn)
@@ -281,7 +296,7 @@ class PoseRegressionDataModule(pl.LightningDataModule):
 
             valid_dataset = tools.ds.NOCSPoseRegDataset(
                 dataset_dir=tools.pj.cfg.CAMERA_VALID_DATASET, 
-                max_size=valid_size,
+                max_size=self.valid_size,
                 classes=self.selected_classes,
                 augmentation=tools.transforms.pose.get_validation_augmentation(),
                 preprocessing=tools.transforms.pose.get_preprocessing(preprocessing_fn)
@@ -322,6 +337,22 @@ class PoseRegressionDataModule(pl.LightningDataModule):
 
 if __name__ == '__main__':
 
+    # Parse arguments and replace global variables if needed
+    parser = argparse.ArgumentParser(description='Train with PyTorch Lightning framework')
+    
+    # Automatically adding all the attributes of the HPARAM to the parser
+    for attr in dir(HPARAM):
+        if '__' in attr or attr[0] == '_': # Private or magic attributes
+            continue
+
+        if attr == 'EXPERIMENT_NAME':
+            parser.add_argument('-e', f'--{attr}', required=True, type=type(getattr(HPARAM, attr)))
+        else:
+            parser.add_argument(f'--{attr}', type=type(getattr(HPARAM, attr)), default=getattr(HPARAM, attr))
+
+    # Updating the HPARAMs
+    parser.parse_args(namespace=HPARAM)
+
     # Modification of hyperparameters
     HPARAM.SELECTED_CLASSES = ['bg','camera','laptop']
 
@@ -333,7 +364,11 @@ if __name__ == '__main__':
         dataset_name=HPARAM.DATASET_NAME,
         selected_classes=HPARAM.SELECTED_CLASSES,
         batch_size=HPARAM.BATCH_SIZE,
-        num_workers=HPARAM.NUM_WORKERS
+        num_workers=HPARAM.NUM_WORKERS,
+        encoder=HPARAM.ENCODER,
+        encoder_weights=HPARAM.ENCODER_WEIGHTS,
+        train_size=HPARAM.TRAIN_SIZE,
+        valid_size=HPARAM.VALID_SIZE
     )
 
     # Creating base model
@@ -341,7 +376,7 @@ if __name__ == '__main__':
         architecture=HPARAM.BACKBONE_ARCH,
         encoder_name=HPARAM.ENCODER,
         encoder_weights=HPARAM.ENCODER_WEIGHTS,
-        classes=len(HPARAM.SELECTED_CLASSES)
+        classes=len(HPARAM.SELECTED_CLASSES),
     )
 
     # Selecting the criterion (specific to each task)
@@ -393,12 +428,18 @@ if __name__ == '__main__':
     }
 
     # Attaching PyTorch Lightning logic to base model
-    model = PoseRegresssionTask(base_model, criterion, metrics)
+    model = PoseRegresssionTask(HPARAM, base_model, criterion, metrics)
 
-    # Saving the run
+    # If no runs this day, create a runs-of-the-day folder
+    date = datetime.datetime.now().strftime('%y-%m-%d')
+    run_of_the_day_dir = tools.pj.cfg.LOGS / date
+    if run_of_the_day_dir.exists() is False:
+        os.mkdir(str(run_of_the_day_dir))
+
+    # Creating run name
+    time = datetime.datetime.now().strftime('%H-%M')
     model_name = f"{HPARAM.ENCODER}-{HPARAM.ENCODER_WEIGHTS}"
-    now = datetime.datetime.now().strftime('%y-%m-%d--%H-%M')
-    run_name = f"pose-{now}-{HPARAM.DATASET_NAME}-{model_name}"
+    run_name = f"{time}-{HPARAM.EXPERIMENT_NAME}-{HPARAM.DATASET_NAME}-{model_name}"
 
     # Construct hparams data to send it to MyCallback
     runs_hparams = {
@@ -415,7 +456,7 @@ if __name__ == '__main__':
     tb_logger = pll.MyLogger(
         HPARAM,
         pl_module=model,
-        save_dir=tools.pj.cfg.LOGS,
+        save_dir=run_of_the_day_dir,
         name=run_name
     )
 
@@ -424,6 +465,15 @@ if __name__ == '__main__':
         tasks=['mask', 'quaternion', 'pose'],
         hparams=runs_hparams,
         tracked_data=tracked_data
+    )
+
+    # Checkpoint callback
+    # saves a file like: my/path/sample-mnist-epoch=02-val_loss=0.32.ckpt
+    checkpoint_callback = pl.callbacks.ModelCheckpoint(
+        monitor='val_loss',
+        save_top_k=3,
+        save_last=True,
+        mode='min'
     )
 
     # Training

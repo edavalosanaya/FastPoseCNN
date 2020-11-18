@@ -16,7 +16,7 @@ def class_compress_quaternion(mask_logits, quaternion):
     # First convert mask logits to mask values
     lsf_mask = nn.LogSoftmax(dim=1)(mask_logits.clone())
 
-    # Convert lsf mask into a one-hot-take mask (NxHxW)
+    # Convert lsf mask into a categorical mask (NxHxW)
     mask = torch.argmax(lsf_mask, dim=1)
 
     # Divide the quaternion to 4 (4 for each class) (Nx4xHxW)
@@ -49,5 +49,5 @@ def class_compress_quaternion(mask_logits, quaternion):
         # Calculating the total quats
         compressed_quat = torch.sum(torch.stack(class_quats, dim=0), dim=0)
 
-    return compressed_quat
+    return compressed_quat, mask
 

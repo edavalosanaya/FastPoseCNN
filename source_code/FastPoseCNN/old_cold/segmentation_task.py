@@ -29,8 +29,8 @@ import segmentation_models_pytorch as smp
 import tools
 import lib
 
-import pl_logger as pll
-import pl_callbacks as plc
+import logger as pll
+import callbacks as plc
 
 #-------------------------------------------------------------------------------
 # Documentation

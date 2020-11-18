@@ -165,7 +165,12 @@ class MyCallback(pl.callbacks.Callback):
         pred_quaternion /= np.max(np.abs(pred_quaternion))
 
         # Create the pose figure
-        summary_fig = tools.vz.compare_quat_performance(sample, pred_quaternion, pred_mask=pred_mask, mask_colormap=dataset.COLORMAP)
+        summary_fig = tools.vz.compare_quat_performance(
+            sample, 
+            pred_quaternion, 
+            pred_mask=pred_mask, 
+            mask_colormap=dataset.COLORMAP
+        )
 
         # Log the figure to tensorboard
         pl_module.logger.writers[mode].add_figure(f'quat_gen/{mode}', summary_fig, trainer.global_step)      
@@ -211,7 +216,13 @@ class MyCallback(pl.callbacks.Callback):
         numpy_outputs['quaternion'] /= np.max(np.abs(numpy_outputs['quaternion']))
 
         # Create summary for the pose
-        summary_fig = tools.vz.compare_pose_performance_v2(numpy_outputs, sample, dataset.INTRINSICS)
+        summary_fig = tools.vz.compare_pose_performance_v3(
+            numpy_outputs, 
+            sample, 
+            dataset.INTRINSICS, 
+            pred_mask=pred_mask, 
+            mask_colormap=dataset.COLORMAP
+        )
 
         # Log the figure to tensorboard
         pl_module.logger.writers[mode].add_figure(f'pose_gen/{mode}', summary_fig, trainer.global_step)      

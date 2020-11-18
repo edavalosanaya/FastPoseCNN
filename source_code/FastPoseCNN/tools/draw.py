@@ -88,9 +88,8 @@ def draw_quat(
     image, 
     quaternion, 
     translation_vector, 
-    norm_scale,
+    scale,
     intrinsics,
-    norm_factor=1,
     color=(0,0,255)
     ):
 
@@ -100,8 +99,7 @@ def draw_quat(
     draw_image = draw_RT(
         image = image,
         RT = RT,
-        scale = norm_scale,
-        norm_factor = norm_factor, 
+        scale = scale,
         intrinsics = intrinsics,
         color = color
     )
@@ -114,7 +112,7 @@ def draw_quats(
     intrinsics, 
     quaternions, 
     translation_vectors, 
-    norm_scales,
+    scales,
     color=(0,0,255)
     ):
 
@@ -127,7 +125,7 @@ def draw_quats(
                 image = draw_image, 
                 quaternion = quaternions[i], 
                 translation_vector = translation_vectors[i], 
-                norm_scale = norm_scales[i],
+                scale = scales[i],
                 intrinsics = intrinsics,
                 color=color
             )
@@ -145,16 +143,13 @@ def draw_RT(
     RT, 
     scale, 
     intrinsics,
-    norm_factor=1,
     color=(0,0,255)
     ):
 
     # Pts that will be displayed
     xyz = 0.075*np.array([[0,0,0],[1,0,0],[0,1,0],[0,0,1]], dtype=np.float32).transpose()
-    xyz /= norm_factor
     
     bbox_3d = dm.get_3d_bbox(scale, 0)
-    bbox_3d /= norm_factor
 
     # Apply RT into a set of points
     xyz_projection = dm.transform_3d_camera_coords_to_2d_quantized_projections(xyz, RT, intrinsics)
@@ -167,15 +162,19 @@ def draw_RT(
     return draw_image
 
 @dm.dec_correct_image_dataformat
-def draw_RTs(image, RTs, scales, intrinsics):
+def draw_RTs(image, RTs, scales, intrinsics, color):
 
     draw_image = image.copy()
 
-    for class_id, class_RTs in RTs.items():
+    for i in range(len(RTs)):
 
-        for instance_id, RT in enumerate(class_RTs):
-
-            draw_image = draw_RT(draw_image, RT, scales[class_id][instance_id], intrinsics)            
+        draw_image = draw_RT(
+            draw_image, 
+            RT = RTs[i], 
+            scale = scales[i], 
+            intrinsics = intrinsics,
+            color=color
+        )            
 
     return draw_image
 

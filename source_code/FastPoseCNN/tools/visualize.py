@@ -111,6 +111,19 @@ def get_visualized_simple_center_2d(center_2d):
 
     return norm_center_2d
 
+def get_visualized_z(z, colormap='viridis'):
+
+    # Create norm function to shift data to [0:1]
+    norm = matplotlib.colors.Normalize(vmin=np.min(0), vmax=np.max(1))
+
+    # Obtain the colormap of choice
+    my_colormap = matplotlib.cm.get_cmap(colormap)
+    
+    # Normalize data, apply the colormap, make it bytes (np.array), and remove the alpha channel
+    colorized_z = my_colormap(norm(z), bytes=True)[:,:,:3] # removing alpha channel
+    
+    return colorized_z
+
 def get_visualized_quaternion(quaternion, bg='black'):
 
     """
@@ -201,6 +214,20 @@ def d4_to_d3(image):
 
     return new_image
 
+def get_visualized(image, key, mask_colormap):
+
+    if key == 'mask':
+        return get_visualized_mask(image, mask_colormap)
+    elif key == 'xy':
+        return get_visualized_simple_center_2d(image)
+        #return get_visualized_unit_vector()
+    elif key == 'quaternion':
+        return get_visualized_quaternion(image)
+    elif key == 'z':
+        return get_visualized_z(image)
+    else:
+        return image
+
 #-------------------------------------------------------------------------------
 # General Matplotlib Functions
 
@@ -209,9 +236,21 @@ def make_summary_figure(**images):
     # Calculating the number of rows and columns
     nr = len(images)
     nc = images[list(images.keys())[0]].shape[0]
+    
+    h = nr * images[list(images.keys())[0]][0].shape[0]
+    w = nc * images[list(images.keys())[0]][0].shape[1]
+
+    largest_dim = max(h,w)
+    largest_size_in_inches = 8
+
+    h_ratio = h/largest_dim
+    w_ratio = w/largest_dim
+
+    cal_h = h_ratio * largest_size_in_inches
+    cal_w = w_ratio * largest_size_in_inches
 
     # Initializing the figure and axs
-    fig = plt.figure()
+    fig = plt.figure(figsize=(cal_w, cal_h))
     fig.subplots_adjust(
         left=0,
         bottom=0,
@@ -244,6 +283,7 @@ def make_summary_figure(**images):
             plt.imshow(image)
 
     # Overall figure configurations
+    #plt.tight_layout()
 
     return fig    
 
@@ -251,6 +291,60 @@ def debug_show(**images):
 
     fig = make_summary_figure(**images)
     plt.show()
+
+# #-----------------------------------------------------------------------------
+# Single Sample Ground Truth and Prediction Visualization
+
+def compare_all(preds, gts, mask_colormap):
+    """
+    Compare the performance of all matching attributes between the predictions 
+    and the ground truth data (within a single sample). Grabbing all of the 
+    images within the single sample and stacking them into a single image
+    container to later create a figure with the images.
+    """
+
+    # Selecting clean image if available
+    image_key = 'clean_image' if 'clean_image' in gts.keys() else 'image'
+
+    pred_imgs = None
+    gt_imgs = None 
+
+    for key in gts.keys():
+
+        # If the predictions do not include it, then ignore it for now.
+        if key not in preds.keys() or key == 'image' or key == 'clean_image':
+            continue
+
+        # Get the corresponding image for the key
+        pred_img = get_visualized(preds[key], key, mask_colormap)
+        gt_img = get_visualized(gts[key], key, mask_colormap)
+
+        # Convert the pred_img and gt_img to dataformat HWC
+        pred_img = dm.set_image_data_format(pred_img, "channels_last")
+        gt_img = dm.set_image_data_format(gt_img, "channels_last")
+
+        # Convert image from 0-255 to 0-1
+        pred_img = skimage.img_as_float32(pred_img)
+        gt_img = skimage.img_as_float32(gt_img)
+
+        # For the first one, just copy the image and expand the dims
+        if isinstance(pred_imgs, type(None)) and isinstance(gt_imgs, type(None)):
+            pred_imgs = pred_img
+            gt_imgs = gt_img
+            pred_imgs = np.expand_dims(pred_imgs, axis=0)
+            gt_imgs = np.expand_dims(gt_imgs, axis=0)
+
+        else: # concatenate other images
+            pred_imgs = np.concatenate((pred_imgs, np.expand_dims(pred_img, axis=0)), axis=0)
+            gt_imgs = np.concatenate((gt_imgs, np.expand_dims(gt_img, axis=0)), axis=0)
+
+    # Create figure of the prediction and ground truths
+    fig = make_summary_figure(
+        gt = gt_imgs,
+        pred = pred_imgs
+    )
+
+    return fig    
 
 #-------------------------------------------------------------------------------
 # Batch Ground Truth and Prediction Visualization
@@ -323,9 +417,9 @@ def compare_quat_performance(sample, pred_quaternion, pred_mask=None, mask_color
     else:
         summary_fig = make_summary_figure(
             image = image_vis,
+            pred_mask=pred_mask,
             gt_quaternion = gt_quat_vis,
-            pred_quaternion = pred_quat_vis,
-            pred_mask=pred_mask
+            pred_quaternion = pred_quat_vis
         )
 
     return summary_fig
@@ -441,7 +535,7 @@ def compare_pose_performance_v2(preds, gts, intrinsics):
             intrinsics = intrinsics,
             quaternions = preds_aggregated_data['quaternion'],
             translation_vectors = preds_aggregated_data['translation_vector'],
-            norm_scales = preds_aggregated_data['scales'],
+            scales = preds_aggregated_data['scales'],
             color=(0,255,255)
         )
 
@@ -451,7 +545,7 @@ def compare_pose_performance_v2(preds, gts, intrinsics):
             intrinsics = intrinsics,
             quaternions = gts_aggregated_data['quaternion'],
             translation_vectors = gts_aggregated_data['translation_vector'],
-            norm_scales = gts_aggregated_data['scales'],
+            scales = gts_aggregated_data['scales'],
             color=(0,255,255)
         )
 
@@ -467,6 +561,63 @@ def compare_pose_performance_v2(preds, gts, intrinsics):
     summary_fig = make_summary_figure(
         gt_pose=gt_poses,
         pred_pose=pred_poses
+    )
+
+    return summary_fig
+
+def compare_pose_performance_v3(preds, gts, intrinsics, pred_mask=None, mask_colormap=None):
+
+    # Selecting clean image if available
+    image_key = 'clean_image' if 'clean_image' in gts.keys() else 'image'
+
+    if pred_mask is not None:
+        pred_mask = np.argmax(pred_mask, axis=1)
+        pred_mask = get_visualized_masks(pred_mask, mask_colormap)
+
+    # Create the drawn poses
+    poses = []
+
+    # For each sample inside the batch
+    for i in range(gts['mask'].shape[0]):
+
+        # Obtain the single sample data
+        single_preds = {k:v[i] for k,v in preds.items()}
+        single_gts = {k:v[i] for k,v in gts.items()}
+
+        # Obtain the data for the predictions via aggregation
+        preds_aggregated_data = dm.decompose_dense_representations(single_preds, intrinsics)
+
+        # Obtain the data for the gts via aggregation
+        gts_aggregated_data = dm.decompose_dense_representations(single_gts, intrinsics)
+
+        # Draw a sample's poses
+        gt_pose = dr.draw_RTs(
+            image = single_gts[image_key], 
+            intrinsics = intrinsics,
+            RT = gts_aggregated_data['RT'],
+            scales = gts_aggregated_data['scales'],
+            color=(0,255,255)
+        )
+
+        # Draw a sample's poses
+        pose = dr.draw_RTs(
+            image = gt_pose, 
+            intrinsics = intrinsics,
+            RT = preds_aggregated_data['RT'],
+            scales = preds_aggregated_data['scales'],
+            color=(255,0,255)
+        )
+
+        # Store the drawn pose to list
+        poses.append(pose)
+
+    # Convert list to array 
+    poses = np.array(poses)
+
+    # Creating a matplotlib figure illustrating the inputs vs outputs
+    summary_fig = make_summary_figure(
+        poses=poses,
+        pred_mask=pred_mask
     )
 
     return summary_fig
