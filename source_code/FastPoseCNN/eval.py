@@ -6,6 +6,7 @@ from pprint import pprint
 import tqdm
 
 import torch
+import torch.nn as nn
 import numpy as np
 import matplotlib.pyplot as plt
 import skimage.io
@@ -26,12 +27,12 @@ PATH = tools.pj.cfg.NETS_DIR / 'logs' / '20-11-17' / '02-39-BASELINE-NOCS-resnex
 class DEFAULT_POSE_HPARAM(argparse.Namespace):
     DATASET_NAME = 'NOCS'
     #SELECTED_CLASSES = tools.pj.constants.NUM_CLASSES[DATASET_NAME]
-    BATCH_SIZE = 2
+    BATCH_SIZE = 8
     NUM_WORKERS = 36 # 36 total CPUs
-    NUM_GPUS = 1
+    NUM_GPUS = 4
     DISTRIBUTED_BACKEND = None if NUM_GPUS <= 1 else 'ddp'
     TRAIN_SIZE = 1
-    VALID_SIZE = 10
+    VALID_SIZE = 1000
     DRAW = True
     COLLECT_DATA = False
 
@@ -79,8 +80,12 @@ if __name__ == '__main__':
             metrics=None
         )
 
+        # Make data parallelism possible for the model
+        if torch.cuda.device_count() > 1:
+            model = nn.DataParallel(model)
+
         # Put the model into evaluation mode
-        model.to('cuda')
+        model.to('cuda') # ! Make it work with multiple GPUs
         model.eval()
 
         # Load the PyTorch Lightning dataset
@@ -271,14 +276,55 @@ if __name__ == '__main__':
             'offset': np.less
         }
 
+        num_of_points = 20
+
+        # Remove background entry
+        for key in cls_metrics.keys():
+            cls_metrics[key].pop(0)
+
         # Calculate the aps for each metric
         aps = tools.dm.calculate_aps(
             cls_metrics, 
             metrics_ranges,
             metrics_operators,
-            num_of_points=20
+            num_of_points=num_of_points
         )
 
         # Visualize the performance
+        fig = tools.vz.plot_ap(
+            aps['3d_iou'], 
+            title='3D Iou AP',
+            x_axis_label='3D Iou %',
+            x_range=np.linspace(*metrics_ranges['3d_iou'], num_of_points),
+            cls_names=OLD_HARAM_DICT.SELECTED_CLASSES[1:]
+        )
 
-        # Save the plots
+        fig.savefig(
+            str(PATH.parent.parent / f'3d_iou_{HPARAM.VALID_SIZE}_aps.png')
+        )
+
+        # Visualize the performance
+        fig = tools.vz.plot_ap(
+            aps['degree'], 
+            title='Rotation AP',
+            x_axis_label='Rotation error/degree',
+            x_range=np.linspace(*metrics_ranges['degree'], num_of_points),
+            cls_names=OLD_HARAM_DICT.SELECTED_CLASSES[1:]
+        )
+
+        fig.savefig(
+            str(PATH.parent.parent / f'rotation_{HPARAM.VALID_SIZE}_aps.png')
+        )
+
+        # Visualize the performance
+        fig = tools.vz.plot_ap(
+            aps['offset'], 
+            title='Translation AP',
+            x_axis_label='Translation error/cm',
+            x_range=np.linspace(*metrics_ranges['offset'], num_of_points),
+            cls_names=OLD_HARAM_DICT.SELECTED_CLASSES[1:]
+        )
+
+        fig.savefig(
+            str(PATH.parent.parent / f'translation_{HPARAM.VALID_SIZE}_aps.png')
+        )

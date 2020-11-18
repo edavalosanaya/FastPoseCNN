@@ -20,6 +20,7 @@ import torch
 import torchvision
 
 import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.cm
 
@@ -621,3 +622,33 @@ def compare_pose_performance_v3(preds, gts, intrinsics, pred_mask=None, mask_col
     )
 
     return summary_fig
+
+#-------------------------------------------------------------------------------
+# Plot metrics
+
+def plot_ap(
+    aps, 
+    x_range, 
+    cls_names,
+    title,
+    x_axis_label
+    ):
+
+    # Initializing the matplotlib figure
+    fig = plt.figure()
+    #plt.subplot()
+    plt.title(title)
+    plt.xlabel(x_axis_label)
+
+    # Iterating through all the classes data
+    for i, ap in enumerate(aps):
+
+        # Obtaining the name of the class
+        class_name = cls_names[i]
+
+        # Add the data to the plot
+        plt.plot(x_range, ap, '-o', label=f'{class_name}')
+
+    plt.show()
+
+    return fig
