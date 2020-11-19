@@ -1,5 +1,10 @@
 import torch
 import torch.nn as nn
+import cupy as cp
+import cupyx as cpx
+
+#-------------------------------------------------------------------------------
+# Native PyTorch Functions
 
 def class_compress_quaternion(mask_logits, quaternion):
     """
@@ -51,3 +56,49 @@ def class_compress_quaternion(mask_logits, quaternion):
 
     return compressed_quat, mask
 
+def mask_gradients(to_be_masked, mask):
+
+    # Creating a binary mask of all objects
+    binary_mask = (mask != 0)
+
+    # Unsqueeze and expand to match the shape of the quaternion
+    binary_mask = torch.unsqueeze(binary_mask, dim=1).expand_as(to_be_masked)
+
+    # Make only the components that match the mask regressive in the quaternion
+    if to_be_masked.requires_grad:
+        to_be_masked.register_hook(lambda grad: grad * binary_mask.float())
+
+#-------------------------------------------------------------------------------
+# CuPy Functions
+
+def tensor2cupy_dict(dict1):
+
+    # Convert PyTorch Tensor to CuPy:
+    # https://discuss.pytorch.org/t/convert-torch-tensors-directly-to-cupy-tensors/2752/5
+
+    dict2 = {}
+
+    # Obtaining the first tensor in the dict
+    first_tensor = dict2[list(dict2.keys())[0]]
+
+    # Imply which cuda to use based on the device of the tensor
+    with cp.cuda.Device(first_tensor.device.index):
+
+        # For each item in the dict1, convert it to cupy
+        for key in dict1.keys():
+            dict2[key] = cp.asarray(dict1[key])
+
+    return dict2
+
+def cupy2tensor_dict(dict1):
+
+    dict2 = {}
+
+    # Obtaining the first cupy in the dict
+    first_cupy = dict2[list(dict2.keys())[0]]
+
+    # For each item in the dict1, convert it to cupy
+    for key in dict1.keys():
+        dict2[key] = torch.as_tensor(cp.unpackbits(dict1[key]), device=f'cuda:{first_cupy.device.id}')
+
+    return dict2

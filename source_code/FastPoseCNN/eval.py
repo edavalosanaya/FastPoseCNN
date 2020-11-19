@@ -169,7 +169,7 @@ if __name__ == '__main__':
                 all_matches.extend(pred_gt_matches)
 
                 # If requested to draw the preds and gts
-                if HPARAM.DRAW:        
+                if HPARAM.DRAW and image_counter < 50:        
 
                     # Draw a sample's poses
                     gt_pose = tools.dr.draw_RTs(
@@ -291,6 +291,17 @@ if __name__ == '__main__':
             metrics_operators,
             num_of_points=num_of_points
         )
+
+        # Saving aps
+        aps_complete_data = {
+            'num_of_points': num_of_points,
+            'metrics_ranges': metrics_ranges,
+            'aps': aps
+        }
+
+        # Save the raw aps to a file
+        aps_json_path = PATH.parent.parent / f'raw_{HPARAM.VALID_SIZE}_aps_values.json'
+        tools.jt.save_to_json(aps_json_path, all_matches)
 
         # Visualize the performance
         fig = tools.vz.plot_ap(
