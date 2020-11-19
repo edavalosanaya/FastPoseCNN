@@ -619,6 +619,10 @@ def find_matches(preds, gts, image_tag=None):
 
         for pred_id in range(len(preds['instance_id'])):
 
+            # If the classes do not match, skip it!
+            if gts['class_id'][gt_id] != preds['class_id'][pred_id]:
+                continue
+
             # If the pred id has been used, avoid reusing
             if pred_id in taken_pred_ids:
                 all_iou_2d[pred_id] = -1
@@ -721,10 +725,13 @@ def get_3d_iou(RT_1, RT_2, scales_1, scales_2):
         return get_asymmetric_3d_iou(RT_1, RT_2, scales_1, scales_2)
     
 def get_R_degree_error(quaternion_1, quaternion_2):
-    return Quaternion.absolute_distance(
+    
+    rad = Quaternion.absolute_distance(
         Quaternion(quaternion_1),
         Quaternion(quaternion_2)
     )
+
+    return np.rad2deg(rad)
 
 def get_T_offset_error(center_3d_1, center_3d_2):
     diff = center_3d_1 - center_3d_2
@@ -770,17 +777,16 @@ def calculate_aps(
                 # Storing the average precision
                 metric_aps[i,j] = ap
 
+        # Calculating the mean
+        mean_aps = np.mean(metric_aps, axis=0)
+
+        # Storing the mean
+        metric_aps = np.concatenate((metric_aps, np.expand_dims(mean_aps,  axis=0)), axis=0)
+
         # Storing the metric aps into the overall aps
         aps[metric_name] = metric_aps
 
     return aps
-
-
-
-
-
-
-
 
 #-------------------------------------------------------------------------------
 # Pure Geometric Functions

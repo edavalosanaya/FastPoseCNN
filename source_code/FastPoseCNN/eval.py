@@ -11,6 +11,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import skimage.io
 
+import pytorch_lightning.overrides.data_parallel as pl_o_d
+
 os.environ['CUDA_VISIBLE_DEVICES'] = '0,1,2,3'
 
 # Local Imports
@@ -79,10 +81,7 @@ if __name__ == '__main__':
             criterion=None,
             metrics=None
         )
-
-        # Make data parallelism possible for the model
-        if torch.cuda.device_count() > 1:
-            model = nn.DataParallel(model)
+        model.freeze()
 
         # Put the model into evaluation mode
         model.to('cuda') # ! Make it work with multiple GPUs
@@ -170,14 +169,7 @@ if __name__ == '__main__':
                 all_matches.extend(pred_gt_matches)
 
                 # If requested to draw the preds and gts
-                if HPARAM.DRAW:
-
-                    # Visually compare all inputs and outputs of this single sample
-                    single_sample_performance_fig = tools.vz.compare_all(
-                        single_preds, 
-                        single_gts,
-                        mask_colormap = valid_dataset.COLORMAP
-                    )
+                if HPARAM.DRAW:        
 
                     # Draw a sample's poses
                     gt_pose = tools.dr.draw_RTs(
@@ -197,16 +189,26 @@ if __name__ == '__main__':
                         color=(255,0,255)
                     )
 
-                    # Save the figure into the images folder
-                    single_sample_performance_fig.savefig(
-                        str(images_path / f'{image_counter}.png')
-                    )
-
                     # Save the image of the pose
                     skimage.io.imsave(
                         str(images_path / f'{image_counter}_pose.png'),
                         pose
                     )
+
+                    # Visually compare all inputs and outputs of this single sample
+                    single_sample_performance_fig = tools.vz.compare_all(
+                        single_preds, 
+                        single_gts,
+                        mask_colormap = valid_dataset.COLORMAP
+                    )
+
+                    # Save the figure into the images folder
+                    single_sample_performance_fig.savefig(
+                        str(images_path / f'{image_counter}.png')
+                    )
+
+                    # Clear matplotlib
+                    plt.clf()
 
                 # Update image counter
                 image_counter += 1
@@ -276,7 +278,7 @@ if __name__ == '__main__':
             'offset': np.less
         }
 
-        num_of_points = 20
+        num_of_points = 30
 
         # Remove background entry
         for key in cls_metrics.keys():
@@ -296,7 +298,7 @@ if __name__ == '__main__':
             title='3D Iou AP',
             x_axis_label='3D Iou %',
             x_range=np.linspace(*metrics_ranges['3d_iou'], num_of_points),
-            cls_names=OLD_HARAM_DICT.SELECTED_CLASSES[1:]
+            cls_names=OLD_HARAM_DICT.SELECTED_CLASSES[1:] + ['mean']
         )
 
         fig.savefig(
@@ -309,7 +311,7 @@ if __name__ == '__main__':
             title='Rotation AP',
             x_axis_label='Rotation error/degree',
             x_range=np.linspace(*metrics_ranges['degree'], num_of_points),
-            cls_names=OLD_HARAM_DICT.SELECTED_CLASSES[1:]
+            cls_names=OLD_HARAM_DICT.SELECTED_CLASSES[1:] + ['mean']
         )
 
         fig.savefig(
@@ -322,7 +324,7 @@ if __name__ == '__main__':
             title='Translation AP',
             x_axis_label='Translation error/cm',
             x_range=np.linspace(*metrics_ranges['offset'], num_of_points),
-            cls_names=OLD_HARAM_DICT.SELECTED_CLASSES[1:]
+            cls_names=OLD_HARAM_DICT.SELECTED_CLASSES[1:] + ['mean']
         )
 
         fig.savefig(

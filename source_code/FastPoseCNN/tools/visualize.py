@@ -20,7 +20,7 @@ import torch
 import torchvision
 
 import matplotlib
-matplotlib.use('Agg')
+#matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.cm
 
@@ -636,7 +636,6 @@ def plot_ap(
 
     # Initializing the matplotlib figure
     fig = plt.figure()
-    #plt.subplot()
     plt.title(title)
     plt.xlabel(x_axis_label)
 
@@ -647,8 +646,11 @@ def plot_ap(
         class_name = cls_names[i]
 
         # Add the data to the plot
-        plt.plot(x_range, ap, '-o', label=f'{class_name}')
+        if class_name == 'mean':
+            plt.plot(x_range, ap, '--', label=f'{class_name}')
+        else:
+            plt.plot(x_range, ap, '-o', label=f'{class_name}')
 
-    plt.show()
+    plt.legend()
 
     return fig
