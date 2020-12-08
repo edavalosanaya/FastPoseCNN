@@ -505,7 +505,7 @@ def get_data_from_centroids(centroids, image):
 
     return np.array(total_data)
 
-def decompose_dense_representations(sample, intrinsics):
+def aggregate_dense_sample(sample, intrinsics):
 
     # Sample contains the following keys: 
         # image, mask, quaternions, scales, xy, and z

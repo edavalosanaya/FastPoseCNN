@@ -1257,6 +1257,7 @@ def test_pose_nocs_dataset():
         preprocessing=transforms.pose.get_preprocessing(preprocessing_fn)
     )
 
+    """
     for id in range(20):
 
         sample = dataset[id]
@@ -1266,9 +1267,8 @@ def test_pose_nocs_dataset():
         #vis_test = vz.get_visualized_quaternions(sample['quaternion'])
         #vis_test = vz.get_visualized_simple_center_2d(sample['xy'])
         #vis_test = vz.get_visualized_pose(sample)
-        output_data = dm.decompose_dense_representations(sample, pj.constants.CAMERA_INTRINSICS)
+        output_data = dm.aggregate_dense_sample(sample, pj.constants.CAMERA_INTRINSICS)
         
-        #"""
         vis_test = dr.draw_quats(
             image = sample['clean_image'], 
             intrinsics = pj.constants.CAMERA_INTRINSICS,
@@ -1277,7 +1277,6 @@ def test_pose_nocs_dataset():
             norm_scales = output_data['scales'],
             color=(0,255,255)
         )
-        #"""
 
         plt.imshow(vis_test)
         #summary_fig = vz.make_summary_figure(image = sample['image'], vis_test = vis_test)
@@ -1285,9 +1284,11 @@ def test_pose_nocs_dataset():
         break
         #fig.savefig(f'/home/students/edavalos/GitHub/MastersProject/source_code/FastPoseCNN/test_output/global_pose/{id}.png')
 
+    """
+
     # Testing dataloader
-    #dataloader = torch.utils.data.DataLoader(dataset, batch_size=2, shuffle=True)
-    #sample = next(iter(dataloader))
+    dataloader = torch.utils.data.DataLoader(dataset, batch_size=2, shuffle=True)
+    sample = next(iter(dataloader))
 
     return 0
 

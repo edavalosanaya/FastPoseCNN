@@ -146,10 +146,10 @@ if __name__ == '__main__':
                 single_gts = {k:tools.dm.set_image_data_format(v[i], 'channels_last') for k,v in numpy_inputs.items()}
 
                 # Obtain the data for the predictions via aggregation
-                preds_aggregated_data = tools.dm.decompose_dense_representations(single_preds, valid_dataset.INTRINSICS)
+                preds_aggregated_data = tools.dm.aggregate_dense_sample(single_preds, valid_dataset.INTRINSICS)
 
                 # Obtain the data for the gts via aggregation
-                gts_aggregated_data = tools.dm.decompose_dense_representations(single_gts, valid_dataset.INTRINSICS)
+                gts_aggregated_data = tools.dm.aggregate_dense_sample(single_gts, valid_dataset.INTRINSICS)
 
                 # Selecting clean image if available
                 image_key = 'clean_image' if 'clean_image' in single_gts.keys() else 'image'

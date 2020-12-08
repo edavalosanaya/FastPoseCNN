@@ -525,10 +525,10 @@ def compare_pose_performance_v2(preds, gts, intrinsics):
         single_gts = {k:v[i] for k,v in gts.items()}
 
         # Obtain the data for the predictions via aggregation
-        preds_aggregated_data = dm.decompose_dense_representations(single_preds, intrinsics)
+        preds_aggregated_data = dm.aggregate_dense_sample(single_preds, intrinsics)
 
         # Obtain the data for the gts via aggregation
-        gts_aggregated_data = dm.decompose_dense_representations(single_gts, intrinsics)
+        gts_aggregated_data = dm.aggregate_dense_sample(single_gts, intrinsics)
 
         # Draw a sample's poses
         pred_pose = dr.draw_quats(
@@ -586,10 +586,10 @@ def compare_pose_performance_v3(preds, gts, intrinsics, pred_mask=None, mask_col
         single_gts = {k:v[i] for k,v in gts.items()}
 
         # Obtain the data for the predictions via aggregation
-        preds_aggregated_data = dm.decompose_dense_representations(single_preds, intrinsics)
+        preds_aggregated_data = dm.aggregate_dense_sample(single_preds, intrinsics)
 
         # Obtain the data for the gts via aggregation
-        gts_aggregated_data = dm.decompose_dense_representations(single_gts, intrinsics)
+        gts_aggregated_data = dm.aggregate_dense_sample(single_gts, intrinsics)
 
         # Draw a sample's poses
         gt_pose = dr.draw_RTs(
