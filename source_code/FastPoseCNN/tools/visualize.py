@@ -654,3 +654,40 @@ def plot_ap(
     plt.legend()
 
     return fig
+
+def plot_aps(
+    aps,
+    titles,
+    x_ranges,
+    cls_names,
+    x_axis_labels
+    ):
+
+    # Initializing the matplotlib figure
+    fig, axs = plt.subplots(1,3, sharey=True, figsize=(10, 5))
+
+    # Placing shared ylabel for AP
+    axs[0].set_ylabel('AP%')
+
+    for ap_id, ap_name in enumerate(aps.keys()):
+
+        # Setting plot title, xlabel, grid and xy limits
+        axs[ap_id].set_title(titles[ap_id])
+        axs[ap_id].set_xlabel(x_axis_labels[ap_id])
+        axs[ap_id].grid(True)
+        axs[ap_id].set_ylim([0, 100])
+        axs[ap_id].set_xlim([x_ranges[ap_id][0], x_ranges[ap_id][-1]])
+
+        for class_id, class_ap in enumerate(aps[ap_name]):
+
+            class_name = cls_names[class_id]
+
+            # Add the data to the plot
+            if class_name == 'mean':
+                axs[ap_id].plot(x_ranges[ap_id], class_ap * 100, '--', label=f'{class_name}')
+            else:
+                axs[ap_id].plot(x_ranges[ap_id], class_ap * 100, '-o', label=f'{class_name}')
+
+    plt.legend()
+
+    return fig

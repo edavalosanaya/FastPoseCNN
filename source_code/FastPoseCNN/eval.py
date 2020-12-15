@@ -303,6 +303,7 @@ if __name__ == '__main__':
         aps_json_path = PATH.parent.parent / f'raw_{HPARAM.VALID_SIZE}_aps_values.json'
         tools.jt.save_to_json(aps_json_path, all_matches)
 
+        """
         # Visualize the performance
         fig = tools.vz.plot_ap(
             aps['3d_iou'], 
@@ -340,4 +341,21 @@ if __name__ == '__main__':
 
         fig.savefig(
             str(PATH.parent.parent / f'translation_{HPARAM.VALID_SIZE}_aps.png')
+        )
+        """
+        
+        fig = tools.vz.plot_aps(
+            aps,
+            titles=['3D Iou AP', 'Rotation AP', 'Translation AP'],
+            x_ranges=[
+                np.linspace(*metrics_ranges['3d_iou'], num_of_points), 
+                np.linspace(*metrics_ranges['degree'], num_of_points), 
+                np.linspace(*metrics_ranges['offset'], num_of_points)
+                ],
+            cls_names=OLD_HARAM_DICT.SELECTED_CLASSES[1:] + ['mean'],
+            x_axis_labels=['3D IoU %', 'Rotation error/degree', 'Translation error/cm']
+        )
+
+        fig.savefig(
+            str(PATH.parent.parent / f'all_metrics_{HPARAM.VALID_SIZE}_aps.png')
         )
