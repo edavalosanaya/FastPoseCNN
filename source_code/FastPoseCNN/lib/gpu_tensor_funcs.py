@@ -1,7 +1,17 @@
+import os
+import sys
+
 import torch
 import torch.nn as nn
+import torch.utils.dlpack
+
 import cupy as cp
 import cupyx as cpx
+import cupyx.scipy.ndimage
+
+# Local imports
+sys.path.append(os.getenv("TOOLS_DIR"))
+import visualize as vz
 
 #-------------------------------------------------------------------------------
 # Native PyTorch Functions
@@ -13,16 +23,17 @@ def class_compress_quaternion(mask_logits, quaternion):
         quaternion: Nx4CxHxW
     Returns:
         compressed_quat: Nx4xHxW
+        mask: NxHxW
     """
 
     # Determing the number of classes
     num_of_classes = mask_logits.shape[1]
 
     # First convert mask logits to mask values
-    lsf_mask = nn.LogSoftmax(dim=1)(mask_logits.clone())
+    logsoftmax_mask = nn.LogSoftmax(dim=1)(mask_logits)
 
-    # Convert lsf mask into a categorical mask (NxHxW)
-    mask = torch.argmax(lsf_mask, dim=1)
+    # Convert log softmax mask into a categorical mask (NxHxW)
+    mask = torch.argmax(logsoftmax_mask, dim=1)
 
     # Divide the quaternion to 4 (4 for each class) (Nx4xHxW)
     class_quaternions = torch.chunk(quaternion, num_of_classes-1, dim=1)
@@ -67,6 +78,175 @@ def mask_gradients(to_be_masked, mask):
     # Make only the components that match the mask regressive in the quaternion
     if to_be_masked.requires_grad:
         to_be_masked.register_hook(lambda grad: grad * binary_mask.float())
+
+def dense_class_data_aggregation(mask, dense_class_data):
+    """
+    Args:
+        mask: NxHxW (categorical)
+        dense_class_data: dict
+            quaternion: Nx4xHxW
+    Returns:
+        outputs: list
+            single_sample_output: dict
+                class_ids: list
+                instance_ids: list
+                instance_mask: HxW
+                z: list (1)
+                xy: list (2)
+                quaternion: list (4)
+                RT: list (4x4)
+                scales: list (3)
+    """
+    outputs = []
+
+    for n in range(mask.shape[0]):
+
+        # Per sample outputs
+        single_sample_output = {
+            'class_id': [],
+            'instance_id': [],
+            'instance_mask': [],
+            'quaternion': []
+        }
+
+        # Selecting the samples mask
+        sample_mask = mask[n]
+
+        # Process data per class
+        for class_id in torch.unique(sample_mask):
+
+            # Ignore the background
+            if class_id == 0:
+                continue
+
+            # Selecting the class mask
+            class_mask = (sample_mask == class_id) * torch.Tensor([1]).float().to(sample_mask.device)
+
+            # Converting torch to GPU numpy (cupy)
+            with cp.cuda.Device(class_mask.device.index):
+                cupy_class_mask = cp.asarray(class_mask)
+
+            # Shattering the segmentation into instances
+            cupy_instance_masks, num_of_instances = cupyx.scipy.ndimage.label(cupy_class_mask)
+
+            # Convert cupy to tensor
+            # https://discuss.pytorch.org/t/convert-torch-tensors-directly-to-cupy-tensors/2752/7
+            instance_masks = torch.utils.dlpack.from_dlpack(cupy_instance_masks.toDlpack())
+
+            # Process data per instance
+            for instance_id in range(1, num_of_instances+1):
+
+                # Selecting the instance mask (HxW)
+                instance_mask = (instance_masks == instance_id) # BoolTensor
+
+                # Obtaining the pertaining quaternion
+                quaternion_mask = instance_mask.expand((4, instance_mask.shape[0], instance_mask.shape[1]))
+                quaternion_img = torch.where(quaternion_mask, dense_class_data['quaternion'][n], torch.zeros_like(quaternion_mask).float().to(sample_mask.device))
+
+                # Aggregate the values via naive average
+                quaternion = torch.sum(quaternion_img, dim=(1,2)) / torch.sum(instance_mask)
+
+                # Storing per-sample data
+                single_sample_output['class_id'].append(class_id)
+                single_sample_output['instance_id'].append(instance_id)
+                single_sample_output['instance_mask'].append(instance_mask)
+                single_sample_output['quaternion'].append(quaternion)
+
+        # Storing per sample data
+        outputs.append(single_sample_output)
+
+    return outputs
+
+def find_matches_batched(preds, gts):
+    """Find the matches between predictions and ground truth data
+
+    Args:
+        preds/gts ([list]):
+            single_sample_output: dict
+                class_id: list
+                instance_id: list
+                instance_mask: HxW
+                z: list (1)
+                xy: list (2)
+                quaternion: list (4)
+                RT: list (4x4)
+                scales: list (3)
+
+    Returns:
+        pred_gt_matches [list]: 
+            match ([dict]):
+                class_id: torch.Tensor
+                quaternion: torch.Tensor
+    """
+
+    pred_gt_matches = []
+
+    # For each sample in the batch
+    for n in range(len(preds)):
+
+        # If it this sample their was no predictions, skip it
+        if len(preds[n]['class_id']) == 0:
+            continue
+
+        # Avoid using already matched predictions
+        used_pred_ids = []
+
+        # For all instances in the ground truth data
+        for gt_id in range(len(gts[n]['instance_id'])):
+
+            # Match the ground truth and preds given the 2D IoU between the 
+            # instance mask
+            all_iou_2d = torch.zeros((len(preds[n]['instance_id']))).to(preds[n]['class_id'][0].device)
+
+            for pred_id in range(len(preds[n]['instance_id'])):
+
+                # If the pred id has been matched, avoid reusing
+                if pred_id in used_pred_ids:
+                    all_iou_2d[pred_id] = -1
+                    continue
+
+                # If the classes do not match, skip it!
+                if gts[n]['class_id'][gt_id] != preds[n]['class_id'][pred_id]:
+                    continue
+
+                # Determing the 2d IoU
+                iou_2d_mask = torch_get_2d_iou(
+                    preds[n]['instance_mask'][pred_id],
+                    gts[n]['instance_mask'][gt_id]
+                )
+
+                # Storing the 2d IoU for later comparison
+                all_iou_2d[pred_id] = iou_2d_mask
+
+            # After determing all the 2d IoU, select the largest, given that it 
+            # is valid (greater than 0)
+            max_iou_2d_mask = torch.max(all_iou_2d)
+            if max_iou_2d_mask <= 0:
+                continue
+
+            # use the mask with the highest 2d iou score
+            max_id = torch.argmax(all_iou_2d)
+
+            # Mark the mask_id as taken
+            used_pred_ids.append(max_id)
+
+            # Create a match container
+            match = {
+                'class_id': gts[n]['class_id'][gt_id],
+                'iou_2d_mask': max_iou_2d_mask,
+                'quaternion': torch.stack((gts[n]['quaternion'][gt_id], preds[n]['quaternion'][max_id]))
+            }
+
+            # Store the container
+            pred_gt_matches.append(match)
+
+    return pred_gt_matches
+
+def torch_get_2d_iou(tensor1: torch.Tensor, tensor2: torch.Tensor) -> torch.Tensor:
+
+    intersection = torch.sum(torch.logical_and(tensor1, tensor2))
+    union = torch.sum(torch.logical_or(tensor1, tensor2))
+    return torch.true_divide(intersection,union)
 
 #-------------------------------------------------------------------------------
 # CuPy Functions

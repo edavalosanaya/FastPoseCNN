@@ -10,7 +10,7 @@ import segmentation_models_pytorch as smp
 
 # Local imports 
 import initialization as init
-import gpu_tensor_funcs
+import gpu_tensor_funcs as gtf
 
 #-------------------------------------------------------------------------------
 
@@ -101,24 +101,21 @@ class PoseRegressor(torch.nn.Module):
         quat_decoder_output = self.quat_decoder(*features)
 
         # Heads 
-        mask = self.segmentation_head(mask_decoder_output)
-        quat = self.quat_head(quat_decoder_output)
+        mask_logits = self.segmentation_head(mask_decoder_output)
+        quat_logits = self.quat_head(quat_decoder_output)
 
-
-        #"""
+        # Convert ouputs logits to categorical and class compress data
         # Compressing the quaternion output to account for the segmentation output
-        quat, cat_mask = gpu_tensor_funcs.class_compress_quaternion(
-            mask_logits=mask,
-            quaternion=quat
+        quaternion, cat_mask = gtf.class_compress_quaternion(
+            mask_logits=mask_logits,
+            quaternion=quat_logits
         )
-        #"""
 
-        # Masking the gradient as well for the quaternion
-        gpu_tensor_funcs.mask_gradients(quat, cat_mask)
-
+        # Logits
         output = {
-            'mask': mask,
-            'quaternion': quat
+            'mask': mask_logits,
+            'categorical_mask': cat_mask,
+            'quaternion': quaternion
         }
 
         return output

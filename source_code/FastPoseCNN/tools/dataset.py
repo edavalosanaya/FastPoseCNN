@@ -1176,7 +1176,7 @@ def test_seg_camvid_dataset():
     preprocessing_fn = smp.encoders.get_preprocessing_fn(ENCODER, ENCODER_WEIGHTS)
 
     dataset = CAMVIDSegDataset(
-        pj.cfg.CAMVID_DATASET,
+        pathlib.Path(os.getenv("CAMVID_DATASET")),
         train_valid_test='train', 
         classes=pj.constants.CAMVID_CLASSES,
         augmentation=transforms.get_training_augmentation(), 
@@ -1195,7 +1195,7 @@ def test_seg_nocs_dataset():
 
     print('Loading dataset')
     dataset = NOCSSegDataset(
-        dataset_dir=pj.cfg.CAMERA_TRAIN_DATASET, 
+        dataset_dir=pathlib.Path(os.getenv("CAMERA_TRAIN_DATASET")), 
         max_size=1000,
         classes=pj.constants.NOCS_CLASSES,
         augmentation=transforms.get_training_augmentation(height=crop_size, width=crop_size),
@@ -1250,7 +1250,7 @@ def test_pose_nocs_dataset():
     preprocessing_fn = smp.encoders.get_preprocessing_fn(ENCODER, ENCODER_WEIGHTS)
 
     dataset = NOCSPoseRegDataset(
-        dataset_dir=pj.cfg.CAMERA_TRAIN_DATASET,
+        dataset_dir=pathlib.Path(os.getenv("CAMERA_TRAIN_DATASET")),
         max_size=1,
         classes=['bg','camera'],#pj.constants.NOCS_CLASSES,
         augmentation=transforms.pose.get_training_augmentation(),

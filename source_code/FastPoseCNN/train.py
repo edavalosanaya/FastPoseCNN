@@ -2,6 +2,7 @@ import os
 import warnings
 import datetime
 import argparse
+import pathlib
 
 import pdb
 
@@ -21,6 +22,7 @@ import catalyst.contrib.nn
 import segmentation_models_pytorch as smp
 
 # Local Imports
+import setup_env
 import tools
 import lib
 
@@ -67,16 +69,16 @@ class DEFAULT_POSE_HPARAM(argparse.Namespace):
     SELECTED_CLASSES = tools.pj.constants.NUM_CLASSES[DATASET_NAME]
     BATCH_SIZE = 8
     NUM_WORKERS = 36 # 36 total CPUs
-    NUM_GPUS = 4
+    NUM_GPUS = 1 #4
     LEARNING_RATE = 0.001
     ENCODER_LEARNING_RATE = 0.0005
-    NUM_EPOCHS = 50
+    NUM_EPOCHS = 2
     DISTRIBUTED_BACKEND = None if NUM_GPUS <= 1 else 'ddp'
     BACKBONE_ARCH = 'FPN'
     ENCODER = 'resnext50_32x4d'
     ENCODER_WEIGHTS = 'imagenet'
-    TRAIN_SIZE=5000
-    VALID_SIZE=200
+    TRAIN_SIZE=50#00
+    VALID_SIZE=20#0
 
 HPARAM = DEFAULT_POSE_HPARAM()
 
@@ -158,8 +160,30 @@ class PoseRegresssionTask(pl.LightningModule):
         return result
 
     def shared_step(self, mode, batch, batch_idx):
+        
         # Forward pass the input and generate the prediction of the NN
         outputs = self.model(batch['image'])
+
+        # Popping out the generated categorical mask
+        categorical_mask = outputs.pop('categorical_mask')
+
+        # TODO: 
+        # Make sure that when mode is train that the gradients is being keep alive
+
+        # Obtaining the aggregated values for the both the ground truth
+        agg_gt = lib.gtf.dense_class_data_aggregation(
+            mask=batch['mask'],
+            dense_class_data=batch
+        )
+
+        # and then the predicted values
+        agg_pred = lib.gtf.dense_class_data_aggregation(
+            mask=categorical_mask,
+            dense_class_data=outputs
+        )
+
+        # Determine matches between the aggreated ground truth and preds
+        gt_pred_matches = lib.gtf.find_matches_batched(agg_pred, agg_gt)
 
         # Storage for losses and metrics depending on the task
         multi_task_losses = {'total_loss': torch.Tensor([0]).float().to(self.device)}
@@ -172,7 +196,8 @@ class PoseRegresssionTask(pl.LightningModule):
             losses, metrics = self.loss_function(
                 task_name,
                 outputs,
-                batch
+                batch,
+                gt_pred_matches
             )
 
             # Logging the batch loss to Tensorboard
@@ -192,11 +217,22 @@ class PoseRegresssionTask(pl.LightningModule):
 
         return multi_task_losses, multi_task_metrics
 
-    def loss_function(self, task_name, outputs, inputs):
+    def loss_function(self, task_name, outputs, inputs, gt_pred_matches):
         
+        """
         losses = {
             k: v['F'](outputs, inputs) for k,v in self.criterion[task_name].items()
         }
+        """
+        losses = {}
+        
+        for loss_name, loss_fn in self.criterion[task_name].items():
+
+            # Determing what type of input data
+            if loss_fn['F'].data == 'pixel-wise':
+                losses[loss_name] = loss_fn['F'](outputs, inputs)
+            elif loss_fn['F'].data == 'matched':
+                losses[loss_name] = loss_fn['F'](gt_pred_matches)
 
         # Indexing the task specific output
         pred = outputs[task_name]
@@ -287,7 +323,7 @@ class PoseRegressionDataModule(pl.LightningDataModule):
                 self.selected_classes = tools.pj.constants.NOCS_CLASSES
 
             train_dataset = tools.ds.NOCSPoseRegDataset(
-                dataset_dir=tools.pj.cfg.CAMERA_TRAIN_DATASET,
+                dataset_dir=pathlib.Path(os.getenv("NOCS_CAMERA_TRAIN_DATASET")),
                 max_size=self.train_size,
                 classes=self.selected_classes,
                 augmentation=tools.transforms.pose.get_training_augmentation(),
@@ -295,7 +331,7 @@ class PoseRegressionDataModule(pl.LightningDataModule):
             )
 
             valid_dataset = tools.ds.NOCSPoseRegDataset(
-                dataset_dir=tools.pj.cfg.CAMERA_VALID_DATASET, 
+                dataset_dir=pathlib.Path(os.getenv("NOCS_CAMERA_VALID_DATASET")), 
                 max_size=self.valid_size,
                 classes=self.selected_classes,
                 augmentation=tools.transforms.pose.get_validation_augmentation(),
@@ -387,18 +423,21 @@ if __name__ == '__main__':
             'loss_focal': {'F': lib.loss.Focal(), 'weight': 1.0}
         },
         'quaternion': {
-            'loss_mse': {'F': lib.loss.MaskedMSELoss(key='quaternion'), 'weight': 1.0}
-        },
-        'scales': {
-            'loss_mse': {'F': lib.loss.MaskedMSELoss(key='scales'), 'weight': 1.0}
-        },
-        'xy': {
-            'loss_mse': {'F': lib.loss.MaskedMSELoss(key='xy'), 'weight': 1.0}
-        },
-        'z': {
-            'loss_mse': {'F': lib.loss.MaskedMSELoss(key='z'), 'weight': 1.0}
+            'loss_qloss': {'F': lib.loss.QLoss(key='quaternion'), 'weight': 1.0}
         }
     }
+
+    """
+    'scales': {
+        'loss_mse': {'F': lib.loss.MaskedMSELoss(key='scales'), 'weight': 1.0}
+    },
+    'xy': {
+        'loss_mse': {'F': lib.loss.MaskedMSELoss(key='xy'), 'weight': 1.0}
+    },
+    'z': {
+        'loss_mse': {'F': lib.loss.MaskedMSELoss(key='z'), 'weight': 1.0}
+    }
+    """
 
     # Selecting metrics
     metrics = {
@@ -409,17 +448,20 @@ if __name__ == '__main__':
         },
         'quaternion': {
             'mae': pl.metrics.functional.regression.mae
-        },
-        'scales': {
-            'mae': pl.metrics.functional.regression.mae
-        },
-        'xy': {
-            'mae': pl.metrics.functional.regression.mae
-        },
-        'z': {
-            'mae': pl.metrics.functional.regression.mae
         }
     }
+
+    """
+    'scales': {
+        'mae': pl.metrics.functional.regression.mae
+    },
+    'xy': {
+        'mae': pl.metrics.functional.regression.mae
+    },
+    'z': {
+        'mae': pl.metrics.functional.regression.mae
+    }
+    """
 
     # Noting what are the items that we want to see as the training develops
     tracked_data = {
@@ -432,7 +474,7 @@ if __name__ == '__main__':
 
     # If no runs this day, create a runs-of-the-day folder
     date = datetime.datetime.now().strftime('%y-%m-%d')
-    run_of_the_day_dir = tools.pj.cfg.LOGS / date
+    run_of_the_day_dir = pathlib.Path(os.getenv("LOGS")) / date
     if run_of_the_day_dir.exists() is False:
         os.mkdir(str(run_of_the_day_dir))
 

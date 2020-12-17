@@ -8,6 +8,7 @@ from easydict import EasyDict
 
 import numpy as np
 
+"""
 ################################################################################
 # Path Config
 ################################################################################
@@ -37,6 +38,7 @@ cfg.CAMVID_DATASET = cfg.DATASET_DIR / 'CAMVID'
 
 # CARVANA
 cfg.CARVANA_DATASET = cfg.DATASET_DIR / 'CARVANA'
+"""
 
 ################################################################################
 # Data constants

@@ -2,6 +2,7 @@ import os
 import sys
 import pathlib
 import warnings
+from pprint import pprint
 
 from skimage import color
 warnings.filterwarnings('ignore')
@@ -25,7 +26,7 @@ import matplotlib.pyplot as plt
 import matplotlib.cm
 
 # Local Imports
-root = next(path for path in pathlib.Path(os.path.abspath(__file__)).parents if path.name == 'FastPoseCNN')
+root = pathlib.Path(os.getenv("ROOT_DIR"))
 sys.path.append(str(pathlib.Path(__file__).parent))
 
 import project as pj
@@ -291,6 +292,13 @@ def make_summary_figure(**images):
 def debug_show(**images):
 
     fig = make_summary_figure(**images)
+    plt.show()
+
+def show_tensor(tensor: torch.Tensor):
+
+    # Standardizing all the data
+    img = dm.standardize_image(tensor)
+    plt.imshow(img)
     plt.show()
 
 # #-----------------------------------------------------------------------------
@@ -595,7 +603,7 @@ def compare_pose_performance_v3(preds, gts, intrinsics, pred_mask=None, mask_col
         gt_pose = dr.draw_RTs(
             image = single_gts[image_key], 
             intrinsics = intrinsics,
-            RT = gts_aggregated_data['RT'],
+            RTs = gts_aggregated_data['RT'],
             scales = gts_aggregated_data['scales'],
             color=(0,255,255)
         )
@@ -604,7 +612,7 @@ def compare_pose_performance_v3(preds, gts, intrinsics, pred_mask=None, mask_col
         pose = dr.draw_RTs(
             image = gt_pose, 
             intrinsics = intrinsics,
-            RT = preds_aggregated_data['RT'],
+            RTs = preds_aggregated_data['RT'],
             scales = preds_aggregated_data['scales'],
             color=(255,0,255)
         )

@@ -132,6 +132,7 @@ class MyCallback(pl.callbacks.Callback):
         
         # Applying activation function to the mask
         pred_mask = torch.nn.functional.sigmoid(outputs['mask']).cpu().numpy()
+        #pred_mask = outputs['categorical_mask'].cpu().numpy()
 
         # Create the summary figure
         summary_fig = tools.vz.compare_mask_performance(sample, pred_mask, colormap)
@@ -158,6 +159,7 @@ class MyCallback(pl.callbacks.Callback):
         
         # Applying activation function to the mask
         pred_mask = torch.nn.functional.sigmoid(outputs['mask']).cpu().numpy()
+        #pred_mask = outputs['categorical_mask'].cpu().numpy()
 
         # Selecting the quaternion from the output
         # https://pytorch.org/docs/stable/nn.functional.html?highlight=activation%20functions
@@ -194,6 +196,7 @@ class MyCallback(pl.callbacks.Callback):
 
         # Applying activation function to the mask
         pred_mask = torch.nn.functional.sigmoid(outputs['mask']).cpu().numpy()
+        #pred_mask = outputs['categorical_mask'].cpu().numpy()
 
         # Create numpy version of the outputs container
         numpy_outputs = sample.copy()

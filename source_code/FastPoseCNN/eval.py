@@ -2,6 +2,7 @@
 import os
 import sys
 import argparse
+import pathlib
 from pprint import pprint
 import tqdm
 
@@ -16,6 +17,7 @@ import pytorch_lightning.overrides.data_parallel as pl_o_d
 os.environ['CUDA_VISIBLE_DEVICES'] = '0,1,2,3'
 
 # Local Imports
+import setup_env
 import tools
 import lib
 import train
@@ -23,7 +25,7 @@ import train
 #-------------------------------------------------------------------------------
 # Constants
 
-PATH = tools.pj.cfg.NETS_DIR / 'logs' / '20-11-17' / '02-39-BASELINE-NOCS-resnext50_32x4d-imagenet' / '_' / 'checkpoints' / 'epoch=32.ckpt'
+PATH = pathlib.Path(os.getenv("NETS_DIR")) / 'logs' / '20-11-17' / '02-39-BASELINE-NOCS-resnext50_32x4d-imagenet' / '_' / 'checkpoints' / 'epoch=32.ckpt'
 
 # Run hyperparameters
 class DEFAULT_POSE_HPARAM(argparse.Namespace):

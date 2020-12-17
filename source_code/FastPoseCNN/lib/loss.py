@@ -2,12 +2,15 @@ import torch
 from torch import Tensor, nn
 from torch.nn.modules.loss import _Loss
 from pytorch_toolbelt.losses.focal import FocalLoss
+import gpu_tensor_funcs as gtf
 
 #-------------------------------------------------------------------------------
 # Mask Losses
 
 class CE(_Loss):
     """Implementation of CE for 2D model from logits."""
+
+    data = 'pixel-wise'
 
     def __init__(self, ignore_index=-1):
         super(CE, self).__init__()
@@ -25,6 +28,8 @@ class CE(_Loss):
 
 class CCE(_Loss):
     """Implementation of CCE for 2D model from logits."""
+
+    data = 'pixel-wise'
 
     def __init__(self, from_logits=True, ignore_index=-1):
         super(CCE, self).__init__()
@@ -51,6 +56,8 @@ class CCE(_Loss):
 
 class Focal(_Loss):
     """Implementation of Focal for 2D model from logits."""
+
+    data = 'pixel-wise'
 
     def __init__(self, key='mask', from_logits=True, alpha=0.5, gamma=2, ignore_index=-1):
         super(Focal, self).__init__()
@@ -84,6 +91,8 @@ class Focal(_Loss):
 # Pose Losses
 
 class MaskedMSELoss(_Loss):
+
+    data = 'pixel-wise'
 
     def __init__(self, key):
         super(MaskedMSELoss, self).__init__()
@@ -126,3 +135,109 @@ class MaskedMSELoss(_Loss):
         masked_loss = loss_fn(masked_pred, y_gt)
 
         return masked_loss
+
+class QLoss(_Loss):
+    """QLoss
+
+    References:
+    https://math.stackexchange.com/questions/90081/quaternion-distance
+    http://kieranwynn.github.io/pyquaternion/#normalisation
+    https://github.com/KieranWynn/pyquaternion/blob/99025c17bab1c55265d61add13375433b35251af/pyquaternion/quaternion.py#L800
+    
+
+
+    Args:
+        _Loss ([type]): [description]
+
+    Returns:
+        [type]: [description]
+    """
+
+    data = 'matched'
+
+    def __init__(self, key, eps=0.001):
+        super(QLoss, self).__init__()
+        self.key = key
+        self.eps = eps
+
+    def forward(self, matches) -> Tensor:
+        """QLoss Foward
+
+        Args:
+            matches [list]: 
+                match ([dict]):
+                    class_id: torch.Tensor
+                    quaternion: torch.Tensor
+
+        Returns:
+            Tensor: [description]
+        """
+
+        # If there is no matches [], skip it
+        if not matches:
+            return torch.tensor([float('nan')])
+
+        # Given the key, aggregated all the matches of that type by class
+        class_quaternion = {}
+
+        # Iterating through all the matches
+        for match in matches:
+
+            # If this match is the first of its class object, then add new item
+            if int(match['class_id']) not in class_quaternion.keys():
+                class_quaternion[int(match['class_id'])] = [match['quaternion']]
+
+            # else, just append it to the pre-existing list
+            else:
+                class_quaternion[int(match['class_id'])].append(match['quaternion'])
+
+        # Container for per class ground truths and predictions
+        stacked_class_quaternion = {}
+
+        # Once the quaternions have been separated by class, stack them all to
+        # formally compute the QLoss
+        for class_number, class_data in class_quaternion.items():
+
+            # Stacking all matches in one class
+            stacked_class_quaternion[class_number] = torch.stack(class_data)
+
+        # Container for per class collective loss
+        per_class_loss = {}
+
+        # Apply the QLoss Function 
+        # log(\epsilon + 1 - |qbar dot q|)
+        for class_number in stacked_class_quaternion.keys():
+
+            # Selecting the ground truth quaternion
+            qbar = stacked_class_quaternion[class_number][:,0,:]
+
+            # Selecting the predicted quaternion
+            q = stacked_class_quaternion[class_number][:,1,:]
+
+            # Normalize the predicted quaternion
+            norm_q = torch.div(q.T, q.norm(dim=1).T).T
+
+            # Calculating the loss
+            A = torch.diag(torch.mm(qbar, norm_q.T))
+            B = torch.abs(A)
+            C = self.eps + 1 - B
+            D = torch.log(C)
+            per_class_loss[class_number] = D#torch.log(self.eps+1-torch.norm(qbar @ q.T))
+
+        # Place all the class losses into a single list
+        losses = [v for v in per_class_loss.values()]
+
+        # Stack the losses to later sum the loss
+        stacked_losses = torch.cat(losses)
+
+        # Return the some of all the losses
+        return torch.sum(stacked_losses)
+        
+
+
+            
+
+
+
+
+

@@ -94,10 +94,12 @@ def standardize_image(image, get_original_data=False):
         image = image.cpu().numpy()
         was_tensor = True
 
+    """
     # Ensure the right datatype
     original_dtype = image.dtype
     if image.dtype != np.uint8:
         image = skimage.img_as_ubyte(image)
+    """
 
     # ensure the correct dataformat
     original_image_dataformat = image_data_format(image)
@@ -105,7 +107,7 @@ def standardize_image(image, get_original_data=False):
         image = set_image_data_format(image, 'channels_last')
 
     if get_original_data:
-        return image, was_tensor, original_dtype, original_image_dataformat
+        return image, was_tensor, original_image_dataformat
     else:
         return image
 
@@ -125,7 +127,7 @@ def dec_correct_image_dataformat(function):
             image = args[0]
 
         # Standarize image to numpy np.uint8
-        image, was_tensor, original_dtype, original_image_dataformat = standardize_image(image, get_original_data=True)
+        image, was_tensor, original_image_dataformat = standardize_image(image, get_original_data=True)
 
         # Store back the altered image
         if args_used:
@@ -141,7 +143,7 @@ def dec_correct_image_dataformat(function):
         # Restore the image to the exact same as the input
         if restore_like_input_image:
             drawn_image = set_image_data_format(drawn_image, original_image_dataformat)
-            drawn_image = drawn_image.astype(original_dtype)
+            #drawn_image = drawn_image.astype(original_dtype)
 
             if was_tensor:
                 drawn_image = torch.from_numpy(drawn_image)
@@ -163,6 +165,7 @@ def standardize_depth(depth):
         assert False, '[ Error ]: Unsupported depth type'
 
 def compress_dict(my_dict, additional_subkey=None):
+
 
     new_dict = {}
 
@@ -619,21 +622,27 @@ def find_matches(preds, gts, image_tag=None):
 
         for pred_id in range(len(preds['instance_id'])):
 
-            # If the classes do not match, skip it!
-            if gts['class_id'][gt_id] != preds['class_id'][pred_id]:
-                continue
-
             # If the pred id has been used, avoid reusing
             if pred_id in taken_pred_ids:
                 all_iou_2d[pred_id] = -1
                 continue
+
+            # If the classes do not match, skip it!
+            if gts['class_id'][gt_id] != preds['class_id'][pred_id]:
+                continue
             
+            # Calculating the 2d IoU
             iou_2d_mask = get_2d_iou(
                 preds['instance_mask'][pred_id],
                 gts['instance_mask'][gt_id]
             )
 
+            # Storing the 2d IoU
             all_iou_2d[pred_id] = iou_2d_mask
+
+        # If the maximum value is 0 or less (also -1), avoid it
+        if np.max(all_iou_2d) <= 0:
+            continue
 
         # Use the mask with the highest 2d iou score
         max_id = np.argmax(all_iou_2d)
@@ -1104,7 +1113,11 @@ def quat_2_RT_given_T_in_world(quaternion, translation_vector):
         RT: [4,4]
     """
 
-    smart_rotation_object = scipy.spatial.transform.Rotation.from_quat(quaternion)
+    try:
+        smart_rotation_object = scipy.spatial.transform.Rotation.from_quat(quaternion)
+    except ValueError: # zero norm quaternion 
+        smart_rotation_object = scipy.spatial.transform.Rotation.from_quat(np.array([1,0,0,0]))
+    
     rotation_matrix = smart_rotation_object.as_matrix()
     inv_rotation_matrix = np.linalg.inv(rotation_matrix)
 
