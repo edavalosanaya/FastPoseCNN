@@ -174,8 +174,8 @@ class QLoss(_Loss):
         """
 
         # If there is no matches [], skip it
-        if not matches:
-            return torch.tensor([float('nan')])
+        #if not matches:
+        #    return #torch.tensor([float('nan')])
 
         # Given the key, aggregated all the matches of that type by class
         class_quaternion = {}
@@ -222,16 +222,20 @@ class QLoss(_Loss):
             B = torch.abs(A)
             C = self.eps + 1 - B
             D = torch.log(C)
-            per_class_loss[class_number] = D#torch.log(self.eps+1-torch.norm(qbar @ q.T))
+            per_class_loss[class_number] = D
 
         # Place all the class losses into a single list
         losses = [v for v in per_class_loss.values()]
 
         # Stack the losses to later sum the loss
-        stacked_losses = torch.cat(losses)
+        # If not empty
+        if losses:
+            stacked_losses = torch.cat(losses)
+        else:
+            return torch.tensor([0], device=qbar.device)
 
         # Return the some of all the losses
-        return torch.sum(stacked_losses)
+        return torch.mean(stacked_losses)
         
 
 

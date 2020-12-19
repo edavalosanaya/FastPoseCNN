@@ -57,7 +57,7 @@ if __name__ == '__main__':
 
     # Load from checkpoint
     checkpoint = torch.load(PATH)
-    OLD_HARAM_DICT = checkpoint['hyper_parameters']
+    OLD_HPARAM = checkpoint['hyper_parameters']
 
     # Determining if collect model's performance data
     # or visualizing the results of the model's performance
@@ -65,8 +65,8 @@ if __name__ == '__main__':
 
         # Merge the NameSpaces between the model's hyperparameters and 
         # the evaluation hyperparameters
-        for attr in OLD_HARAM_DICT.keys():
-            setattr(HPARAM, attr, OLD_HARAM_DICT[attr])
+        for attr in OLD_HPARAM.keys():
+            setattr(HPARAM, attr, OLD_HPARAM[attr])
 
         # Create model
         base_model = lib.PoseRegressor(
@@ -83,6 +83,8 @@ if __name__ == '__main__':
             criterion=None,
             metrics=None
         )
+
+        # Freezing weights to avoid updating the weights
         model.freeze()
 
         # Put the model into evaluation mode
@@ -223,9 +225,9 @@ if __name__ == '__main__':
         # Load the json
         all_matches = tools.jt.load_from_json(json_path)
         cls_metrics = {
-            '3d_iou': [[] for cls in OLD_HARAM_DICT.SELECTED_CLASSES],
-            'degree': [[] for cls in OLD_HARAM_DICT.SELECTED_CLASSES],
-            'offset': [[] for cls in OLD_HARAM_DICT.SELECTED_CLASSES]
+            '3d_iou': [[] for cls in OLD_HPARAM.SELECTED_CLASSES],
+            'degree': [[] for cls in OLD_HPARAM.SELECTED_CLASSES],
+            'offset': [[] for cls in OLD_HPARAM.SELECTED_CLASSES]
         }
 
         # For each match calculate the 3D IoU, degree error, and offset error 
@@ -312,7 +314,7 @@ if __name__ == '__main__':
             title='3D Iou AP',
             x_axis_label='3D Iou %',
             x_range=np.linspace(*metrics_ranges['3d_iou'], num_of_points),
-            cls_names=OLD_HARAM_DICT.SELECTED_CLASSES[1:] + ['mean']
+            cls_names=OLD_HPARAM.SELECTED_CLASSES[1:] + ['mean']
         )
 
         fig.savefig(
@@ -325,7 +327,7 @@ if __name__ == '__main__':
             title='Rotation AP',
             x_axis_label='Rotation error/degree',
             x_range=np.linspace(*metrics_ranges['degree'], num_of_points),
-            cls_names=OLD_HARAM_DICT.SELECTED_CLASSES[1:] + ['mean']
+            cls_names=OLD_HPARAM.SELECTED_CLASSES[1:] + ['mean']
         )
 
         fig.savefig(
@@ -338,7 +340,7 @@ if __name__ == '__main__':
             title='Translation AP',
             x_axis_label='Translation error/cm',
             x_range=np.linspace(*metrics_ranges['offset'], num_of_points),
-            cls_names=OLD_HARAM_DICT.SELECTED_CLASSES[1:] + ['mean']
+            cls_names=OLD_HPARAM.SELECTED_CLASSES[1:] + ['mean']
         )
 
         fig.savefig(
@@ -354,7 +356,7 @@ if __name__ == '__main__':
                 np.linspace(*metrics_ranges['degree'], num_of_points), 
                 np.linspace(*metrics_ranges['offset'], num_of_points)
                 ],
-            cls_names=OLD_HARAM_DICT.SELECTED_CLASSES[1:] + ['mean'],
+            cls_names=OLD_HPARAM.SELECTED_CLASSES[1:] + ['mean'],
             x_axis_labels=['3D IoU %', 'Rotation error/degree', 'Translation error/cm']
         )
 

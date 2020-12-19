@@ -221,21 +221,39 @@ def find_matches_batched(preds, gts):
             # After determing all the 2d IoU, select the largest, given that it 
             # is valid (greater than 0)
             max_iou_2d_mask = torch.max(all_iou_2d)
+            
+            # If no match is found, use a standard quaternion to notify failure
             if max_iou_2d_mask <= 0:
-                continue
 
-            # use the mask with the highest 2d iou score
-            max_id = torch.argmax(all_iou_2d)
+                # Creating the standard quaternion
+                standard_quaternion = torch.tensor(
+                    [1,0,0,0],
+                    requires_grad=True,
+                    dtype=gts[n]['quaternion'][gt_id].dtype,
+                    device=gts[n]['quaternion'][gt_id].device
+                )
 
-            # Mark the mask_id as taken
-            used_pred_ids.append(max_id)
+                # Create a match container
+                match = {
+                    'class_id': gts[n]['class_id'][gt_id],
+                    'iou_2d_mask': max_iou_2d_mask,
+                    'quaternion': torch.stack((gts[n]['quaternion'][gt_id], standard_quaternion))
+                }
 
-            # Create a match container
-            match = {
-                'class_id': gts[n]['class_id'][gt_id],
-                'iou_2d_mask': max_iou_2d_mask,
-                'quaternion': torch.stack((gts[n]['quaternion'][gt_id], preds[n]['quaternion'][max_id]))
-            }
+            # Else, use the best possible matched quaternion
+            else:
+                # use the mask with the highest 2d iou score
+                max_id = torch.argmax(all_iou_2d)
+
+                # Mark the mask_id as taken
+                used_pred_ids.append(max_id)
+
+                # Create a match container
+                match = {
+                    'class_id': gts[n]['class_id'][gt_id],
+                    'iou_2d_mask': max_iou_2d_mask,
+                    'quaternion': torch.stack((gts[n]['quaternion'][gt_id], preds[n]['quaternion'][max_id]))
+                }
 
             # Store the container
             pred_gt_matches.append(match)

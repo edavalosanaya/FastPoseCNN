@@ -64,21 +64,32 @@ To delete hanging Tensorboard processes use the following:
 
 # Run hyperparameters
 class DEFAULT_POSE_HPARAM(argparse.Namespace):
+    
+    # Experiment Identification 
     EXPERIMENT_NAME = "quat_aggregation"
+    CHECKPOINT = pathlib.Path(os.getenv("NETS_DIR")) / 'logs' / '20-11-17' / '02-39-BASELINE-NOCS-resnext50_32x4d-imagenet' / '_' / 'checkpoints' / 'epoch=32.ckpt'
     DATASET_NAME = 'NOCS'
     SELECTED_CLASSES = tools.pj.constants.NUM_CLASSES[DATASET_NAME]
+
+    # Run Specifications
     BATCH_SIZE = 8
     NUM_WORKERS = 36 # 36 total CPUs
-    NUM_GPUS = 1 #4
+    NUM_GPUS = 4
+    TRAIN_SIZE=5000
+    VALID_SIZE=200
+
+    # Training Specifications
+    FREEZE_ENCODER = True
+    FREEZE_MASK_DECODER = True
     LEARNING_RATE = 0.001
     ENCODER_LEARNING_RATE = 0.0005
-    NUM_EPOCHS = 2
+    NUM_EPOCHS = 50
     DISTRIBUTED_BACKEND = None if NUM_GPUS <= 1 else 'ddp'
+
+    # Architecture Parameters
     BACKBONE_ARCH = 'FPN'
     ENCODER = 'resnext50_32x4d'
     ENCODER_WEIGHTS = 'imagenet'
-    TRAIN_SIZE=50#00
-    VALID_SIZE=20#0
 
 HPARAM = DEFAULT_POSE_HPARAM()
 
@@ -166,9 +177,6 @@ class PoseRegresssionTask(pl.LightningModule):
 
         # Popping out the generated categorical mask
         categorical_mask = outputs.pop('categorical_mask')
-
-        # TODO: 
-        # Make sure that when mode is train that the gradients is being keep alive
 
         # Obtaining the aggregated values for the both the ground truth
         agg_gt = lib.gtf.dense_class_data_aggregation(
@@ -407,14 +415,6 @@ if __name__ == '__main__':
         valid_size=HPARAM.VALID_SIZE
     )
 
-    # Creating base model
-    base_model = lib.PoseRegressor(
-        architecture=HPARAM.BACKBONE_ARCH,
-        encoder_name=HPARAM.ENCODER,
-        encoder_weights=HPARAM.ENCODER_WEIGHTS,
-        classes=len(HPARAM.SELECTED_CLASSES),
-    )
-
     # Selecting the criterion (specific to each task)
     criterion = {
         'mask': {
@@ -423,7 +423,8 @@ if __name__ == '__main__':
             'loss_focal': {'F': lib.loss.Focal(), 'weight': 1.0}
         },
         'quaternion': {
-            'loss_qloss': {'F': lib.loss.QLoss(key='quaternion'), 'weight': 1.0}
+            'loss_qloss': {'F': lib.loss.QLoss(key='quaternion'), 'weight': 1.0}#,
+            #'loss_mse': {'F': lib.loss.MaskedMSELoss(key='quaternion'), 'weight': 0.3}
         }
     }
 
@@ -469,8 +470,59 @@ if __name__ == '__main__':
         'maximize': list(tools.dm.compress_dict(metrics).keys())
     }
 
-    # Attaching PyTorch Lightning logic to base model
-    model = PoseRegresssionTask(HPARAM, base_model, criterion, metrics)
+    # Deciding if to use a checkpoint to speed up training 
+    if HPARAM.CHECKPOINT: # Not None
+
+        # Loading from checkpoint
+        checkpoint = torch.load(HPARAM.CHECKPOINT)
+        OLD_HPARAM = checkpoint['hyper_parameters']
+
+        # Merge the NameSpaces between the model's hyperparameters and 
+        # the evaluation hyperparameters
+        for attr in OLD_HPARAM.keys():
+            if attr in ['BACKBONE_ARCH', 'ENCODER', 'ENCODER_WEIGHTS', 'SELECTED_CLASSES']:
+                setattr(HPARAM, attr, OLD_HPARAM[attr])
+
+        # Decrease the learning rate to simply fine tune parameters
+        HPARAM.ENCODER_LEARNING_RATE /= 10
+        HPARAM.LEARNING_RATE /= 10
+
+        # Create base model
+        base_model = lib.PoseRegressor(
+            architecture=HPARAM.BACKBONE_ARCH,
+            encoder_name=HPARAM.ENCODER,
+            encoder_weights=HPARAM.ENCODER_WEIGHTS,
+            classes=len(HPARAM.SELECTED_CLASSES),
+        )
+
+        # Create PyTorch Lightning Module
+        model = PoseRegresssionTask.load_from_checkpoint(
+            str(HPARAM.CHECKPOINT),
+            model=base_model,
+            criterion=criterion,
+            metrics=metrics
+        )
+
+    else: # no checkpoint
+        
+        # Creating base model
+        base_model = lib.PoseRegressor(
+            architecture=HPARAM.BACKBONE_ARCH,
+            encoder_name=HPARAM.ENCODER,
+            encoder_weights=HPARAM.ENCODER_WEIGHTS,
+            classes=len(HPARAM.SELECTED_CLASSES),
+        )
+
+        # Attaching PyTorch Lightning logic to base model
+        model = PoseRegresssionTask(HPARAM, base_model, criterion, metrics)
+
+    # Freeze any components of the model
+    if HPARAM.FREEZE_ENCODER:
+        for param in model.model.encoder.parameters():
+            param.requires_grad = False
+    elif HPARAM.FREEZE_MASK_DECODER:
+        for param in model.model.mask_decoder.parameters():
+            param.requires_grad = False
 
     # If no runs this day, create a runs-of-the-day folder
     date = datetime.datetime.now().strftime('%y-%m-%d')
