@@ -12,3 +12,5 @@ https://github.com/zju3dv/pvnet/blob/ad840bc8447494f73c4405161f2ddeffe44b2abf/li
 
 How to make your model run really fast:
 https://paulbridger.com/posts/video-analytics-deepstream-pipeline/
+
+

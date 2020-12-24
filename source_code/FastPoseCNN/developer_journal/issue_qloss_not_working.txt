@@ -1,0 +1,116 @@
+Problem:
+Currently QLoss function is not working as expected. The loss does not decrease 
+over time. First, I created metrics call DegreeErrorMeanAP and RotationAccuracy
+to compare the actual performance of the model when using the MSE and QLoss
+function.
+
+Goal:
+Create an effective loss function that improves the performance of the model.
+
+Information:
+
+Possible reason as to why custom loss function is not working:
+
+    [1] Using this search query:
+    https://www.google.com/search?q=why is my loss function not working pytorch
+
+    [2] Learning rate is too high
+    https://discuss.pytorch.org/t/custom-loss-function-not-decreasing/75041/8
+
+    [3] Also possibly the computation graph is been broken somewhere along the way
+    https://discuss.pytorch.org/t/passing-nn-output-to-custom-loss-function-doesnt-train/59195/8
+
+Daily Entries:
+
+################################################################################
+12/22/2020
+Created QLoss and tested it. Obtain suboptimal performance. Ran MSE and QLoss 
+baselines. Following are the names of the runs:
+
+MSE Baseline: 20-12-22/22-57-MSE_BASELINE-NOCS-resnext50_32x4d-imagenet
+QLoss Baseline: 20-12-22/23-01-QLOSS_BASELINE-NOCS-resnext50_32x4d-imagenet
+
+################################################################################
+12/23/2020
+MSE completed while QLoss crashed due to error in QLoss function.
+
+Error Message Below:
+
+"""
+  File "/home/students/edavalos/.local/lib/python3.8/site-packages/pytorch_lightning/overrides/data_parallel.py", line 176, in forward
+    output = self.module.training_step(*inputs[0], **kwargs[0])
+  File "/home/students/edavalos/GitHub/FastPoseCNN/source_code/FastPoseCNN/train.py", line 127, in training_step
+    multi_task_losses, multi_task_metrics = self.shared_step('train', batch, batch_idx)
+  File "/home/students/edavalos/GitHub/FastPoseCNN/source_code/FastPoseCNN/train.py", line 208, in shared_step
+    losses, metrics = self.loss_function(
+  File "/home/students/edavalos/GitHub/FastPoseCNN/source_code/FastPoseCNN/train.py", line 242, in loss_function
+    losses[loss_name] = loss_attrs['F'](gt_pred_matches)
+  File "/usr/lib/python3/dist-packages/torch/nn/modules/module.py", line 722, in _call_impl
+    result = self.forward(*input, **kwargs)
+  File "/home/students/edavalos/GitHub/FastPoseCNN/source_code/FastPoseCNN/lib/loss.py", line 204, in forward
+    return torch.tensor([0], device=qbar.device)
+UnboundLocalError: local variable 'qbar' referenced before assignment
+^Z[1]   Killed                  python train.py -e=QLOSS_BASELINE
+
+[3]+  Stopped                 python train.py -e=QLOSS_BASELINE
+"""
+
+Came up with a solution. Testing it now. Additionally, I am going to decrease
+the learning rate to stabilize QLoss, recommend by [2].
+
+Created Runs:
+
+Rerun of QLOSS to remove bug: 20-12-23/12-18-QLOSS_BASELINE-NOCS-resnext50_32x4d-imagenet
+
+Now working on making a pixel-wise QLoss Function to testing a mixed between QLoss
+and MSE loss functions. 
+
+Updated torch==1.6.0 to torch=1.7.1 to include torch.linalg.norm
+
+Completed making pixel-wise QLoss Function. While trying to run a test, I accidentaly
+stopped a previos test. Therefore, I created a new run that uses a checkpoint from
+the disrupted run.
+
+New run name: 20/12/23/12-18-CONT_QLOSS_BASELINE-NOCS-resnext50_32x4d
+
+Additionally, I created the new run for the pixel-wise QLoss.
+
+New run name: 20/12/23/15-15-PIXEL_WISE_QLOSS-NOCS-resnext50_32x4d
+
+################################################################################
+
+12/24/2020
+The three runs are completed:
+
+20-12-23/12-18-QLOSS_BASELINE-NOCS-resnext50_32x4d-imagenet
+20/12/23/12-18-CONT_QLOSS_BASELINE-NOCS-resnext50_32x4d
+20/12/23/15-15-PIXEL_WISE_QLOSS-NOCS-resnext50_32x4d
+
+loss_qloss went even lower with the smaller learning rate, which is weird. Need to
+correct. 
+
+loss_pw_qloss is more stable than loss_qloss by stablizing at -0.14. It starts 
+closer to zero and then degrades. This is perhaps due to the mask not working well
+yet.
+
+degree_error_AP_5 is weird plots (flat vertical and horizontle lines) for all runs.
+All runs have logarithmic linear decline, which is very odd. Need to check how 
+this is working. Also need to account for the time the mask does not predict the
+object.
+
+rotation_accuracy stabilizes at ~800 for all runs. This number should be below 360
+at all times. This needs to be fixed.
+
+When compared to the MSE baseline, MSE beats in all categories. degree_error_AP_5
+is increasingly linearly over training time. rotation_accuracy is stablized around 
+12 degrees compared to ~800 on other runs.
+
+Git pushed: 
+
+TODO:
+  - Need to fix rotation_accuracy metric to be lower than 360.
+  - Fix degree_error_AP_5 to account for mask not finding the object.
+  - Fix loss_qloss to be an average more closely like loss_pw_qloss
+  - Make loss_pw_qloss take into account the mask predictions.
+
+

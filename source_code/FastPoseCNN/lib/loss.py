@@ -10,8 +10,6 @@ import gpu_tensor_funcs as gtf
 class CE(_Loss):
     """Implementation of CE for 2D model from logits."""
 
-    data = 'pixel-wise'
-
     def __init__(self, ignore_index=-1):
         super(CE, self).__init__()
         self.ignore_index = ignore_index
@@ -28,8 +26,6 @@ class CE(_Loss):
 
 class CCE(_Loss):
     """Implementation of CCE for 2D model from logits."""
-
-    data = 'pixel-wise'
 
     def __init__(self, from_logits=True, ignore_index=-1):
         super(CCE, self).__init__()
@@ -56,8 +52,6 @@ class CCE(_Loss):
 
 class Focal(_Loss):
     """Implementation of Focal for 2D model from logits."""
-
-    data = 'pixel-wise'
 
     def __init__(self, key='mask', from_logits=True, alpha=0.5, gamma=2, ignore_index=-1):
         super(Focal, self).__init__()
@@ -92,17 +86,18 @@ class Focal(_Loss):
 
 class MaskedMSELoss(_Loss):
 
-    data = 'pixel-wise'
-
     def __init__(self, key):
         super(MaskedMSELoss, self).__init__()
         self.key = key
 
     def forward(self, pred, gt) -> Tensor:
 
-        # Obtain ground truth mask (NxHxW)
-        gt_mask = gt['mask']
-        pred_mask = pred['mask']
+        # Selecting the categorical_mask
+        cat_mask = pred['auxilary']['cat_mask']
+
+        # Return 1 if no matching between masks
+        if torch.sum(torch.logical_and(cat_mask, pred['gt'])) == 0:
+            return torch.tensor([1], device=cat_mask.device, requires_grad=True)
 
         # Access the predictions to calculate the loss (NxAxHxW) A = [3,4]
         y_pred = pred[self.key]
@@ -112,15 +107,14 @@ class MaskedMSELoss(_Loss):
         loss_fn = nn.MSELoss()
 
         # Create overall mask for bg and objects
-        binary_gt_mask = (gt_mask != 0)
-        binary_pred_mask = (pred_mask != 0)
+        binary_pred_mask = (cat_mask != 0)
 
         # Expand the class_mask if needed
-        if len(y_pred.shape) > len(binary_gt_mask.shape):
-            binary_gt_mask = torch.unsqueeze(binary_gt_mask, dim=1)
+        if len(y_pred.shape) > len(binary_pred_mask.shape):
+            binary_pred_mask = torch.unsqueeze(binary_pred_mask, dim=1)
 
         # Obtain the class specific values from key predictions (quat,scales,ect.)
-        masked_pred = y_pred * binary_gt_mask
+        masked_pred = y_pred * binary_pred_mask
 
         """
         # Masking out gradients for the quaternions (from the intersection of the pred and gt masks)
@@ -135,6 +129,58 @@ class MaskedMSELoss(_Loss):
         masked_loss = loss_fn(masked_pred, y_gt)
 
         return masked_loss
+
+class PixelWiseQLoss(_Loss):
+
+    def __init__(self, key, eps=0.001):
+        super(PixelWiseQLoss, self).__init__()
+        self.key = key
+        self.eps = eps
+
+    def forward(self, pred: Tensor, gt: Tensor) -> Tensor:
+
+        # Selecting the categorical_mask
+        cat_mask = pred['auxilary']['cat_mask']
+
+        # Return 1 if no matching between masks
+        if torch.sum(torch.logical_and(cat_mask, gt['mask'])) == 0:
+            return torch.tensor([1], device=cat_mask.device, requires_grad=True)
+
+        # Access the predictions to calculate the loss (NxAxHxW) A = [3,4]
+        gt_q = gt[self.key]
+        pred_q = pred[self.key]
+
+        # Converting categorical mask to binary mask
+        binary_pred_mask = (cat_mask != 0)
+
+        # Expand the class_mask if needed
+        if len(pred_q.shape) > len(binary_pred_mask.shape):
+            binary_pred_mask = torch.unsqueeze(binary_pred_mask, dim=1)
+
+        # Masking the quaternion
+        m_pred_q = pred_q * binary_pred_mask # masked pred q
+
+        # Obtaining the magnitude of the quaternion to later normalize
+        norm_q = m_pred_q.norm(dim=1)
+        
+        # Avoid dividing by zero
+        norm_q[norm_q == 0] = 1
+
+        # Expanding the shape of norm_q to match with m_pred_q
+        norm_q = torch.unsqueeze(norm_q, dim=1)
+
+        # Normalizing the masked predicted quaternions
+        q = torch.div(m_pred_q, norm_q)
+
+        # Apply the QLoss Function
+        # log(\epsilon + 1 - |gt_q dot pred_q|)
+        # gt_q dot pred_q = a1*b1 + a2*b2 + a3*b3 + a4*b4
+        dot_product = gt_q[:,0] * q[:,0] + gt_q[:,1] * q[:,1] + gt_q[:,2] * q[:,2] + gt_q[:,3] * q[:,3]
+        mag_dot_product = torch.abs(dot_product)
+        difference = self.eps + 1 - mag_dot_product
+        log_difference = torch.log(difference)
+
+        return torch.mean(log_difference)
 
 class QLoss(_Loss):
     """QLoss
@@ -152,8 +198,6 @@ class QLoss(_Loss):
     Returns:
         [type]: [description]
     """
-
-    data = 'matched'
 
     def __init__(self, key, eps=0.001):
         super(QLoss, self).__init__()
@@ -177,52 +221,31 @@ class QLoss(_Loss):
         #if not matches:
         #    return #torch.tensor([float('nan')])
 
-        # Given the key, aggregated all the matches of that type by class
-        class_quaternion = {}
-
-        # Iterating through all the matches
-        for match in matches:
-
-            # If this match is the first of its class object, then add new item
-            if int(match['class_id']) not in class_quaternion.keys():
-                class_quaternion[int(match['class_id'])] = [match['quaternion']]
-
-            # else, just append it to the pre-existing list
-            else:
-                class_quaternion[int(match['class_id'])].append(match['quaternion'])
-
-        # Container for per class ground truths and predictions
-        stacked_class_quaternion = {}
-
-        # Once the quaternions have been separated by class, stack them all to
-        # formally compute the QLoss
-        for class_number, class_data in class_quaternion.items():
-
-            # Stacking all matches in one class
-            stacked_class_quaternion[class_number] = torch.stack(class_data)
+        # Stack the matches based on class for all quaternion
+        stacked_class_quaternion = gtf.stack_class_matches(matches, 'quaternion')
 
         # Container for per class collective loss
         per_class_loss = {}
 
         # Apply the QLoss Function 
-        # log(\epsilon + 1 - |qbar dot q|)
+        # log(\epsilon + 1 - |gt_q dot pred_q|)
         for class_number in stacked_class_quaternion.keys():
 
             # Selecting the ground truth quaternion
-            qbar = stacked_class_quaternion[class_number][:,0,:]
+            gt_q = stacked_class_quaternion[class_number][:,0,:]
 
             # Selecting the predicted quaternion
-            q = stacked_class_quaternion[class_number][:,1,:]
+            pred_q = stacked_class_quaternion[class_number][:,1,:]
 
             # Normalize the predicted quaternion
-            norm_q = torch.div(q.T, q.norm(dim=1).T).T
+            norm_q = torch.div(pred_q.T, pred_q.norm(dim=1).T).T
 
             # Calculating the loss
-            A = torch.diag(torch.mm(qbar, norm_q.T))
-            B = torch.abs(A)
-            C = self.eps + 1 - B
-            D = torch.log(C)
-            per_class_loss[class_number] = D
+            dot_product = torch.diag(torch.mm(gt_q, norm_q.T))
+            mag_dot_product = torch.abs(dot_product)
+            difference = self.eps + 1 - mag_dot_product
+            log_difference = torch.log(difference)
+            per_class_loss[class_number] = log_difference
 
         # Place all the class losses into a single list
         losses = [v for v in per_class_loss.values()]
@@ -232,7 +255,13 @@ class QLoss(_Loss):
         if losses:
             stacked_losses = torch.cat(losses)
         else:
-            return torch.tensor([0], device=qbar.device)
+            for key in stacked_class_quaternion.keys():
+                pred_q = stacked_class_quaternion[key]
+                try:
+                    return torch.tensor([1], device=pred_q.device, requires_grad=True)
+                except UnboundLocalError:
+                    continue
+            return torch.tensor([1], requires_grad=True).cuda()
 
         # Return the some of all the losses
         return torch.mean(stacked_losses)

@@ -114,8 +114,10 @@ class PoseRegressor(torch.nn.Module):
         # Logits
         output = {
             'mask': mask_logits,
-            'categorical_mask': cat_mask,
-            'quaternion': quaternion
+            'quaternion': quaternion,
+            'auxilary': {
+                'cat_mask': cat_mask
+            }
         }
 
         return output

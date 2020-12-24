@@ -12,11 +12,15 @@ import numpy as np
 os.environ["TF_CPP_MIN_LOG_LEVEL"]="3"
 warnings.filterwarnings('ignore')
 
+os.environ['CUDA_VISIBLE_DEVICES'] =  '2,3' # '0,1,2,3'
+
 import torch
 import torch.nn.functional as F
 
 import pytorch_lightning as pl
-import pytorch_lightning.core.decorators as pld
+import pytorch_lightning.metrics.functional
+import pytorch_lightning.core.decorators
+
 import catalyst.contrib.nn
 
 import segmentation_models_pytorch as smp
@@ -38,8 +42,6 @@ import callbacks as plc
 Do the following in Lamda machine: 
 
     tensorboard --logdir=logs --port 6006 --host=localhost
-
-    tensorboard --logdir=lib/logs --port 6006 --host=localhost
 
 Then run this on the local machine
 
@@ -66,22 +68,22 @@ To delete hanging Tensorboard processes use the following:
 class DEFAULT_POSE_HPARAM(argparse.Namespace):
     
     # Experiment Identification 
-    EXPERIMENT_NAME = "quat_aggregation"
-    CHECKPOINT = pathlib.Path(os.getenv("NETS_DIR")) / 'logs' / '20-11-17' / '02-39-BASELINE-NOCS-resnext50_32x4d-imagenet' / '_' / 'checkpoints' / 'epoch=32.ckpt'
+    EXPERIMENT_NAME = "TESTING"
+    CHECKPOINT = None #pathlib.Path(os.getenv("LOGS")) / '20-12-23' / '12-18-QLOSS_BASELINE-NOCS-resnext50_32x4d-imagenet' / '_' / 'checkpoints' / 'epoch=9.ckpt'
     DATASET_NAME = 'NOCS'
     SELECTED_CLASSES = tools.pj.constants.NUM_CLASSES[DATASET_NAME]
 
     # Run Specifications
     BATCH_SIZE = 8
-    NUM_WORKERS = 36 # 36 total CPUs
-    NUM_GPUS = 4
+    NUM_WORKERS = 18 # 36 total CPUs
+    NUM_GPUS = 2
     TRAIN_SIZE=5000
     VALID_SIZE=200
 
     # Training Specifications
-    FREEZE_ENCODER = True
-    FREEZE_MASK_DECODER = True
-    LEARNING_RATE = 0.001
+    FREEZE_ENCODER = False
+    FREEZE_MASK_DECODER = False
+    LEARNING_RATE = 0.0001
     ENCODER_LEARNING_RATE = 0.0005
     NUM_EPOCHS = 50
     DISTRIBUTED_BACKEND = None if NUM_GPUS <= 1 else 'ddp'
@@ -113,7 +115,7 @@ class PoseRegresssionTask(pl.LightningModule):
         # Saving the metrics
         self.metrics = metrics
 
-    @pld.auto_move_data
+    @pl.core.decorators.auto_move_data
     def forward(self, x):
         return self.model(x)
 
@@ -123,7 +125,7 @@ class PoseRegresssionTask(pl.LightningModule):
         multi_task_losses, multi_task_metrics = self.shared_step('train', batch, batch_idx)
 
         # Placing the main loss into Train Result to perform backpropagation
-        result = pl.TrainResult(minimize=multi_task_losses['total_loss'])
+        result = pl.core.step_result.TrainResult(minimize=multi_task_losses['total_loss'])
 
         # Logging the val loss for each task
         for task_name in multi_task_losses.keys():
@@ -150,7 +152,7 @@ class PoseRegresssionTask(pl.LightningModule):
         
         # Log the batch loss inside the pl.TrainResult to visualize in the
         # progress bar
-        result = pl.EvalResult(checkpoint_on=multi_task_losses['total_loss'])
+        result = pl.core.step_result.EvalResult(checkpoint_on=multi_task_losses['total_loss'])
 
         # Logging the val loss for each task
         for task_name in multi_task_losses.keys():
@@ -176,7 +178,7 @@ class PoseRegresssionTask(pl.LightningModule):
         outputs = self.model(batch['image'])
 
         # Popping out the generated categorical mask
-        categorical_mask = outputs.pop('categorical_mask')
+        #categorical_mask = outputs.pop('categorical_mask')
 
         # Obtaining the aggregated values for the both the ground truth
         agg_gt = lib.gtf.dense_class_data_aggregation(
@@ -186,7 +188,7 @@ class PoseRegresssionTask(pl.LightningModule):
 
         # and then the predicted values
         agg_pred = lib.gtf.dense_class_data_aggregation(
-            mask=categorical_mask,
+            mask=outputs['auxilary']['cat_mask'],
             dense_class_data=outputs
         )
 
@@ -199,6 +201,11 @@ class PoseRegresssionTask(pl.LightningModule):
 
         # Calculate separate task losses and metrics
         for task_name in outputs.keys():
+
+            # Some outputs should not be performed a loss and metrics on:
+            # such as the categorical mask
+            if task_name == 'auxilary':
+                continue
             
             # Calculate the loss based on self.loss_function
             losses, metrics = self.loss_function(
@@ -227,29 +234,34 @@ class PoseRegresssionTask(pl.LightningModule):
 
     def loss_function(self, task_name, outputs, inputs, gt_pred_matches):
         
-        """
-        losses = {
-            k: v['F'](outputs, inputs) for k,v in self.criterion[task_name].items()
-        }
-        """
         losses = {}
         
-        for loss_name, loss_fn in self.criterion[task_name].items():
+        for loss_name, loss_attrs in self.criterion[task_name].items():
 
             # Determing what type of input data
-            if loss_fn['F'].data == 'pixel-wise':
-                losses[loss_name] = loss_fn['F'](outputs, inputs)
-            elif loss_fn['F'].data == 'matched':
-                losses[loss_name] = loss_fn['F'](gt_pred_matches)
+            if loss_attrs['D'] == 'pixel-wise':
+                losses[loss_name] = loss_attrs['F'](outputs, inputs)
+            elif loss_attrs['D'] == 'matched':
+                losses[loss_name] = loss_attrs['F'](gt_pred_matches)
 
         # Indexing the task specific output
         pred = outputs[task_name]
         gt = inputs[task_name]
 
         with torch.no_grad():
-            metrics = {
-                k: v(pred, gt) for k,v in self.metrics[task_name].items()
-            }
+
+            #metrics = {
+            #    k: v(pred, gt) for k,v in self.metrics[task_name].items()
+            #}
+            metrics = {}
+
+            for metric_name, metric_attrs in self.metrics[task_name].items():
+
+                # Determing what type of input data
+                if metric_attrs['D'] == 'pixel-wise':
+                    metrics[metric_name] = metric_attrs['F'](pred, gt)
+                elif metric_attrs['D'] == 'matched':
+                    metrics[metric_name] = metric_attrs['F'](gt_pred_matches)
         
         # Calculate total loss
         total_loss = torch.sum(torch.stack(list(losses.values())))
@@ -280,7 +292,7 @@ class PoseRegresssionTask(pl.LightningModule):
         scheduler = {
             'scheduler': lr_scheduler,
             'reduce_on_plateau': True,
-            'monitor': 'val_checkpoint_on',
+            'monitor': 'checkpoint_on',
             'patience': 2,
             'mode': 'min',
             'factor': 0.25
@@ -418,13 +430,14 @@ if __name__ == '__main__':
     # Selecting the criterion (specific to each task)
     criterion = {
         'mask': {
-            'loss_ce': {'F': lib.loss.CE(), 'weight': 0.8},
-            'loss_cce': {'F': lib.loss.CCE(), 'weight': 0.8},
-            'loss_focal': {'F': lib.loss.Focal(), 'weight': 1.0}
+            'loss_ce': {'D': 'pixel-wise', 'F': lib.loss.CE(), 'weight': 0.8},
+            'loss_cce': {'D': 'pixel-wise', 'F': lib.loss.CCE(), 'weight': 0.8},
+            'loss_focal': {'D': 'pixel-wise', 'F': lib.loss.Focal(), 'weight': 1.0}
         },
         'quaternion': {
-            'loss_qloss': {'F': lib.loss.QLoss(key='quaternion'), 'weight': 1.0}#,
-            #'loss_mse': {'F': lib.loss.MaskedMSELoss(key='quaternion'), 'weight': 0.3}
+            #'loss_qloss': {'D': 'matched', 'F': lib.loss.QLoss(key='quaternion'), 'weight': 1.0}#,
+            #'loss_mse': {'D': 'pixel-wise', 'F': lib.loss.MaskedMSELoss(key='quaternion'), 'weight': 1.0},
+            'loss_pw_qloss': {'D': 'pixel-wise', 'F': lib.loss.PixelWiseQLoss(key='quaternion'), 'weight': 1.0}
         }
     }
 
@@ -443,12 +456,14 @@ if __name__ == '__main__':
     # Selecting metrics
     metrics = {
         'mask': {
-            'dice': pl.metrics.functional.dice_score,
-            'iou': pl.metrics.functional.iou,
-            'f1': pl.metrics.functional.f1_score
+            'dice': {'D': 'pixel-wise', 'F': pl.metrics.functional.dice_score},
+            'iou': {'D': 'pixel-wise', 'F': pl.metrics.functional.iou},
+            'f1': {'D': 'pixel-wise', 'F': pl.metrics.functional.f1_score}
         },
         'quaternion': {
-            'mae': pl.metrics.functional.regression.mae
+            #'mae': {'D': 'pixel-wise', 'F': pl.metrics.functional.regression.mae},
+            'rotation_accuracy': {'D': 'matched', 'F': lib.metrics.RotationAccuracy()},
+            'degree_error_AP_5': {'D': 'matched', 'F': lib.metrics.DegreeErrorMeanAP(5)}
         }
     }
 

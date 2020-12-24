@@ -37,7 +37,7 @@ class MyCallback(pl.callbacks.Callback):
         self.metric_dict.update(min_metrics)
 
     @rank_zero_only
-    def on_train_epoch_end(self, trainer, pl_module):
+    def on_train_epoch_end(self, trainer, pl_module, outputs):
 
         # Performing the shared functions of logging after end of epoch
         self.shared_epoch_end('train', trainer, pl_module)

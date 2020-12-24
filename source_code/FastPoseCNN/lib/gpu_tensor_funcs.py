@@ -266,6 +266,34 @@ def torch_get_2d_iou(tensor1: torch.Tensor, tensor2: torch.Tensor) -> torch.Tens
     union = torch.sum(torch.logical_or(tensor1, tensor2))
     return torch.true_divide(intersection,union)
 
+def stack_class_matches(matches, key):
+
+    # Given the key, aggregated all the matches of that type by class
+    class_data = {}
+
+    # Iterating through all the matches
+    for match in matches:
+
+        # If this match is the first of its class object, then add new item
+        if int(match['class_id']) not in class_data.keys():
+            class_data[int(match['class_id'])] = [match[key]]
+
+        # else, just append it to the pre-existing list
+        else:
+            class_data[int(match['class_id'])].append(match[key])
+
+    # Container for per class ground truths and predictions
+    stacked_class_data = {}
+
+    # Once the quaternions have been separated by class, stack them all to
+    # formally compute the QLoss
+    for class_number, class_data in class_data.items():
+
+        # Stacking all matches in one class
+        stacked_class_data[class_number] = torch.stack(class_data)
+
+    return stacked_class_data
+
 #-------------------------------------------------------------------------------
 # CuPy Functions
 
