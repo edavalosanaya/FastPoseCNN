@@ -144,7 +144,35 @@ linearly towards 200 degrees.
 
 In the images tab of tensorboard, I noticed how both the AGG_QLOSS_FIX & PW_QLOSS_FIX
 have output poses that constantly. I believe the issue is in how the dot product
-is calculated since the loss is decreasing and stablizing for both aggreated and
+is calculated since the loss is decreasing and stablizing for both aggregated and
 pixel-wise Q loss.
 
+Git pushed: "Q Loss fixed direction of gradient"
+
+Perhaps it might be more wise to compute the angle between the quaternions and
+use that to determine the error. This paper uses this method: 
+https://arxiv.org/pdf/1708.05628.pdf
+
+I tried simply using 1 - <q_1, q_2>^2 as the loss function from this source:
+https://math.stackexchange.com/questions/90081/quaternion-distance
+
+https://arxiv.org/pdf/1704.00390.pdf
+
+Created new runs where I did not include the negative log
+
+AGG_QLOSS_NEW_LOSS_FUNC
+PW_QLOSS_NEW_LOSS_FUNC
+
+################################################################################
+12/24/2020
+
+Runs completed from yesterday: AGG_QLOSS_NEW_LOSS_FUNC and PW_QLOSS_NEW_LOSS_FUNC
+
+Note that both runs used 20-12-22/22/57-MSE_BASELINE as the origin checkpoint.
+Good news as now both aggregated and pixel-wise quaternion behave more similarly
+to MSE loss while increasing performance in degree_error_AP_5 and 
+rotation_accuracy. Plan on running evaluation routine on both runs to determine
+their overall performance.
+
+git pushed: "Changed QLoss functions by removing -log()"
 

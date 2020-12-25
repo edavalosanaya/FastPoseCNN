@@ -144,7 +144,7 @@ class PixelWiseQLoss(_Loss):
 
         # Return 1 if no matching between masks
         if torch.sum(torch.logical_and(cat_mask, gt['mask'])) == 0:
-            return -torch.log(torch.tensor([0.5], device=cat_mask.device, requires_grad=True).float())
+            return torch.tensor([0.5], device=cat_mask.device, requires_grad=True).float()
 
         # Access the predictions to calculate the loss (NxAxHxW) A = [3,4]
         gt_q = gt[self.key]
@@ -175,12 +175,20 @@ class PixelWiseQLoss(_Loss):
         # Apply the QLoss Function
         # log(\epsilon + 1 - |gt_q dot pred_q|)
         # gt_q dot pred_q = a1*b1 + a2*b2 + a3*b3 + a4*b4
+        """
         dot_product = gt_q[:,0] * q[:,0] + gt_q[:,1] * q[:,1] + gt_q[:,2] * q[:,2] + gt_q[:,3] * q[:,3]
         mag_dot_product = torch.abs(dot_product)
         difference = self.eps + 1 - mag_dot_product
         log_difference = -torch.log(difference)
 
         return torch.mean(log_difference)
+        """
+        dot_product = gt_q[:,0] * q[:,0] + gt_q[:,1] * q[:,1] + gt_q[:,2] * q[:,2] + gt_q[:,3] * q[:,3]
+        mag_dot_product = torch.pow(dot_product, 2)
+        difference = self.eps + 1 - mag_dot_product
+
+        return torch.mean(difference)
+
 
 class AggregatedQLoss(_Loss):
     """AggregatedQLoss
@@ -217,17 +225,22 @@ class AggregatedQLoss(_Loss):
             Tensor: [description]
         """
 
-        """
-        # Selecting the categorical_mask
-        cat_mask = pred['auxilary']['cat_mask']
+        # Create matches that are only true
+        true_gt_pred_matches = []
 
-        # Return 1 if no matching between masks
-        if torch.sum(torch.logical_and(cat_mask, gt['mask'])) == 0:
-            return -torch.log(torch.tensor([0.5], device=cat_mask.device, requires_grad=True).float())
-        """
+        # Remove false matches (meaning 'iou_2d_mask')
+        for match in matches:
+
+            # Keeping the match if the iou_2d_mask > 0
+            if match['iou_2d_mask'] > 0:
+                true_gt_pred_matches.append(match)
+
+        # If there is no true matches, simply end update function
+        if true_gt_pred_matches == []:
+            return torch.tensor([1], requires_grad=True).float().cuda()
 
         # Stack the matches based on class for all quaternion
-        stacked_class_quaternion = gtf.stack_class_matches(matches, 'quaternion')
+        stacked_class_quaternion = gtf.stack_class_matches(true_gt_pred_matches, 'quaternion')
 
         # Container for per class collective loss
         per_class_loss = {}
@@ -246,11 +259,17 @@ class AggregatedQLoss(_Loss):
             norm_q = torch.div(pred_q.T, pred_q.norm(dim=1).T).T
 
             # Calculating the loss
+            """
             dot_product = torch.diag(torch.mm(gt_q, norm_q.T))
             mag_dot_product = torch.abs(dot_product)
             difference = self.eps + 1 - mag_dot_product
             log_difference = -torch.log(difference)
             per_class_loss[class_number] = log_difference
+            """
+            dot_product = torch.diag(torch.mm(gt_q, norm_q.T))
+            mag_dot_product = torch.pow(dot_product, 2)
+            difference = self.eps + 1 - mag_dot_product
+            per_class_loss[class_number] = difference
 
         # Place all the class losses into a single list
         losses = [v for v in per_class_loss.values()]
@@ -266,7 +285,7 @@ class AggregatedQLoss(_Loss):
                     return -torch.log(torch.tensor([0.5], device=pred_q.device, requires_grad=True))
                 except UnboundLocalError:
                     continue
-            return -torch.log(torch.tensor([0.5], requires_grad=True).cuda())
+            return torch.tensor([0.5], requires_grad=True).cuda()
 
         # Return the some of all the losses
         return torch.mean(stacked_losses)

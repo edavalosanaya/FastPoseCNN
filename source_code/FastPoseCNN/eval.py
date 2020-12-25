@@ -25,7 +25,7 @@ import train
 #-------------------------------------------------------------------------------
 # Constants
 
-PATH = pathlib.Path(os.getenv("NETS_DIR")) / 'logs' / '20-11-17' / '02-39-BASELINE-NOCS-resnext50_32x4d-imagenet' / '_' / 'checkpoints' / 'epoch=32.ckpt'
+PATH = pathlib.Path(os.getenv("LOGS")) / '20-11-17' / '02-39-BASELINE-NOCS-resnext50_32x4d-imagenet' / '_' / 'checkpoints' / 'epoch=32.ckpt'
 
 # Run hyperparameters
 class DEFAULT_POSE_HPARAM(argparse.Namespace):
