@@ -78,7 +78,6 @@ Additionally, I created the new run for the pixel-wise QLoss.
 New run name: 20/12/23/15-15-PIXEL_WISE_QLOSS-NOCS-resnext50_32x4d
 
 ################################################################################
-
 12/24/2020
 The three runs are completed:
 
@@ -105,12 +104,47 @@ When compared to the MSE baseline, MSE beats in all categories. degree_error_AP_
 is increasingly linearly over training time. rotation_accuracy is stablized around 
 12 degrees compared to ~800 on other runs.
 
-Git pushed: 
+Git push named "Testing QLoss" for making a checkpoint before making the
+modifications below.
 
 TODO:
-  - Need to fix rotation_accuracy metric to be lower than 360.
-  - Fix degree_error_AP_5 to account for mask not finding the object.
   - Fix loss_qloss to be an average more closely like loss_pw_qloss
   - Make loss_pw_qloss take into account the mask predictions.
+  - Need to fix rotation_accuracy metric to be lower than 360.
+  - Fix degree_error_AP_5 to account for mask not finding the object.
+  - Fixing the aggregation in numpy to ensure that gt and pred mask are not reused
+
+Discovered that I was minimixing the log(1 - error), which is equivalent to
+minimizing 1 - error, which is equivalent to maximizing error. I plan on running
+new test where I am minimizing the - log(1 - error), maximixing 1 - error, and
+therefore minimizing the error.
+
++ Change log(eps + 1 - error) to -log(eps + 1 - error)
++ In DegreeErrorMeanAP, I remove matches that have iou_2d_mask < 0 and skip update
+  if there is no true matches
+
+Created two runs to test how the new loss functions perform, see if that fixed
+some other problems.
+
+20-12-24/11-53-AGG_QLOSS_FIX-NOCS-resnext50_32x4d-imagenet
+20-12-24/11-56-PW_QLOSS_FIX-NOCS-resnext50_32x4d-imagenet
+
+GOOD NEWS:
+Now the loss of AGG_QLOSS_FIX is starts high and decrease, stabilizing towards
+zero. VERY GOOG. The loss of PW_QLOSS_FIX also starts at 0.1 and decreases, 
+converging towards 0. 
+
+BAD NEWS:
+Both runs are completed. For both runs, the degree_error_AP-5 metric starts at a 
+high avlue of 4 and then starting convering to 0, which is not good. Need to
+determine why this is happening, since the MSE_BASELINE reaches a value of 6.
+
+Additionally the rotation_accuracy metric starts small (around 10) and diverges
+linearly towards 200 degrees.
+
+In the images tab of tensorboard, I noticed how both the AGG_QLOSS_FIX & PW_QLOSS_FIX
+have output poses that constantly. I believe the issue is in how the dot product
+is calculated since the loss is decreasing and stablizing for both aggreated and
+pixel-wise Q loss.
 
 

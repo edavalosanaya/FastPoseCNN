@@ -69,7 +69,7 @@ class DEFAULT_POSE_HPARAM(argparse.Namespace):
     
     # Experiment Identification 
     EXPERIMENT_NAME = "TESTING"
-    CHECKPOINT = None #pathlib.Path(os.getenv("LOGS")) / '20-12-23' / '12-18-QLOSS_BASELINE-NOCS-resnext50_32x4d-imagenet' / '_' / 'checkpoints' / 'epoch=9.ckpt'
+    CHECKPOINT = pathlib.Path(os.getenv("LOGS")) / '20-12-22' / '22-57-MSE_BASELINE-NOCS-resnext50_32x4d-imagenet' / '_' / 'checkpoints' / 'epoch=32.ckpt'
     DATASET_NAME = 'NOCS'
     SELECTED_CLASSES = tools.pj.constants.NUM_CLASSES[DATASET_NAME]
 
@@ -85,7 +85,7 @@ class DEFAULT_POSE_HPARAM(argparse.Namespace):
     FREEZE_MASK_DECODER = False
     LEARNING_RATE = 0.0001
     ENCODER_LEARNING_RATE = 0.0005
-    NUM_EPOCHS = 50
+    NUM_EPOCHS = 10
     DISTRIBUTED_BACKEND = None if NUM_GPUS <= 1 else 'ddp'
 
     # Architecture Parameters
@@ -435,7 +435,7 @@ if __name__ == '__main__':
             'loss_focal': {'D': 'pixel-wise', 'F': lib.loss.Focal(), 'weight': 1.0}
         },
         'quaternion': {
-            #'loss_qloss': {'D': 'matched', 'F': lib.loss.QLoss(key='quaternion'), 'weight': 1.0}#,
+            #'loss_qloss': {'D': 'matched', 'F': lib.loss.AggregatedQLoss(key='quaternion'), 'weight': 1.0}#,
             #'loss_mse': {'D': 'pixel-wise', 'F': lib.loss.MaskedMSELoss(key='quaternion'), 'weight': 1.0},
             'loss_pw_qloss': {'D': 'pixel-wise', 'F': lib.loss.PixelWiseQLoss(key='quaternion'), 'weight': 1.0}
         }

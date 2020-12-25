@@ -144,7 +144,7 @@ class PixelWiseQLoss(_Loss):
 
         # Return 1 if no matching between masks
         if torch.sum(torch.logical_and(cat_mask, gt['mask'])) == 0:
-            return torch.tensor([1], device=cat_mask.device, requires_grad=True)
+            return -torch.log(torch.tensor([0.5], device=cat_mask.device, requires_grad=True).float())
 
         # Access the predictions to calculate the loss (NxAxHxW) A = [3,4]
         gt_q = gt[self.key]
@@ -178,12 +178,12 @@ class PixelWiseQLoss(_Loss):
         dot_product = gt_q[:,0] * q[:,0] + gt_q[:,1] * q[:,1] + gt_q[:,2] * q[:,2] + gt_q[:,3] * q[:,3]
         mag_dot_product = torch.abs(dot_product)
         difference = self.eps + 1 - mag_dot_product
-        log_difference = torch.log(difference)
+        log_difference = -torch.log(difference)
 
         return torch.mean(log_difference)
 
-class QLoss(_Loss):
-    """QLoss
+class AggregatedQLoss(_Loss):
+    """AggregatedQLoss
 
     References:
     https://math.stackexchange.com/questions/90081/quaternion-distance
@@ -200,12 +200,12 @@ class QLoss(_Loss):
     """
 
     def __init__(self, key, eps=0.001):
-        super(QLoss, self).__init__()
+        super(AggregatedQLoss, self).__init__()
         self.key = key
         self.eps = eps
 
     def forward(self, matches) -> Tensor:
-        """QLoss Foward
+        """AggregatedQLoss Foward
 
         Args:
             matches [list]: 
@@ -217,9 +217,14 @@ class QLoss(_Loss):
             Tensor: [description]
         """
 
-        # If there is no matches [], skip it
-        #if not matches:
-        #    return #torch.tensor([float('nan')])
+        """
+        # Selecting the categorical_mask
+        cat_mask = pred['auxilary']['cat_mask']
+
+        # Return 1 if no matching between masks
+        if torch.sum(torch.logical_and(cat_mask, gt['mask'])) == 0:
+            return -torch.log(torch.tensor([0.5], device=cat_mask.device, requires_grad=True).float())
+        """
 
         # Stack the matches based on class for all quaternion
         stacked_class_quaternion = gtf.stack_class_matches(matches, 'quaternion')
@@ -244,7 +249,7 @@ class QLoss(_Loss):
             dot_product = torch.diag(torch.mm(gt_q, norm_q.T))
             mag_dot_product = torch.abs(dot_product)
             difference = self.eps + 1 - mag_dot_product
-            log_difference = torch.log(difference)
+            log_difference = -torch.log(difference)
             per_class_loss[class_number] = log_difference
 
         # Place all the class losses into a single list
@@ -258,15 +263,14 @@ class QLoss(_Loss):
             for key in stacked_class_quaternion.keys():
                 pred_q = stacked_class_quaternion[key]
                 try:
-                    return torch.tensor([1], device=pred_q.device, requires_grad=True)
+                    return -torch.log(torch.tensor([0.5], device=pred_q.device, requires_grad=True))
                 except UnboundLocalError:
                     continue
-            return torch.tensor([1], requires_grad=True).cuda()
+            return -torch.log(torch.tensor([0.5], requires_grad=True).cuda())
 
         # Return the some of all the losses
         return torch.mean(stacked_losses)
         
-
 
             
 

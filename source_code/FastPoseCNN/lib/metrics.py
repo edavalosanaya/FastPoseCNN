@@ -28,9 +28,23 @@ class DegreeErrorMeanAP(pl.metrics.Metric):
                 class_id: torch.Tensor
                 quaternion: torch.Tensor
         """
+ 
+        # Create matches that are only true
+        true_gt_pred_matches = []
+
+        # Remove false matches (meaning 'iou_2d_mask')
+        for match in gt_pred_matches:
+
+            # Keeping the match if the iou_2d_mask > 0
+            if match['iou_2d_mask'] > 0:
+                true_gt_pred_matches.append(match)
+
+        # If there is no true matches, simply end update function
+        if true_gt_pred_matches == []:
+            return
 
         # obtain all the quaternions stacked and categorized by class
-        stacked_class_quaternion = gtf.stack_class_matches(gt_pred_matches, 'quaternion')
+        stacked_class_quaternion = gtf.stack_class_matches(true_gt_pred_matches, 'quaternion')
         
         # Performing task per class
         for class_number in stacked_class_quaternion.keys():
@@ -63,7 +77,7 @@ class DegreeErrorMeanAP(pl.metrics.Metric):
             self.total = self.total + thresh_degree_distance.shape[0]
 
     def compute(self):
-        return (self.correct.float() / self.total) * 100
+        return (self.correct.float() / self.total.float()) * 100
 
 class RotationAccuracy(pl.metrics.Metric):
     # https://pytorch-lightning.readthedocs.io/en/stable/metrics.html
@@ -84,8 +98,22 @@ class RotationAccuracy(pl.metrics.Metric):
                 quaternion: torch.Tensor
         """
 
+        # Create matches that are only true
+        true_gt_pred_matches = []
+
+        # Remove false matches (meaning 'iou_2d_mask')
+        for match in gt_pred_matches:
+
+            # Keeping the match if the iou_2d_mask > 0
+            if match['iou_2d_mask'] > 0:
+                true_gt_pred_matches.append(match)
+
+        # If there is no true matches, simply end update function
+        if true_gt_pred_matches == []:
+            return
+
         # obtain all the quaternions stacked and categorized by class
-        stacked_class_quaternion = gtf.stack_class_matches(gt_pred_matches, 'quaternion')
+        stacked_class_quaternion = gtf.stack_class_matches(true_gt_pred_matches, 'quaternion')
         
         # Performing task per class
         for class_number in stacked_class_quaternion.keys():
