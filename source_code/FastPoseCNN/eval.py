@@ -25,18 +25,18 @@ import train
 #-------------------------------------------------------------------------------
 # Constants
 
-PATH = pathlib.Path(os.getenv("LOGS")) / '20-11-17' / '02-39-BASELINE-NOCS-resnext50_32x4d-imagenet' / '_' / 'checkpoints' / 'epoch=32.ckpt'
+PATH = pathlib.Path(os.getenv("LOGS")) / '20-12-24' / '19-09-PW_QLOSS_NEW_LOSS_FUNC-NOCS-resnext50_32x4d-imagenet' / '_' / 'checkpoints' / 'epoch=7.ckpt'
 
 # Run hyperparameters
 class DEFAULT_POSE_HPARAM(argparse.Namespace):
     DATASET_NAME = 'NOCS'
-    #SELECTED_CLASSES = tools.pj.constants.NUM_CLASSES[DATASET_NAME]
+    SELECTED_CLASSES = ['bg','camera','laptop'] #tools.pj.constants.NUM_CLASSES[DATASET_NAME]
     BATCH_SIZE = 8
     NUM_WORKERS = 36 # 36 total CPUs
     NUM_GPUS = 4
     DISTRIBUTED_BACKEND = None if NUM_GPUS <= 1 else 'ddp'
     TRAIN_SIZE = 1
-    VALID_SIZE = 1000
+    VALID_SIZE = 2000
     DRAW = True
     COLLECT_DATA = False
 
@@ -59,14 +59,14 @@ if __name__ == '__main__':
     checkpoint = torch.load(PATH)
     OLD_HPARAM = checkpoint['hyper_parameters']
 
+    # Merge the NameSpaces between the model's hyperparameters and 
+    # the evaluation hyperparameters
+    for attr in OLD_HPARAM.keys():
+        setattr(HPARAM, attr, OLD_HPARAM[attr])
+
     # Determining if collect model's performance data
     # or visualizing the results of the model's performance
     if HPARAM.COLLECT_DATA:
-
-        # Merge the NameSpaces between the model's hyperparameters and 
-        # the evaluation hyperparameters
-        for attr in OLD_HPARAM.keys():
-            setattr(HPARAM, attr, OLD_HPARAM[attr])
 
         # Create model
         base_model = lib.PoseRegressor(
@@ -124,12 +124,16 @@ if __name__ == '__main__':
             with torch.no_grad():
                 output = model.forward(batch['image'])
 
+            # Removing auxilary outputs
+            aux_outputs = output.pop('auxilary')
+
             # Convert inputs and outputs to numpy arrays
+            numpy_aux_outputs = {k:v.cpu().numpy() for k,v in aux_outputs.items()}
             numpy_inputs = {k:v.cpu().numpy() for k,v in batch.items()}
             numpy_outputs = {k:v.cpu().numpy() for k,v in output.items()}
 
             # Obtaining the mask
-            numpy_outputs['mask'] = np.argmax(torch.nn.functional.sigmoid(output['mask']).cpu().numpy(), axis=1)
+            numpy_outputs['mask'] = numpy_aux_outputs['cat_mask'] #np.argmax(torch.nn.functional.sigmoid(output['mask']).cpu().numpy(), axis=1)
 
             # Placing the predicted information into the numpy outputs
             numpy_outputs['quaternion'] = output['quaternion'].cpu().numpy()
@@ -173,7 +177,7 @@ if __name__ == '__main__':
                 all_matches.extend(pred_gt_matches)
 
                 # If requested to draw the preds and gts
-                if HPARAM.DRAW and image_counter < 50:        
+                if HPARAM.DRAW and image_counter < 25:        
 
                     # Draw a sample's poses
                     gt_pose = tools.dr.draw_RTs(
@@ -225,9 +229,9 @@ if __name__ == '__main__':
         # Load the json
         all_matches = tools.jt.load_from_json(json_path)
         cls_metrics = {
-            '3d_iou': [[] for cls in OLD_HPARAM.SELECTED_CLASSES],
-            'degree': [[] for cls in OLD_HPARAM.SELECTED_CLASSES],
-            'offset': [[] for cls in OLD_HPARAM.SELECTED_CLASSES]
+            '3d_iou': [[] for cls in HPARAM.SELECTED_CLASSES],
+            'degree': [[] for cls in HPARAM.SELECTED_CLASSES],
+            'offset': [[] for cls in HPARAM.SELECTED_CLASSES]
         }
 
         # For each match calculate the 3D IoU, degree error, and offset error 
@@ -356,7 +360,7 @@ if __name__ == '__main__':
                 np.linspace(*metrics_ranges['degree'], num_of_points), 
                 np.linspace(*metrics_ranges['offset'], num_of_points)
                 ],
-            cls_names=OLD_HPARAM.SELECTED_CLASSES[1:] + ['mean'],
+            cls_names=HPARAM.SELECTED_CLASSES[1:] + ['mean'],
             x_axis_labels=['3D IoU %', 'Rotation error/degree', 'Translation error/cm']
         )
 

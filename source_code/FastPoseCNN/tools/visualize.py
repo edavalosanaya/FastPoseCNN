@@ -358,7 +358,7 @@ def compare_all(preds, gts, mask_colormap):
 #-------------------------------------------------------------------------------
 # Batch Ground Truth and Prediction Visualization
 
-def compare_mask_performance(sample, pred_mask, colormap):
+def compare_mask_performance(sample, pred_cat_mask, colormap):
 
     # Selecting clean image and mask if available
     image_key = 'clean_image' if 'clean_image' in sample.keys() else 'image'
@@ -368,38 +368,19 @@ def compare_mask_performance(sample, pred_mask, colormap):
     image_vis = sample[image_key]#.astype(np.uint8)
     gt_mask = sample[mask_key].astype(np.uint8)
 
-    # Target (ground truth) data format 
-    if len(gt_mask.shape) == len('BCHW'):
-
-        if pred_mask.shape[1] == 1: # Binary segmentation
-            pred_mask = pred_mask[:,0,:,:]
-            gt_mask = gt_mask[:,0,:,:]
-
-        else: # Multi-class segmentation
-            pred_mask = np.argmax(pred_mask, axis=1)
-            gt_mask = np.argmax(gt_mask, axis=1)
-
-    elif len(gt_mask.shape) == len('BHW'):
-
-        if pred_mask.shape[1] == 1: # Binary segmentation
-            pred_mask = pred_mask[:,0,:,:]
-
-        else: # Multi-class segmentation
-            pred_mask = np.argmax(pred_mask, axis=1)
-
     # Colorized the binary masks
     gt_mask_vis = get_visualized_masks(gt_mask, colormap)
-    pred_mask = get_visualized_masks(pred_mask, colormap)
+    pred_mask_vis = get_visualized_masks(pred_cat_mask, colormap)
 
     # Creating a matplotlib figure illustrating the inputs vs outputs
     summary_fig = make_summary_figure(
         image=image_vis,
         ground_truth_mask=gt_mask_vis,
-        predicited_mask=pred_mask)
+        predicted_mask=pred_mask_vis)
 
     return summary_fig
 
-def compare_quat_performance(sample, pred_quaternion, pred_mask=None, mask_colormap=None):
+def compare_quat_performance(sample, pred_quaternion, pred_cat_mask=None, mask_colormap=None):
 
     # Selecting clean image and mask if available
     image_key = 'clean_image' if 'clean_image' in sample.keys() else 'image'
@@ -408,16 +389,15 @@ def compare_quat_performance(sample, pred_quaternion, pred_mask=None, mask_color
     # Converting visual images into np.uint8 for matplotlib compatibility
     image_vis = sample[image_key]#.astype(np.uint8)
 
-    if pred_mask is not None:
-        pred_mask = np.argmax(pred_mask, axis=1)
-        pred_mask = get_visualized_masks(pred_mask, mask_colormap)
+    if pred_cat_mask is not None:
+        pred_mask_vis = get_visualized_masks(pred_cat_mask, mask_colormap)
 
     # Get colorized dense quaternion info
     gt_quat_vis = get_visualized_quaternions(sample['quaternion'])
     pred_quat_vis = get_visualized_quaternions(pred_quaternion)
 
     # Create a matplotlib figure illustrating the inputs vs outputs
-    if pred_mask is None:
+    if pred_cat_mask is None:
         summary_fig = make_summary_figure(
             image = image_vis,
             gt_quaternion = gt_quat_vis,
@@ -426,7 +406,7 @@ def compare_quat_performance(sample, pred_quaternion, pred_mask=None, mask_color
     else:
         summary_fig = make_summary_figure(
             image = image_vis,
-            pred_mask=pred_mask,
+            pred_mask=pred_mask_vis,
             gt_quaternion = gt_quat_vis,
             pred_quaternion = pred_quat_vis
         )
@@ -630,6 +610,52 @@ def compare_pose_performance_v3(preds, gts, intrinsics, pred_mask=None, mask_col
     )
 
     return summary_fig
+
+def compare_pose_performance_v4(sample, outputs, pred_gt_matches, intrinsics):
+    
+    # Spliting matches based on their sample id
+    per_sample_matches = {}
+    for match in pred_gt_matches:
+
+        if match['sample_id'] not in per_sample_matches.keys():
+            per_sample_matches[match['sample_id']] = [match]
+
+        else:
+            per_sample_matches[match['sample_id']].append(match)
+
+    # Creating pose drawings depending on the sample
+    max_sample_id = max(list(per_sample_matches.keys()))
+
+    # Iterating through all the samples
+    for i in range(max_sample_id):
+
+        sample_matches = per_sample_matches[i]
+
+        draw_image = sample['image']
+
+        for match in sample_matches:
+
+            return None
+
+            """
+            # Drawing the ground truth pose
+            draw_image = dr.draw_RT(
+                image = draw_image, 
+                intrinsics = intrinsics,
+                RTs = gts_aggregated_data['RT'],
+                scales = gts_aggregated_data['scales'],
+                color=(0,255,255)
+            )
+
+            # Drawing the predicted pose
+            draw_image = dr.draw_RT(
+                image = draw_image, 
+                intrinsics = intrinsics,
+                RTs = preds_aggregated_data['RT'],
+                scales = preds_aggregated_data['scales'],
+                color=(255,0,255)
+            )
+            """
 
 #-------------------------------------------------------------------------------
 # Plot metrics

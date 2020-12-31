@@ -115,9 +115,18 @@ class PoseRegressor(torch.nn.Module):
         output = {
             'mask': mask_logits,
             'quaternion': quaternion,
-            'auxilary': {
-                'cat_mask': cat_mask
-            }
+        }
+
+        # Aggregating predictions
+        agg_pred = gtf.dense_class_data_aggregation(
+            mask=cat_mask,
+            dense_class_data=output
+        )
+
+        # Attaching all non-logits outputs
+        output['auxilary'] = {
+            'cat_mask': cat_mask,
+            'agg_pred': agg_pred
         }
 
         return output

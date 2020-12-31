@@ -12,7 +12,7 @@ import numpy as np
 os.environ["TF_CPP_MIN_LOG_LEVEL"]="3"
 warnings.filterwarnings('ignore')
 
-os.environ['CUDA_VISIBLE_DEVICES'] =  '2,3' # '0,1,2,3'
+os.environ['CUDA_VISIBLE_DEVICES'] =  '0,1,2,3'
 
 import torch
 import torch.nn.functional as F
@@ -77,15 +77,15 @@ class DEFAULT_POSE_HPARAM(argparse.Namespace):
     BATCH_SIZE = 8
     NUM_WORKERS = 18 # 36 total CPUs
     NUM_GPUS = 2
-    TRAIN_SIZE=5000
-    VALID_SIZE=200
+    TRAIN_SIZE=100# #5000
+    VALID_SIZE=10# #200
 
     # Training Specifications
     FREEZE_ENCODER = False
     FREEZE_MASK_DECODER = False
     LEARNING_RATE = 0.0001
     ENCODER_LEARNING_RATE = 0.0005
-    NUM_EPOCHS = 50
+    NUM_EPOCHS = 10
     DISTRIBUTED_BACKEND = None if NUM_GPUS <= 1 else 'ddp'
 
     # Architecture Parameters
@@ -177,23 +177,17 @@ class PoseRegresssionTask(pl.LightningModule):
         # Forward pass the input and generate the prediction of the NN
         outputs = self.model(batch['image'])
 
-        # Popping out the generated categorical mask
-        #categorical_mask = outputs.pop('categorical_mask')
-
         # Obtaining the aggregated values for the both the ground truth
         agg_gt = lib.gtf.dense_class_data_aggregation(
             mask=batch['mask'],
             dense_class_data=batch
         )
 
-        # and then the predicted values
-        agg_pred = lib.gtf.dense_class_data_aggregation(
-            mask=outputs['auxilary']['cat_mask'],
-            dense_class_data=outputs
-        )
-
         # Determine matches between the aggreated ground truth and preds
-        gt_pred_matches = lib.gtf.find_matches_batched(agg_pred, agg_gt)
+        gt_pred_matches = lib.gtf.find_matches_batched(
+            outputs['auxilary']['agg_pred'],
+            agg_gt
+        )
 
         # Storage for losses and metrics depending on the task
         multi_task_losses = {'total_loss': torch.Tensor([0]).float().to(self.device)}
@@ -250,12 +244,13 @@ class PoseRegresssionTask(pl.LightningModule):
 
         with torch.no_grad():
 
-            #metrics = {
-            #    k: v(pred, gt) for k,v in self.metrics[task_name].items()
-            #}
             metrics = {}
 
             for metric_name, metric_attrs in self.metrics[task_name].items():
+
+                # Handling times where metrics handle unexpectedly
+                if metric_name == 'iou' and task_name == 'mask':
+                    pred = outputs['auxilary']['cat_mask']
 
                 # Determing what type of input data
                 if metric_attrs['D'] == 'pixel-wise':
@@ -549,6 +544,9 @@ if __name__ == '__main__':
     time = datetime.datetime.now().strftime('%H-%M')
     model_name = f"{HPARAM.ENCODER}-{HPARAM.ENCODER_WEIGHTS}"
     run_name = f"{time}-{HPARAM.EXPERIMENT_NAME}-{HPARAM.DATASET_NAME}-{model_name}"
+    
+    # Making the run's log path accessible by the environmental variables
+    os.environ['RUNS_LOG_DIR'] = str(run_of_the_day_dir / run_name)
 
     # Construct hparams data to send it to MyCallback
     runs_hparams = {
@@ -573,17 +571,30 @@ if __name__ == '__main__':
     custom_callback = plc.MyCallback(
         tasks=['mask', 'quaternion', 'pose'],
         hparams=runs_hparams,
-        tracked_data=tracked_data
+        tracked_data=tracked_data,
+        checkpoint_monitor={
+            'quaternion/degree_error_AP_5': 'max'
+        }
     )
 
-    # Checkpoint callback
+    # Checkpoint callbacks
     # saves a file like: my/path/sample-mnist-epoch=02-val_loss=0.32.ckpt
-    checkpoint_callback = pl.callbacks.ModelCheckpoint(
-        monitor='val_loss',
-        save_top_k=3,
+    loss_checkpoint_callback = pl.callbacks.ModelCheckpoint(
+        monitor='checkpoint_on',
+        save_top_k=1,
         save_last=True,
+        filename='{epoch:02d}-{checkpoint_on:.4f}',
         mode='min'
     )
+    
+    """
+    metric_checkpoint_callback = pl.callbacks.ModelCheckpoint(
+        monitor='quaternion/degree_error_AP_5',
+        save_top_k=1,
+        filename='{epoch:02d}-degree_error_AP_5=?',
+        mode='max'
+    )
+    """
 
     # Training
     trainer = pl.Trainer(
@@ -592,7 +603,7 @@ if __name__ == '__main__':
         num_processes=HPARAM.NUM_WORKERS,
         distributed_backend=HPARAM.DISTRIBUTED_BACKEND, # required to work
         logger=tb_logger,
-        callbacks=[custom_callback]
+        callbacks=[custom_callback, loss_checkpoint_callback]
     )
 
     # Train

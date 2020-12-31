@@ -164,7 +164,7 @@ AGG_QLOSS_NEW_LOSS_FUNC
 PW_QLOSS_NEW_LOSS_FUNC
 
 ################################################################################
-12/24/2020
+12/25/2020
 
 Runs completed from yesterday: AGG_QLOSS_NEW_LOSS_FUNC and PW_QLOSS_NEW_LOSS_FUNC
 
@@ -175,4 +175,27 @@ rotation_accuracy. Plan on running evaluation routine on both runs to determine
 their overall performance.
 
 git pushed: "Changed QLoss functions by removing -log()"
+
+Created metrics for the following runs to allow for better comparision between
+loss functions.
+
+20-12-22/22-57-MSE_BASELINE
+
+Clearly larger objects perform better, which makes sense since this regression
+is pixel-wise. Therefore, bigger objects obtain more correction than smaller objects.
+
+Then I evaluated the recently completed training runs:
+
+20-12-24/19-08-AGG-AGG_QLOSS_NEW_LOSS_FUNC
+
+By visual comparsion in both all_metrics_2000_aps.png diagrams between this run 
+and MSE_BASELINE, MSE_BASELINE performs better. Now I am going to compare the
+other run.
+
+Noticed that the checkpoints are all over the place. I need to make the checkpoints
+be saved at the very end of training and when the degree_error_AP_5 is best. 
+
+It appears that PW_QLOSS outperforms both MSE and AGG_QLOSS. I still think that 
+performance could be improved if checkpoints were selected to maximize 
+degree_error_AP.
 

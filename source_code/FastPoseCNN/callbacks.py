@@ -1,6 +1,7 @@
 import pdb
 import shutil
 import os
+import operator
 
 import numpy as np
 
@@ -14,6 +15,7 @@ from pytorch_lightning.utilities import rank_zero_only
 
 # Local import
 import tools
+import lib
 
 #-------------------------------------------------------------------------------
 # Classes
@@ -21,15 +23,33 @@ import tools
 class MyCallback(pl.callbacks.Callback):
 
     @rank_zero_only
-    def __init__(self, tasks, hparams, tracked_data):
+    def __init__(self, tasks, hparams, tracked_data, checkpoint_monitor):
         super().__init__()
 
         # Saving parameters
         self.tasks = tasks
-
         self.hparams = hparams
         self.tracked_data = tracked_data
 
+        # Creating dictionary containing information about checkpoint
+        self.checkpoint_monitor = {}
+        for k,v in checkpoint_monitor.items():
+            if v == 'min':
+                self.checkpoint_monitor[k] = {
+                    'mode': 'min',
+                    'best_value': np.inf,
+                    'saved_checkpoint_fp': None
+                }
+            elif v == 'max': # max
+                self.checkpoint_monitor[k] = {
+                    'mode': 'max',
+                    'best_value': 0,
+                    'saved_checkpoint_fp': None
+                }
+            else:
+                raise RuntimeError('Invalid mode: needs to be min or max')
+
+        # Setting initial values for the metrics/losses
         max_metrics = {k:0 for k in self.tracked_data['maximize']}
         min_metrics = {k:np.inf for k in self.tracked_data['minimize']}
         
@@ -47,6 +67,59 @@ class MyCallback(pl.callbacks.Callback):
 
         # Performing the shared functions of logging after end of epoch
         self.shared_epoch_end('valid', trainer, pl_module)
+
+        # Creating variable for possible metrics to monitor
+        # Removing /batch from the metrics
+        monitorable_metrics = [x.replace('/batch', '') for x in list(pl_module.logger.log['valid'].keys())]
+
+        # If there is nothing logged yet, this must be the sanity test. Skip this.
+        if monitorable_metrics == []:
+            return
+
+        # Save checkpoint depending on logged metrics/losses
+        for monitor_name, monitor_data in self.checkpoint_monitor.items():
+
+            # if the monitor name is not in the list of metrics, then raise error
+            if monitor_name not in monitorable_metrics:
+                raise RuntimeError(f'Invalid monitor name: possible include {monitorable_metrics}')
+
+            # Given the mode ('min' or 'max'), determine if the current epoch 
+            # scores better than the previous saved checkpoint
+            if monitor_data['mode'] == 'min':
+                comparison = operator.le
+            else: # 'max'
+                comparison = operator.ge
+
+            # Obtaining the values that need to be compared
+            current_value = pl_module.logger.log['valid'][monitor_name+'/batch'][0]
+            best_value = monitor_data['best_value']
+
+            # If current is better than best, then update
+            if comparison(current_value, best_value):
+
+                # Delete previous checkpoint (if it exist)
+                if monitor_data['saved_checkpoint_fp']:
+                    os.remove(monitor_data['saved_checkpoint_fp'])
+
+                # Generating new checkpoint filepath
+                safe_monitor_name = monitor_name.replace("/", "_")
+                new_checkpoint_fp = f'epoch={trainer.current_epoch+1}--{safe_monitor_name}={current_value:.2f}.ckpt'
+                
+                # Avoid using trainer.log_dir, it causes the program to
+                # unexplaniably freeze right before training epoch.
+                #complete_checkpoint_path = trainer.log_dir + '/checkpoints/' + new_checkpoint_fp
+                complete_checkpoint_path = os.getenv('RUNS_LOG_DIR') + '/_/checkpoints/' + new_checkpoint_fp
+
+                # Saving new checkpoint
+                trainer.save_checkpoint(complete_checkpoint_path)
+
+                # Saving the checkpoints location
+                self.checkpoint_monitor[monitor_name]['saved_checkpoint_fp'] = complete_checkpoint_path
+
+                # Save the current value as the best value now
+                self.checkpoint_monitor[monitor_name]['best_value'] = current_value
+
+        return None
 
     @rank_zero_only
     def shared_epoch_end(self, mode, trainer, pl_module):
@@ -66,6 +139,7 @@ class MyCallback(pl.callbacks.Callback):
         if 'pose' in self.tasks:
             # Log visualization of pose
             self.log_epoch_pose(mode, trainer, pl_module)
+
 
     @rank_zero_only
     def log_epoch_average(self, mode, trainer, pl_module):
@@ -102,10 +176,13 @@ class MyCallback(pl.callbacks.Callback):
                 # If minimize, take the minimum value
                 elif tb_log_name in self.tracked_data['minimize']:
                     if self.metric_dict[tb_log_name] > average:
-                        self.metric_dict[tb_log_name] = average    
+                        self.metric_dict[tb_log_name] = average  
+
+                # Store the average as the initial value of the next epoch log
+                pl_module.logger.log[mode][log_name] = [average]
 
         # After an epoch, we clear out the log
-        pl_module.logger.clear_metrics(mode)
+        #pl_module.logger.clear_metrics(mode)
 
     #---------------------------------------------------------------------------
     # Visualizations
@@ -130,12 +207,11 @@ class MyCallback(pl.callbacks.Callback):
         with torch.no_grad():
             outputs = pl_module(torch.from_numpy(sample['image']).float().to(pl_module.device))
         
-        # Applying activation function to the mask
-        pred_mask = torch.nn.functional.sigmoid(outputs['mask']).cpu().numpy()
-        #pred_mask = outputs['categorical_mask'].cpu().numpy()
+        # Obtaining the categorical predicted mask
+        pred_cat_mask = outputs['auxilary']['cat_mask'].cpu().numpy()
 
         # Create the summary figure
-        summary_fig = tools.vz.compare_mask_performance(sample, pred_mask, colormap)
+        summary_fig = tools.vz.compare_mask_performance(sample, pred_cat_mask, colormap)
 
         # Log the figure to tensorboard
         pl_module.logger.writers[mode].add_figure(f'mask_gen/{mode}', summary_fig, trainer.global_step)
@@ -158,8 +234,7 @@ class MyCallback(pl.callbacks.Callback):
             outputs = pl_module(torch.from_numpy(sample['image']).float().to(pl_module.device))
         
         # Applying activation function to the mask
-        pred_mask = torch.nn.functional.sigmoid(outputs['mask']).cpu().numpy()
-        #pred_mask = outputs['categorical_mask'].cpu().numpy()
+        pred_cat_mask = outputs['auxilary']['cat_mask'].cpu().numpy()
 
         # Selecting the quaternion from the output
         # https://pytorch.org/docs/stable/nn.functional.html?highlight=activation%20functions
@@ -170,7 +245,7 @@ class MyCallback(pl.callbacks.Callback):
         summary_fig = tools.vz.compare_quat_performance(
             sample, 
             pred_quaternion, 
-            pred_mask=pred_mask, 
+            pred_cat_mask=pred_cat_mask, 
             mask_colormap=dataset.COLORMAP
         )
 
@@ -190,46 +265,38 @@ class MyCallback(pl.callbacks.Callback):
         # Get random sample
         sample = dataset.get_random_batched_sample(batch_size=2)
 
+        # Convert the random sample (numpy) to a batch (torch)
+        batch = {k:torch.from_numpy(v).to(pl_module.device) for k,v in sample.items()}
+
         # Given the sample, make the prediciton with the PyTorch Lightning Moduel
         with torch.no_grad():
-            outputs = pl_module(torch.from_numpy(sample['image']).float().to(pl_module.device))
+            outputs = pl_module(batch['image'].float())
 
-        # Applying activation function to the mask
-        pred_mask = torch.nn.functional.sigmoid(outputs['mask']).cpu().numpy()
-        #pred_mask = outputs['categorical_mask'].cpu().numpy()
+        # Obtain the matches between aggregated predictions and ground truth data
+        agg_gt = lib.gtf.dense_class_data_aggregation(
+            mask=batch['mask'],
+            dense_class_data=batch
+        )
 
-        # Create numpy version of the outputs container
-        numpy_outputs = sample.copy()
-        """
-        numpy_outputs = {
-            'clean_image': sample['clean_image'],
-            'image': np.moveaxis(sample['image'], 1, -1),
-            'mask': sample['mask'],#pred_mask,
-            'quaternion': np.moveaxis(outputs['quaternion'].cpu().numpy(), 1, -1),
-            'scales': np.moveaxis(sample['scales'], 1, -1),#outputs['scales'].cpu().numpy(),
-            'xy': np.moveaxis(sample['xy'], 1, -1),#outputs['xy'].cpu().numpy(),
-            'z': sample['z']#outputs['z'].cpu().numpy()
-        }
-        """
-
-        # Placing the predicted information into the numpy outputs
-        numpy_outputs['quaternion'] = outputs['quaternion'].cpu().numpy()
-        
-        # Ensure that the value of quaternion is between -1 and 1
-        numpy_outputs['quaternion'] /= np.max(np.abs(numpy_outputs['quaternion']))
+        # Determine matches between the aggreated ground truth and preds
+        gt_pred_matches = lib.gtf.find_matches_batched(
+            outputs['auxilary']['agg_pred'],
+            agg_gt
+        )
 
         # Create summary for the pose
-        summary_fig = tools.vz.compare_pose_performance_v3(
-            numpy_outputs, 
-            sample, 
-            dataset.INTRINSICS, 
-            pred_mask=pred_mask, 
-            mask_colormap=dataset.COLORMAP
+        """
+        summary_fig = tools.vz.compare_pose_performance_v4(
+            sample,
+            outputs,
+            gt_pred_matches,
+            dataset.INTRINSICS
         )
 
         # Log the figure to tensorboard
         pl_module.logger.writers[mode].add_figure(f'pose_gen/{mode}', summary_fig, trainer.global_step)      
-
+        """
+        
     #---------------------------------------------------------------------------
     # End of Training
 

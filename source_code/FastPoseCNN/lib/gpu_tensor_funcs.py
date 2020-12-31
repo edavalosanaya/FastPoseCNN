@@ -175,6 +175,7 @@ def find_matches_batched(preds, gts):
     Returns:
         pred_gt_matches [list]: 
             match ([dict]):
+                sample_id: int
                 class_id: torch.Tensor
                 quaternion: torch.Tensor
     """
@@ -235,6 +236,7 @@ def find_matches_batched(preds, gts):
 
                 # Create a match container
                 match = {
+                    'sample_id': n,
                     'class_id': gts[n]['class_id'][gt_id],
                     'iou_2d_mask': max_iou_2d_mask,
                     'quaternion': torch.stack((gts[n]['quaternion'][gt_id], standard_quaternion))
@@ -250,6 +252,7 @@ def find_matches_batched(preds, gts):
 
                 # Create a match container
                 match = {
+                    'sample_id': n,
                     'class_id': gts[n]['class_id'][gt_id],
                     'iou_2d_mask': max_iou_2d_mask,
                     'quaternion': torch.stack((gts[n]['quaternion'][gt_id], preds[n]['quaternion'][max_id]))
