@@ -5,6 +5,7 @@ import argparse
 import pathlib
 from pprint import pprint
 import tqdm
+import pandas as pd
 
 import torch
 import torch.nn as nn
@@ -307,9 +308,37 @@ if __name__ == '__main__':
             'aps': aps
         }
 
-        # Save the raw aps to a file
+        # Save the raw aps to a JSON file
         aps_json_path = PATH.parent.parent / f'raw_{HPARAM.VALID_SIZE}_aps_values.json'
-        tools.jt.save_to_json(aps_json_path, all_matches)
+        tools.jt.save_to_json(aps_json_path, aps_complete_data)
+
+        # Save the raw aps to Excel file
+        excel_path = PATH.parent.parent / f'aps_values_excel.xlsx'
+        all_df = []
+
+        # Creating dataframes
+        for aps_name in aps.keys():
+
+            # Accessing the aps (y axis)
+            y = np.mean(aps[aps_name], axis=0).reshape((-1,1))
+
+            # Accesing the aps (x axis)
+            x = np.linspace(*metrics_ranges[aps_name], num_of_points).reshape((-1,1))
+
+            # Creating data to be place in the excel
+            data = np.hstack((x,y))
+
+            # Creating dataframe
+            df = pd.DataFrame(data, columns=[f'{aps_name} - x', f'{aps_name} - y'])
+
+            # Storing data
+            all_df.append(df)
+
+        # Store dataframe into excel file
+        with pd.ExcelWriter(excel_path) as writer:
+            aps_names = list(aps.keys())
+            for i, df in enumerate(all_df):
+                df.to_excel(writer, sheet_name=aps_names[i])
 
         """
         # Visualize the performance
@@ -351,6 +380,8 @@ if __name__ == '__main__':
             str(PATH.parent.parent / f'translation_{HPARAM.VALID_SIZE}_aps.png')
         )
         """
+
+        sys.exit(0)
         
         fig = tools.vz.plot_aps(
             aps,
