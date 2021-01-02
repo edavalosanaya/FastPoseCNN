@@ -1,0 +1,23 @@
+Problem:
+Currently, the pixel-wise qloss error for the quaternion is constantly 1, mostly 
+due to that we are taking the mean of the entire image and background is filled 
+with 1s. This is why the average is mostly 1.
+
+Solution:
+I plan on making the average only take into account the area of the union between
+the predicted and ground truth segmentation mask.
+
+Information:
+
+--------------------------------------------------------------------------------
+Daily Entries
+1/2/2021
+Removed the unecessary masking of the predicted mask towards the predicted 
+quaternion, since this is already done the forward method of the model. 
+
+Used the union mask between the predicted and ground truth to take the masked
+average of the difference, error = (1 - accuracy). accuracy = <q1, q2>^2. 
+
+git pushed: 'Fixed pixel wise quaternion QLoss function'
+
+TASK SOLVED

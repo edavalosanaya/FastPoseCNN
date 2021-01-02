@@ -76,7 +76,7 @@ class DEFAULT_POSE_HPARAM(argparse.Namespace):
     # Run Specifications
     BATCH_SIZE = 8
     NUM_WORKERS = 18 # 36 total CPUs
-    NUM_GPUS = 2
+    NUM_GPUS = 1
     TRAIN_SIZE=100# #5000
     VALID_SIZE=10# #200
 

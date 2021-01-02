@@ -142,26 +142,19 @@ class PixelWiseQLoss(_Loss):
         # Selecting the categorical_mask
         cat_mask = pred['auxilary']['cat_mask']
 
-        # Return 1 if no matching between masks
-        if torch.sum(torch.logical_and(cat_mask, gt['mask'])) == 0:
+        # Creating union mask between pred and gt
+        mask_union = torch.logical_and(cat_mask != 0, gt['mask'] != 0)
+
+        # Return 0.5 if no matching between masks
+        if torch.sum(mask_union) == 0:
             return torch.tensor([0.5], device=cat_mask.device, requires_grad=True).float()
 
         # Access the predictions to calculate the loss (NxAxHxW) A = [3,4]
         gt_q = gt[self.key]
         pred_q = pred[self.key]
 
-        # Converting categorical mask to binary mask
-        binary_pred_mask = (cat_mask != 0)
-
-        # Expand the class_mask if needed
-        if len(pred_q.shape) > len(binary_pred_mask.shape):
-            binary_pred_mask = torch.unsqueeze(binary_pred_mask, dim=1)
-
-        # Masking the quaternion
-        m_pred_q = pred_q * binary_pred_mask # masked pred q
-
         # Obtaining the magnitude of the quaternion to later normalize
-        norm_q = m_pred_q.norm(dim=1)
+        norm_q = pred_q.norm(dim=1)
         
         # Avoid dividing by zero
         norm_q[norm_q == 0] = 1
@@ -170,7 +163,7 @@ class PixelWiseQLoss(_Loss):
         norm_q = torch.unsqueeze(norm_q, dim=1)
 
         # Normalizing the masked predicted quaternions
-        q = torch.div(m_pred_q, norm_q)
+        q = torch.div(pred_q, norm_q)
 
         # Apply the QLoss Function
         # log(\epsilon + 1 - |gt_q dot pred_q|)
@@ -187,8 +180,11 @@ class PixelWiseQLoss(_Loss):
         mag_dot_product = torch.pow(dot_product, 2)
         difference = self.eps + 1 - mag_dot_product
 
-        return torch.mean(difference)
+        # Mask the difference based on the union mask
+        difference[mask_union == False] = 0
+        masked_loss = torch.sum(difference) / torch.sum(mask_union)
 
+        return masked_loss
 
 class AggregatedQLoss(_Loss):
     """AggregatedQLoss
