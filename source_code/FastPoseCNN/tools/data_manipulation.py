@@ -751,9 +751,8 @@ def get_T_offset_error(center_3d_1, center_3d_2):
 
 def calculate_aps(
     cls_metrics,
-    metrics_ranges,
-    metrics_operators,
-    num_of_points=10,
+    metrics_thresholds,
+    metrics_operators
     ):
 
     aps = {}
@@ -761,11 +760,10 @@ def calculate_aps(
     for metric_name, cls_metric in cls_metrics.items():
 
         # Obtain the range of the metric
-        metric_range = metrics_ranges[metric_name]
         metric_operator = metrics_operators[metric_name]
 
-        thresholds = np.linspace(*metric_range, num_of_points)
-        metric_aps = np.zeros((len(cls_metric), num_of_points))
+        thresholds = metrics_thresholds[metric_name]
+        metric_aps = np.zeros((len(cls_metric), thresholds.shape[0]))
 
         # For each class
         for i, cls_data in enumerate(cls_metric):

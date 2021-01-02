@@ -275,126 +275,79 @@ if __name__ == '__main__':
             cls_metrics['degree'][match['class_id']].append(degree_error)
             cls_metrics['offset'][match['class_id']].append(offset_error)
 
-        metrics_ranges = {
-            '3d_iou': [0,1],
-            'degree': [0,60],
-            'offset': [0,10]
-        }
+        # Remove background entry
+        for key in cls_metrics.keys():
+            cls_metrics[key].pop(0)
 
+        # Defining the nature of the metric (higher/lower is better)
         metrics_operators = {
             '3d_iou': np.greater,
             'degree': np.less,
             'offset': np.less
         }
 
+        ########################################################################
+        # Generating plots of aps
         num_of_points = 30
 
-        # Remove background entry
-        for key in cls_metrics.keys():
-            cls_metrics[key].pop(0)
+        metrics_thresholds = {
+            '3d_iou': np.linspace(0, 1, num_of_points),
+            'degree': np.linspace(0, 60, num_of_points),
+            'offset': np.linspace(0, 10, num_of_points)
+        }
 
         # Calculate the aps for each metric
         aps = tools.dm.calculate_aps(
             cls_metrics, 
-            metrics_ranges,
-            metrics_operators,
-            num_of_points=num_of_points
+            metrics_thresholds,
+            metrics_operators
         )
 
         # Saving aps
-        aps_complete_data = {
-            'num_of_points': num_of_points,
-            'metrics_ranges': metrics_ranges,
-            'aps': aps
-        }
+        #aps_complete_data = {
+        #    'metrics_thresholds': metrics_thresholds,
+        #    'aps': aps
+        #}
 
         # Save the raw aps to a JSON file
-        aps_json_path = PATH.parent.parent / f'raw_{HPARAM.VALID_SIZE}_aps_values.json'
-        tools.jt.save_to_json(aps_json_path, aps_complete_data)
+        #aps_json_path = PATH.parent.parent / f'{HPARAM.VALID_SIZE}_aps_values_plot.json'
+        #tools.jt.save_to_json(aps_json_path, aps_complete_data)
 
         # Save the raw aps to Excel file
-        excel_path = PATH.parent.parent / f'aps_values_excel.xlsx'
-        all_df = []
-
-        # Creating dataframes
-        for aps_name in aps.keys():
-
-            # Accessing the aps (y axis)
-            y = np.mean(aps[aps_name], axis=0).reshape((-1,1))
-
-            # Accesing the aps (x axis)
-            x = np.linspace(*metrics_ranges[aps_name], num_of_points).reshape((-1,1))
-
-            # Creating data to be place in the excel
-            data = np.hstack((x,y))
-
-            # Creating dataframe
-            df = pd.DataFrame(data, columns=[f'{aps_name} - x', f'{aps_name} - y'])
-
-            # Storing data
-            all_df.append(df)
-
-        # Store dataframe into excel file
-        with pd.ExcelWriter(excel_path) as writer:
-            aps_names = list(aps.keys())
-            for i, df in enumerate(all_df):
-                df.to_excel(writer, sheet_name=aps_names[i])
-
-        """
-        # Visualize the performance
-        fig = tools.vz.plot_ap(
-            aps['3d_iou'], 
-            title='3D Iou AP',
-            x_axis_label='3D Iou %',
-            x_range=np.linspace(*metrics_ranges['3d_iou'], num_of_points),
-            cls_names=OLD_HPARAM.SELECTED_CLASSES[1:] + ['mean']
-        )
-
-        fig.savefig(
-            str(PATH.parent.parent / f'3d_iou_{HPARAM.VALID_SIZE}_aps.png')
-        )
-
-        # Visualize the performance
-        fig = tools.vz.plot_ap(
-            aps['degree'], 
-            title='Rotation AP',
-            x_axis_label='Rotation error/degree',
-            x_range=np.linspace(*metrics_ranges['degree'], num_of_points),
-            cls_names=OLD_HPARAM.SELECTED_CLASSES[1:] + ['mean']
-        )
-
-        fig.savefig(
-            str(PATH.parent.parent / f'rotation_{HPARAM.VALID_SIZE}_aps.png')
-        )
-
-        # Visualize the performance
-        fig = tools.vz.plot_ap(
-            aps['offset'], 
-            title='Translation AP',
-            x_axis_label='Translation error/cm',
-            x_range=np.linspace(*metrics_ranges['offset'], num_of_points),
-            cls_names=OLD_HPARAM.SELECTED_CLASSES[1:] + ['mean']
-        )
-
-        fig.savefig(
-            str(PATH.parent.parent / f'translation_{HPARAM.VALID_SIZE}_aps.png')
-        )
-        """
-
-        sys.exit(0)
+        excel_path = PATH.parent.parent / f'{HPARAM.VALID_SIZE}_aps_values_plot.xlsx'
+        tools.et.save_aps_to_excel(excel_path, metrics_thresholds, aps)
         
+        # Plotting aps
         fig = tools.vz.plot_aps(
             aps,
             titles=['3D Iou AP', 'Rotation AP', 'Translation AP'],
-            x_ranges=[
-                np.linspace(*metrics_ranges['3d_iou'], num_of_points), 
-                np.linspace(*metrics_ranges['degree'], num_of_points), 
-                np.linspace(*metrics_ranges['offset'], num_of_points)
-                ],
+            x_ranges=list(metrics_thresholds.values()),
             cls_names=HPARAM.SELECTED_CLASSES[1:] + ['mean'],
             x_axis_labels=['3D IoU %', 'Rotation error/degree', 'Translation error/cm']
         )
 
+        # Saving the plot
         fig.savefig(
             str(PATH.parent.parent / f'all_metrics_{HPARAM.VALID_SIZE}_aps.png')
         )
+
+        ########################################################################
+        # Generating tabular data for comparision with state-of-the-art 
+        # methods
+
+        metrics_thresholds = {
+            '3d_iou': np.array([0.25, 0.50]),
+            'degree': np.array([5, 10]),
+            'offset': np.array([.05, .10])
+        }
+
+        # Calculate the aps for each metric
+        aps = tools.dm.calculate_aps(
+            cls_metrics, 
+            metrics_thresholds,
+            metrics_operators
+        )
+
+        # Saving the output data into excel
+        excel_path = PATH.parent.parent / f'{HPARAM.VALID_SIZE}_aps_values_table.xlsx'
+        tools.et.save_aps_to_excel(excel_path, metrics_thresholds, aps)
