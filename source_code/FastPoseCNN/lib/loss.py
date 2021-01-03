@@ -95,8 +95,11 @@ class MaskedMSELoss(_Loss):
         # Selecting the categorical_mask
         cat_mask = pred['auxilary']['cat_mask']
 
+        # Creating union mask between pred and gt
+        mask_union = torch.logical_and(cat_mask != 0, gt['mask'] != 0)
+
         # Return 1 if no matching between masks
-        if torch.sum(torch.logical_and(cat_mask, pred['gt'])) == 0:
+        if torch.sum(mask_union) == 0:
             return torch.tensor([1], device=cat_mask.device, requires_grad=True)
 
         # Access the predictions to calculate the loss (NxAxHxW) A = [3,4]

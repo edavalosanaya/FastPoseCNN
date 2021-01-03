@@ -1,0 +1,28 @@
+AFTER 2021-1-2-pw_qloss_constant_1.txt
+
+Problem:
+Need to add the decoder that handles translation (xyz) and include all additional
+components in the training loop to allow the training of these features.
+
+Solution:
+
+
+Information:
+
+--------------------------------------------------------------------------------
+Daily Entries
+1/2/2021
+
+Added the decoder branches and heads for both 'xy' and 'z' pixel-wise features.
+All necessary code, such as changing `class_compress_quaternion` to 
+`class_compress` to accomodate for all types of data was a success. I also expanded
+the function `dense_class_data_aggregation` to account for the new entries. Also 
+expanded the function `find_matches_batched` to account for the new entries.
+
+With the addition of all the pytorch tensor intensive code, the training loop is 
+still functional. Pushing as training is stable. Plan on making visualization for
+the new regressed features. Afterwards, will look into difference loss functions 
+and data augmentations (such as log(z/1000) to make it easier for regression 
+stability).
+
+git pushed: added xy and z components to the model and training loop.

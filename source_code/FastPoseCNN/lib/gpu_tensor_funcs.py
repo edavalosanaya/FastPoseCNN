@@ -16,56 +16,48 @@ import visualize as vz
 #-------------------------------------------------------------------------------
 # Native PyTorch Functions
 
-def class_compress_quaternion(mask_logits, quaternion):
+def class_compress(num_of_classes, cat_mask, data):
     """
     Args:
-        mask_logits: NxCxHxW
-        quaternion: Nx4CxHxW
+        num_of_classes: int (already removed the background)
+        cat_mask: NxHxW
+        data: NxACxHxW [A = 2,3,4]
     Returns:
-        compressed_quat: Nx4xHxW
+        compressed_data: NxAxHxW [A = 2,3,4]
         mask: NxHxW
     """
 
-    # Determing the number of classes
-    num_of_classes = mask_logits.shape[1]
+    # Divide the data by the number of classes
+    class_data = torch.chunk(data, num_of_classes, dim=1)
 
-    # First convert mask logits to mask values
-    logsoftmax_mask = nn.LogSoftmax(dim=1)(mask_logits)
-
-    # Convert log softmax mask into a categorical mask (NxHxW)
-    mask = torch.argmax(logsoftmax_mask, dim=1)
-
-    # Divide the quaternion to 4 (4 for each class) (Nx4xHxW)
-    class_quaternions = torch.chunk(quaternion, num_of_classes-1, dim=1)
-
-    # Constructing the final compressed quaternion
-    compressed_quat = torch.zeros_like(class_quaternions[0], requires_grad=quaternion.requires_grad)
+    # Constructing the final compressed datas
+    compressed_data = torch.zeros_like(class_data[0], requires_grad=data.requires_grad)
 
     # Creating container for all class quats
-    class_quats = []
+    class_datas = []
 
-    # Filling the compressed_quat from all available objects in mask
-    for object_class_id in torch.unique(mask):
+    # Filling the compressed_data from all available objects in mask
+    for object_class_id in torch.unique(cat_mask):
 
         if object_class_id == 0: # if the background, skip
             continue
 
         # Create class mask (NxHxW)
-        class_mask = mask == object_class_id
+        class_mask = cat_mask == object_class_id
 
         # Unsqueeze the class mask to make it (Nx1xHxW) making broadcastable with
-        # the (Nx4xHxW) quaternion
-        class_quat = torch.unsqueeze(class_mask, dim=1) * class_quaternions[object_class_id-1]
+        # the (NxAxHxW) data
+        class_data = torch.unsqueeze(class_mask, dim=1) * class_data[object_class_id-1]
 
-        # Storing class_quat into class_quats
-        class_quats.append(class_quat)
+        # Storing class_data into class_datas
+        class_datas.append(class_data)
 
-    # If not empty quats
-    if class_quats:
-        # Calculating the total quats
-        compressed_quat = torch.sum(torch.stack(class_quats, dim=0), dim=0)
+    # If not empty datas
+    if class_datas:
+        # Calculating the total datas
+        compressed_data = torch.sum(torch.stack(class_datas, dim=0), dim=0)
 
-    return compressed_quat, mask
+    return compressed_data
 
 def mask_gradients(to_be_masked, mask):
 
@@ -85,6 +77,9 @@ def dense_class_data_aggregation(mask, dense_class_data):
         mask: NxHxW (categorical)
         dense_class_data: dict
             quaternion: Nx4xHxW
+            xy: Nx2xHxW
+            z: NxHxW
+
     Returns:
         outputs: list
             single_sample_output: dict
@@ -106,7 +101,9 @@ def dense_class_data_aggregation(mask, dense_class_data):
             'class_id': [],
             'instance_id': [],
             'instance_mask': [],
-            'quaternion': []
+            'quaternion': [],
+            'xy': [],
+            'z': []
         }
 
         # Selecting the samples mask
@@ -143,14 +140,26 @@ def dense_class_data_aggregation(mask, dense_class_data):
                 quaternion_mask = instance_mask.expand((4, instance_mask.shape[0], instance_mask.shape[1]))
                 quaternion_img = torch.where(quaternion_mask, dense_class_data['quaternion'][n], torch.zeros_like(quaternion_mask).float().to(sample_mask.device))
 
+                # Obtaining the pertaining xy
+                xy_mask = instance_mask.expand((2, instance_mask.shape[0], instance_mask.shape[1]))
+                xy_img = torch.where(xy_mask, dense_class_data['xy'][n], torch.zeros_like(xy_mask).float().to(sample_mask.device))
+
+                # Obtaining the pertaining z
+                z_mask = instance_mask.expand((1, instance_mask.shape[0], instance_mask.shape[1]))
+                z_img = torch.where(z_mask, dense_class_data['z'][n], torch.zeros_like(z_mask).float().to(sample_mask.device))
+
                 # Aggregate the values via naive average
                 quaternion = torch.sum(quaternion_img, dim=(1,2)) / torch.sum(instance_mask)
+                xy = torch.sum(xy_img, dim=(1,2)) / torch.sum(xy_mask)
+                z = torch.sum(z_img, dim=(1,2)) / torch.sum(z_mask)
 
                 # Storing per-sample data
                 single_sample_output['class_id'].append(class_id)
                 single_sample_output['instance_id'].append(instance_id)
                 single_sample_output['instance_mask'].append(instance_mask)
                 single_sample_output['quaternion'].append(quaternion)
+                single_sample_output['xy'].append(xy)
+                single_sample_output['z'].append(z)
 
         # Storing per sample data
         outputs.append(single_sample_output)
@@ -233,13 +242,27 @@ def find_matches_batched(preds, gts):
                     dtype=gts[n]['quaternion'][gt_id].dtype,
                     device=gts[n]['quaternion'][gt_id].device
                 )
+                standard_xy = torch.tensor(
+                    [0, 0],
+                    requires_grad=True,
+                    dtype=gts[n]['xy'][gt_id].dtype,
+                    device=gts[n]['xy'][gt_id].device
+                )
+                standard_z = torch.tensor(
+                    [0],
+                    requires_grad=True,
+                    dtype=gts[n]['xy'][gt_id].dtype,
+                    device=gts[n]['xy'][gt_id].device
+                )
 
                 # Create a match container
                 match = {
                     'sample_id': n,
                     'class_id': gts[n]['class_id'][gt_id],
                     'iou_2d_mask': max_iou_2d_mask,
-                    'quaternion': torch.stack((gts[n]['quaternion'][gt_id], standard_quaternion))
+                    'quaternion': torch.stack((gts[n]['quaternion'][gt_id], standard_quaternion)),
+                    'xy': torch.stack((gts[n]['xy'][gt_id], standard_xy)),
+                    'z': torch.stack((gts[n]['z'][gt_id], standard_z))
                 }
 
             # Else, use the best possible matched quaternion
@@ -255,7 +278,9 @@ def find_matches_batched(preds, gts):
                     'sample_id': n,
                     'class_id': gts[n]['class_id'][gt_id],
                     'iou_2d_mask': max_iou_2d_mask,
-                    'quaternion': torch.stack((gts[n]['quaternion'][gt_id], preds[n]['quaternion'][max_id]))
+                    'quaternion': torch.stack((gts[n]['quaternion'][gt_id], preds[n]['quaternion'][max_id])),
+                    'xy': torch.stack((gts[n]['xy'][gt_id], preds[n]['xy'][max_id])),
+                    'z': torch.stack((gts[n]['z'][gt_id], preds[n]['z'][max_id]))
                 }
 
             # Store the container

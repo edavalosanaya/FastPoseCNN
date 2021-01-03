@@ -69,7 +69,7 @@ class DEFAULT_POSE_HPARAM(argparse.Namespace):
     
     # Experiment Identification 
     EXPERIMENT_NAME = "TESTING"
-    CHECKPOINT = pathlib.Path(os.getenv("LOGS")) / '20-12-22' / '22-57-MSE_BASELINE-NOCS-resnext50_32x4d-imagenet' / '_' / 'checkpoints' / 'epoch=32.ckpt'
+    CHECKPOINT = None #pathlib.Path(os.getenv("LOGS")) / '20-12-22' / '22-57-MSE_BASELINE-NOCS-resnext50_32x4d-imagenet' / '_' / 'checkpoints' / 'epoch=32.ckpt'
     DATASET_NAME = 'NOCS'
     SELECTED_CLASSES = tools.pj.constants.NUM_CLASSES[DATASET_NAME]
 
@@ -90,7 +90,7 @@ class DEFAULT_POSE_HPARAM(argparse.Namespace):
 
     # Architecture Parameters
     BACKBONE_ARCH = 'FPN'
-    ENCODER = 'resnext50_32x4d'
+    ENCODER = 'resnet18' #'resnext50_32x4d'
     ENCODER_WEIGHTS = 'imagenet'
 
 HPARAM = DEFAULT_POSE_HPARAM()
@@ -433,6 +433,12 @@ if __name__ == '__main__':
             #'loss_qloss': {'D': 'matched', 'F': lib.loss.AggregatedQLoss(key='quaternion'), 'weight': 1.0},
             #'loss_mse': {'D': 'pixel-wise', 'F': lib.loss.MaskedMSELoss(key='quaternion'), 'weight': 1.0},
             'loss_pw_qloss': {'D': 'pixel-wise', 'F': lib.loss.PixelWiseQLoss(key='quaternion'), 'weight': 1.0}
+        },
+        'xy': {
+        'loss_mse': {'D': 'pixel-wise', 'F': lib.loss.MaskedMSELoss(key='xy'), 'weight': 1.0}
+        },
+        'z': {
+            'loss_mse': {'D': 'pixel-wise', 'F': lib.loss.MaskedMSELoss(key='z'), 'weight': 1.0}
         }
     }
 
@@ -440,12 +446,6 @@ if __name__ == '__main__':
     'scales': {
         'loss_mse': {'F': lib.loss.MaskedMSELoss(key='scales'), 'weight': 1.0}
     },
-    'xy': {
-        'loss_mse': {'F': lib.loss.MaskedMSELoss(key='xy'), 'weight': 1.0}
-    },
-    'z': {
-        'loss_mse': {'F': lib.loss.MaskedMSELoss(key='z'), 'weight': 1.0}
-    }
     """
 
     # Selecting metrics
@@ -459,6 +459,12 @@ if __name__ == '__main__':
             #'mae': {'D': 'pixel-wise', 'F': pl.metrics.functional.regression.mae},
             'rotation_accuracy': {'D': 'matched', 'F': lib.metrics.RotationAccuracy()},
             'degree_error_AP_5': {'D': 'matched', 'F': lib.metrics.DegreeErrorMeanAP(5)}
+        },
+        'xy': {
+            'mae': {'D': 'pixel-wise', 'F': pl.metrics.functional.mean_squared_error}
+        },
+        'z': {
+            'mae': {'D': 'pixel-wise', 'F': pl.metrics.functional.mean_squared_error}
         }
     }
 
@@ -466,12 +472,7 @@ if __name__ == '__main__':
     'scales': {
         'mae': pl.metrics.functional.regression.mae
     },
-    'xy': {
-        'mae': pl.metrics.functional.regression.mae
-    },
-    'z': {
-        'mae': pl.metrics.functional.regression.mae
-    }
+    
     """
 
     # Noting what are the items that we want to see as the training develops
