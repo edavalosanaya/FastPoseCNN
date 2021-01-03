@@ -435,7 +435,7 @@ if __name__ == '__main__':
             'loss_pw_qloss': {'D': 'pixel-wise', 'F': lib.loss.PixelWiseQLoss(key='quaternion'), 'weight': 1.0}
         },
         'xy': {
-        'loss_mse': {'D': 'pixel-wise', 'F': lib.loss.MaskedMSELoss(key='xy'), 'weight': 1.0}
+            'loss_mse': {'D': 'pixel-wise', 'F': lib.loss.MaskedMSELoss(key='xy'), 'weight': 1.0}
         },
         'z': {
             'loss_mse': {'D': 'pixel-wise', 'F': lib.loss.MaskedMSELoss(key='z'), 'weight': 1.0}
@@ -461,10 +461,10 @@ if __name__ == '__main__':
             'degree_error_AP_5': {'D': 'matched', 'F': lib.metrics.DegreeErrorMeanAP(5)}
         },
         'xy': {
-            'mae': {'D': 'pixel-wise', 'F': pl.metrics.functional.mean_squared_error}
+            'mae': {'D': 'pixel-wise', 'F': pl.metrics.functional.mean_absolute_error}
         },
         'z': {
-            'mae': {'D': 'pixel-wise', 'F': pl.metrics.functional.mean_squared_error}
+            'mae': {'D': 'pixel-wise', 'F': pl.metrics.functional.mean_absolute_error}
         }
     }
 
@@ -570,7 +570,7 @@ if __name__ == '__main__':
 
     # Creating my own callback
     custom_callback = plc.MyCallback(
-        tasks=['mask', 'quaternion', 'pose'],
+        tasks=['mask', 'quaternion', 'xy', 'z', 'pose'],
         hparams=runs_hparams,
         tracked_data=tracked_data,
         checkpoint_monitor={

@@ -347,7 +347,7 @@ def create_simple_dense_3d_centers(mask, json_data):
         coord = np.dstack([x_coord,y_coord])
 
         # Obtaining the z component for the 3D centroid
-        z_value = extract_z_from_RT(selected_RT)
+        z_value = np.log(extract_z_from_RT(selected_RT))
 
         # Applying the mask on the depth and the unit vectors
         z = instance_mask * z_value

@@ -100,7 +100,7 @@ class MaskedMSELoss(_Loss):
 
         # Return 1 if no matching between masks
         if torch.sum(mask_union) == 0:
-            return torch.tensor([1], device=cat_mask.device, requires_grad=True)
+            return torch.tensor(1, device=cat_mask.device).float()
 
         # Access the predictions to calculate the loss (NxAxHxW) A = [3,4]
         y_pred = pred[self.key]
@@ -150,7 +150,7 @@ class PixelWiseQLoss(_Loss):
 
         # Return 0.5 if no matching between masks
         if torch.sum(mask_union) == 0:
-            return torch.tensor([0.5], device=cat_mask.device, requires_grad=True).float()
+            return torch.tensor(0.5, device=cat_mask.device).float()
 
         # Access the predictions to calculate the loss (NxAxHxW) A = [3,4]
         gt_q = gt[self.key]

@@ -77,7 +77,7 @@ def get_visualized_masks(masks, colormap):
 
     return colorized_masks
 
-def get_visualized_unit_vector(mask, unit_vector, colormap='hsv'):
+def get_visualized_u_vector_xy(mask, unit_vector, colormap='hsv'):
 
     # Make channels_last in the image
     unit_vector = dm.set_image_data_format(unit_vector, 'channels_last')
@@ -99,24 +99,39 @@ def get_visualized_unit_vector(mask, unit_vector, colormap='hsv'):
 
     return colorized_angle
 
-def get_visualized_simple_center_2d(center_2d):
+def get_visualized_simple_xy(xy):
 
     # Make channels_last in the image
-    center_2d = dm.set_image_data_format(center_2d, 'channels_last')
+    xy = dm.set_image_data_format(xy, 'channels_last')
 
     # Create a holder of the data
-    norm_center_2d = np.zeros((center_2d.shape[0], center_2d.shape[1], 3))
+    norm_xy = np.zeros((xy.shape[0], xy.shape[1], 3))
 
     # Convert the integer data into float [0,1]
-    norm_center_2d[:,:,0] = center_2d[:,:,0] # Y (Red)
-    norm_center_2d[:,:,2] = center_2d[:,:,1] # X (Blue)
+    norm_xy[:,:,0] = xy[:,:,0] # Y (Red)
+    norm_xy[:,:,2] = xy[:,:,1] # X (Blue)
 
-    return norm_center_2d
+    return norm_xy
+
+def get_visualized_simple_xys(xys):
+    """
+    Arguments:
+        xys: np.array (Nx2xHxW)
+    Returns:
+        colorized_xys: np.array (NxHxWx3)
+    """
+
+    colorized_xys = np.zeros((xys.shape[0], xys.shape[2], xys.shape[3], 3))
+
+    for id, xy in enumerate(xys):
+        colorized_xys[id,:,:,:] = get_visualized_simple_xy(xy)
+
+    return colorized_xys
 
 def get_visualized_z(z, colormap='viridis'):
 
     # Create norm function to shift data to [0:1]
-    norm = matplotlib.colors.Normalize(vmin=np.min(0), vmax=np.max(1))
+    norm = matplotlib.colors.Normalize(vmin=0, vmax=8)
 
     # Obtain the colormap of choice
     my_colormap = matplotlib.cm.get_cmap(colormap)
@@ -125,6 +140,15 @@ def get_visualized_z(z, colormap='viridis'):
     colorized_z = my_colormap(norm(z), bytes=True)[:,:,:3] # removing alpha channel
     
     return colorized_z
+
+def get_visualized_zs(zs, colormap='viridis'):
+
+    colorized_zs = np.zeros((zs.shape[0], zs.shape[1], zs.shape[2], 3), dtype=np.uint8)
+
+    for id, z in enumerate(zs):
+        colorized_zs[id,:,:,:] = get_visualized_z(z)
+
+    return colorized_zs
 
 def get_visualized_quaternion(quaternion, bg='black'):
 
@@ -221,8 +245,8 @@ def get_visualized(image, key, mask_colormap):
     if key == 'mask':
         return get_visualized_mask(image, mask_colormap)
     elif key == 'xy':
-        return get_visualized_simple_center_2d(image)
-        #return get_visualized_unit_vector()
+        return get_visualized_simple_xy(image)
+        #return get_visualized_u_vector_xy()
     elif key == 'quaternion':
         return get_visualized_quaternion(image)
     elif key == 'z':
@@ -356,7 +380,7 @@ def compare_all(preds, gts, mask_colormap):
     return fig    
 
 #-------------------------------------------------------------------------------
-# Batch Ground Truth and Prediction Visualization
+# Visualization of Individual Task
 
 def compare_mask_performance(sample, pred_cat_mask, colormap):
 
@@ -380,38 +404,77 @@ def compare_mask_performance(sample, pred_cat_mask, colormap):
 
     return summary_fig
 
-def compare_quat_performance(sample, pred_quaternion, pred_cat_mask=None, mask_colormap=None):
+def compare_quat_performance(sample, pred_quaternion, pred_cat_mask, mask_colormap):
 
     # Selecting clean image and mask if available
     image_key = 'clean_image' if 'clean_image' in sample.keys() else 'image'
-    mask_key = 'clean_mask' if 'clean_mask' in sample.keys() else 'mask'
 
     # Converting visual images into np.uint8 for matplotlib compatibility
     image_vis = sample[image_key]#.astype(np.uint8)
-
-    if pred_cat_mask is not None:
-        pred_mask_vis = get_visualized_masks(pred_cat_mask, mask_colormap)
+    pred_mask_vis = get_visualized_masks(pred_cat_mask, mask_colormap)
 
     # Get colorized dense quaternion info
     gt_quat_vis = get_visualized_quaternions(sample['quaternion'])
     pred_quat_vis = get_visualized_quaternions(pred_quaternion)
 
     # Create a matplotlib figure illustrating the inputs vs outputs
-    if pred_cat_mask is None:
-        summary_fig = make_summary_figure(
-            image = image_vis,
-            gt_quaternion = gt_quat_vis,
-            pred_quaternion = pred_quat_vis
-        )
-    else:
-        summary_fig = make_summary_figure(
-            image = image_vis,
-            pred_mask=pred_mask_vis,
-            gt_quaternion = gt_quat_vis,
-            pred_quaternion = pred_quat_vis
-        )
+    summary_fig = make_summary_figure(
+        image = image_vis,
+        pred_mask=pred_mask_vis,
+        gt_quaternion = gt_quat_vis,
+        pred_quaternion = pred_quat_vis
+    )
 
     return summary_fig
+
+def compare_xy_performance(sample, pred_xy, pred_cat_mask, mask_colormap):
+
+    # Selecting clean image and mask if available
+    image_key = 'clean_image' if 'clean_image' in sample.keys() else 'image'
+
+    # Converting visual images into np.uint8 for matplotlib compatibility
+    image_vis = sample[image_key]#.astype(np.uint8)
+    pred_mask_vis = get_visualized_masks(pred_cat_mask, mask_colormap)
+
+    # Get colorized dense xy info
+    gt_xy_vis = get_visualized_simple_xys(sample['xy'])
+    pred_xy_vis = get_visualized_simple_xys(pred_xy)
+
+    # Create a matplotlib figure illustrating the inputs vs outputs
+    summary_fig = make_summary_figure(
+        image = image_vis,
+        pred_mask=pred_mask_vis,
+        gt_xy = gt_xy_vis,
+        pred_xy = pred_xy_vis
+    )
+
+    return summary_fig
+
+def compare_z_performance(sample, pred_z, pred_cat_mask, mask_colormap):
+
+    # Selecting clean image and mask if available
+    image_key = 'clean_image' if 'clean_image' in sample.keys() else 'image'
+
+    # Converting visual images into np.uint8 for matplotlib compatibility
+    image_vis = sample[image_key]#.astype(np.uint8)
+    pred_mask_vis = get_visualized_masks(pred_cat_mask, mask_colormap)
+
+    # Get colorized dense z info
+    gt_z_vis = get_visualized_zs(sample['z'])
+    pred_z_vis = get_visualized_zs(pred_z)
+
+    # Create a matplotlib figure illustrating the inputs vs outputs
+    summary_fig = make_summary_figure(
+        image = image_vis,
+        pred_mask=pred_mask_vis,
+        gt_z = gt_z_vis,
+        pred_z = pred_z_vis
+    )
+
+    return summary_fig
+
+#-------------------------------------------------------------------------------
+# Visualization of Complete Task
 
 def compare_pose_performance(sample, pred_quaternion):
 

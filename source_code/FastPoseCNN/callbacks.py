@@ -136,10 +136,17 @@ class MyCallback(pl.callbacks.Callback):
             # Log visualization of quat
             self.log_epoch_quat(mode, trainer, pl_module)
 
+        if 'xy' in self.tasks:
+            # Log visualization of xy
+            self.log_epoch_xy(mode, trainer, pl_module)
+
+        if 'z' in self.tasks:
+            # Log visualization of z
+            self.log_epoch_z(mode, trainer, pl_module)
+
         if 'pose' in self.tasks:
             # Log visualization of pose
             self.log_epoch_pose(mode, trainer, pl_module)
-
 
     @rank_zero_only
     def log_epoch_average(self, mode, trainer, pl_module):
@@ -251,6 +258,75 @@ class MyCallback(pl.callbacks.Callback):
 
         # Log the figure to tensorboard
         pl_module.logger.writers[mode].add_figure(f'quat_gen/{mode}', summary_fig, trainer.global_step)      
+
+    # XY
+    @rank_zero_only
+    def log_epoch_xy(self, mode, trainer, pl_module):
+
+        # Obtaining the LightningDataModule
+        datamodule = trainer.datamodule
+
+        # Accessing the corresponding dataset
+        dataset = datamodule.datasets[mode]
+
+        # Get random sample
+        sample = dataset.get_random_batched_sample(batch_size=3)
+
+        # Given the sample, make the prediciton with the PyTorch Lightning Moduel
+        with torch.no_grad():
+            outputs = pl_module(torch.from_numpy(sample['image']).float().to(pl_module.device))
+        
+        # Applying activation function to the mask
+        pred_cat_mask = outputs['auxilary']['cat_mask'].cpu().numpy()
+
+        # Selecting the quaternion from the output
+        # https://pytorch.org/docs/stable/nn.functional.html?highlight=activation%20functions
+        pred_xy = outputs['xy'].cpu().numpy()
+
+        # Create the pose figure
+        summary_fig = tools.vz.compare_xy_performance(
+            sample, 
+            pred_xy, 
+            pred_cat_mask=pred_cat_mask, 
+            mask_colormap=dataset.COLORMAP
+        )
+
+        # Log the figure to tensorboard
+        pl_module.logger.writers[mode].add_figure(f'xy_gen/{mode}', summary_fig, trainer.global_step)      
+
+    # Z
+    def log_epoch_z(self, mode, trainer, pl_module):
+        
+        # Obtaining the LightningDataModule
+        datamodule = trainer.datamodule
+
+        # Accessing the corresponding dataset
+        dataset = datamodule.datasets[mode]
+
+        # Get random sample
+        sample = dataset.get_random_batched_sample(batch_size=3)
+
+        # Given the sample, make the prediciton with the PyTorch Lightning Moduel
+        with torch.no_grad():
+            outputs = pl_module(torch.from_numpy(sample['image']).float().to(pl_module.device))
+        
+        # Applying activation function to the mask
+        pred_cat_mask = outputs['auxilary']['cat_mask'].cpu().numpy()
+
+        # Selecting the quaternion from the output
+        # https://pytorch.org/docs/stable/nn.functional.html?highlight=activation%20functions
+        pred_z = outputs['z'].cpu().numpy()
+
+        # Create the pose figure
+        summary_fig = tools.vz.compare_z_performance(
+            sample, 
+            pred_z, 
+            pred_cat_mask=pred_cat_mask, 
+            mask_colormap=dataset.COLORMAP
+        )
+
+        # Log the figure to tensorboard
+        pl_module.logger.writers[mode].add_figure(f'z_gen/{mode}', summary_fig, trainer.global_step)      
 
     # POSE
     @rank_zero_only
