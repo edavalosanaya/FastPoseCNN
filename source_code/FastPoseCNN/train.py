@@ -12,7 +12,7 @@ import numpy as np
 os.environ["TF_CPP_MIN_LOG_LEVEL"]="3"
 warnings.filterwarnings('ignore')
 
-os.environ['CUDA_VISIBLE_DEVICES'] =  '0,1,2,3'
+os.environ['CUDA_VISIBLE_DEVICES'] =  '2,3' #'0,1,2,3'
 
 import torch
 import torch.nn.functional as F
@@ -74,11 +74,11 @@ class DEFAULT_POSE_HPARAM(argparse.Namespace):
     SELECTED_CLASSES = tools.pj.constants.NUM_CLASSES[DATASET_NAME]
 
     # Run Specifications
-    BATCH_SIZE = 8
+    BATCH_SIZE = 2
     NUM_WORKERS = 18 # 36 total CPUs
-    NUM_GPUS = 1
-    TRAIN_SIZE=100# #5000
-    VALID_SIZE=10# #200
+    NUM_GPUS = 2
+    TRAIN_SIZE=100#5000
+    VALID_SIZE=10#200
 
     # Training Specifications
     FREEZE_ENCODER = False
@@ -221,8 +221,9 @@ class PoseRegresssionTask(pl.LightningModule):
             multi_task_losses[task_name] = losses
             multi_task_metrics[task_name] = metrics
 
-            # Summing all task total losses
-            multi_task_losses['total_loss'] += losses['task_total_loss']
+            # Summing all task total losses (if it is not nan)
+            if torch.isnan(losses['task_total_loss']) != True:
+                multi_task_losses['total_loss'] += losses['task_total_loss']
 
         return multi_task_losses, multi_task_metrics
 
@@ -258,20 +259,40 @@ class PoseRegresssionTask(pl.LightningModule):
                 elif metric_attrs['D'] == 'matched':
                     metrics[metric_name] = metric_attrs['F'](gt_pred_matches)
         
-        # Calculate total loss
-        total_loss = torch.sum(torch.stack(list(losses.values())))
+        # Remove losses that have nan
+        true_losses = [x for x in losses.values() if torch.isnan(x) == False]
 
-        # Calculate the loss multiplied by its corresponded weight
-        weighted_losses = [losses[key] * self.criterion[task_name][key]['weight'] for key in losses.keys()]
-        
-        # Now calculate the weighted sum
-        weighted_sum = torch.sum(torch.stack(weighted_losses))
+        # If true losses is not empty, continue calculating losses
+        if true_losses:
 
-        # Save the calculated sum in the losses
-        losses['loss'] = weighted_sum
+            # Calculate total loss
+            total_loss = torch.sum(torch.stack(true_losses))
 
-        # Saving the total loss
-        losses['task_total_loss'] = total_loss
+            # Calculate the loss multiplied by its corresponded weight
+            weighted_losses = [losses[key] * self.criterion[task_name][key]['weight'] for key in losses.keys()]
+            
+            # Now calculate the weighted sum
+            weighted_sum = torch.sum(torch.stack(weighted_losses))
+
+            # Save the calculated sum in the losses (for PyTorch progress bar logger)
+            losses['loss'] = weighted_sum
+
+            # Saving the total loss (for customized Tensorboard logger)
+            losses['task_total_loss'] = total_loss
+
+        else: # otherwise, just pass losses as nan
+
+            # Place nan in losses (for PyTorch progress bar logger)
+            losses['loss'] = torch.tensor(float('nan')).to(self.device)
+
+            # Notate no task-specific total loss (for customized Tensorboard logger)
+            losses['task_total_loss'] = torch.tensor(float('nan')).to(self.device)
+
+        # Looking for the invalid tensor in the cpu
+        for k,v in losses.items():
+            if v.device == 'cpu':
+                print(k)
+                raise RuntimeError('Invalid tensor')
 
         return losses, metrics
 
@@ -431,8 +452,8 @@ if __name__ == '__main__':
         },
         'quaternion': {
             #'loss_qloss': {'D': 'matched', 'F': lib.loss.AggregatedQLoss(key='quaternion'), 'weight': 1.0},
-            #'loss_mse': {'D': 'pixel-wise', 'F': lib.loss.MaskedMSELoss(key='quaternion'), 'weight': 1.0},
-            'loss_pw_qloss': {'D': 'pixel-wise', 'F': lib.loss.PixelWiseQLoss(key='quaternion'), 'weight': 1.0}
+            'loss_mse': {'D': 'pixel-wise', 'F': lib.loss.MaskedMSELoss(key='quaternion'), 'weight': 1.0},
+            #'loss_pw_qloss': {'D': 'pixel-wise', 'F': lib.loss.PixelWiseQLoss(key='quaternion'), 'weight': 1.0}
         },
         'xy': {
             'loss_mse': {'D': 'pixel-wise', 'F': lib.loss.MaskedMSELoss(key='xy'), 'weight': 1.0}
@@ -604,7 +625,7 @@ if __name__ == '__main__':
         num_processes=HPARAM.NUM_WORKERS,
         distributed_backend=HPARAM.DISTRIBUTED_BACKEND, # required to work
         logger=tb_logger,
-        callbacks=[custom_callback, loss_checkpoint_callback]
+        callbacks=[custom_callback, loss_checkpoint_callback],
     )
 
     # Train

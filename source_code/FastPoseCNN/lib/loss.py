@@ -150,7 +150,7 @@ class PixelWiseQLoss(_Loss):
 
         # Return 0.5 if no matching between masks
         if torch.sum(mask_union) == 0:
-            return torch.tensor(0.5, device=cat_mask.device).float()
+            return torch.tensor(float('nan'), device=cat_mask.device)
 
         # Access the predictions to calculate the loss (NxAxHxW) A = [3,4]
         gt_q = gt[self.key]
@@ -236,7 +236,7 @@ class AggregatedQLoss(_Loss):
 
         # If there is no true matches, simply end update function
         if true_gt_pred_matches == []:
-            return torch.tensor([1], requires_grad=True).float().cuda()
+            return torch.tensor(float('nan')).float().cuda()
 
         # Stack the matches based on class for all quaternion
         stacked_class_quaternion = gtf.stack_class_matches(true_gt_pred_matches, 'quaternion')
@@ -278,13 +278,7 @@ class AggregatedQLoss(_Loss):
         if losses:
             stacked_losses = torch.cat(losses)
         else:
-            for key in stacked_class_quaternion.keys():
-                pred_q = stacked_class_quaternion[key]
-                try:
-                    return -torch.log(torch.tensor([0.5], device=pred_q.device, requires_grad=True))
-                except UnboundLocalError:
-                    continue
-            return torch.tensor([0.5], requires_grad=True).cuda()
+            return torch.tensor(float('nan')).cuda()
 
         # Return the some of all the losses
         return torch.mean(stacked_losses)

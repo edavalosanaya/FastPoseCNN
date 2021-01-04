@@ -111,7 +111,7 @@ class MyCallback(pl.callbacks.Callback):
                 complete_checkpoint_path = os.getenv('RUNS_LOG_DIR') + '/_/checkpoints/' + new_checkpoint_fp
 
                 # Saving new checkpoint
-                trainer.save_checkpoint(complete_checkpoint_path)
+                #trainer.save_checkpoint(complete_checkpoint_path)
 
                 # Saving the checkpoints location
                 self.checkpoint_monitor[monitor_name]['saved_checkpoint_fp'] = complete_checkpoint_path
