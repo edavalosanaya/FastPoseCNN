@@ -100,7 +100,7 @@ class MaskedMSELoss(_Loss):
 
         # Return 1 if no matching between masks
         if torch.sum(mask_union) == 0:
-            return torch.tensor(1, device=cat_mask.device).float()
+            return torch.tensor(float('nan'), device=cat_mask.device).float()
 
         # Access the predictions to calculate the loss (NxAxHxW) A = [3,4]
         y_pred = pred[self.key]
@@ -278,7 +278,7 @@ class AggregatedQLoss(_Loss):
         if losses:
             stacked_losses = torch.cat(losses)
         else:
-            return torch.tensor(float('nan')).cuda()
+            return torch.tensor(float('nan')).cuda().float()
 
         # Return the some of all the losses
         return torch.mean(stacked_losses)

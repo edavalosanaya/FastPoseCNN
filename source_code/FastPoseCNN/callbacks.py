@@ -99,7 +99,10 @@ class MyCallback(pl.callbacks.Callback):
 
                 # Delete previous checkpoint (if it exist)
                 if monitor_data['saved_checkpoint_fp']:
-                    os.remove(monitor_data['saved_checkpoint_fp'])
+                    try:
+                        os.remove(monitor_data['saved_checkpoint_fp'])
+                    except FileNotFoundError:
+                        pass
 
                 # Generating new checkpoint filepath
                 safe_monitor_name = monitor_name.replace("/", "_")
@@ -161,10 +164,14 @@ class MyCallback(pl.callbacks.Callback):
             if tb_log_name in sum(self.tracked_data.values(), []):
 
                 # Move all items inside the logger into cuda:0
-                cuda_0_log = [x.to('cuda:0') for x in log[log_name]]
+                cuda_0_log = [x.to('cuda:0').float() for x in log[log_name] if torch.isnan(x) != True]
 
-                # Obtain the average first
-                average = torch.mean(torch.stack(cuda_0_log))
+                # If cuda_0_log is not empty, then determine the average
+                if cuda_0_log:
+                    average = torch.mean(torch.stack(cuda_0_log))
+                
+                else: # else just use nan as the average
+                    average = torch.tensor(float('nan')).to('cuda:0').float()
 
                 # Log the average
                 trainer.logger.log_metrics(

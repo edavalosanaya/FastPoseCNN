@@ -74,11 +74,11 @@ class DEFAULT_POSE_HPARAM(argparse.Namespace):
     SELECTED_CLASSES = tools.pj.constants.NUM_CLASSES[DATASET_NAME]
 
     # Run Specifications
-    BATCH_SIZE = 2
+    BATCH_SIZE = 8
     NUM_WORKERS = 18 # 36 total CPUs
-    NUM_GPUS = 2
-    TRAIN_SIZE=100#5000
-    VALID_SIZE=10#200
+    NUM_GPUS = 1
+    TRAIN_SIZE=5000
+    VALID_SIZE=200
 
     # Training Specifications
     FREEZE_ENCODER = False
@@ -209,13 +209,16 @@ class PoseRegresssionTask(pl.LightningModule):
                 gt_pred_matches
             )
 
+            # Looking out for memory leakage here
+            #lib.gtf.memory_leak_check()
+
             # Logging the batch loss to Tensorboard
             for loss_name, loss_value in losses.items():
-                self.logger.log_metrics(mode, {f'{task_name}/{loss_name}/batch':loss_value}, batch_idx)
+                self.logger.log_metrics(mode, {f'{task_name}/{loss_name}/batch':loss_value.detach().clone()}, batch_idx)
 
             # Logging the metric loss to Tensorboard
             for metric_name, metric_value in metrics.items():
-                self.logger.log_metrics(mode, {f'{task_name}/{metric_name}/batch':metric_value}, batch_idx) 
+                self.logger.log_metrics(mode, {f'{task_name}/{metric_name}/batch':metric_value.detach().clone()}, batch_idx) 
 
             # Storing the losses and metrics for each task
             multi_task_losses[task_name] = losses
@@ -283,16 +286,15 @@ class PoseRegresssionTask(pl.LightningModule):
         else: # otherwise, just pass losses as nan
 
             # Place nan in losses (for PyTorch progress bar logger)
-            losses['loss'] = torch.tensor(float('nan')).to(self.device)
+            losses['loss'] = torch.tensor(float('nan')).to(self.device).float()
 
             # Notate no task-specific total loss (for customized Tensorboard logger)
-            losses['task_total_loss'] = torch.tensor(float('nan')).to(self.device)
+            losses['task_total_loss'] = torch.tensor(float('nan')).to(self.device).float()
 
         # Looking for the invalid tensor in the cpu
         for k,v in losses.items():
-            if v.device == 'cpu':
-                print(k)
-                raise RuntimeError('Invalid tensor')
+            if v.device == torch.device('cpu'):
+                raise RuntimeError(f'Invalid cpu tensor: {k}')
 
         return losses, metrics
 
@@ -451,8 +453,8 @@ if __name__ == '__main__':
             'loss_focal': {'D': 'pixel-wise', 'F': lib.loss.Focal(), 'weight': 1.0}
         },
         'quaternion': {
-            #'loss_qloss': {'D': 'matched', 'F': lib.loss.AggregatedQLoss(key='quaternion'), 'weight': 1.0},
-            'loss_mse': {'D': 'pixel-wise', 'F': lib.loss.MaskedMSELoss(key='quaternion'), 'weight': 1.0},
+            'loss_qloss': {'D': 'matched', 'F': lib.loss.AggregatedQLoss(key='quaternion'), 'weight': 1.0},
+            #'loss_mse': {'D': 'pixel-wise', 'F': lib.loss.MaskedMSELoss(key='quaternion'), 'weight': 1.0},
             #'loss_pw_qloss': {'D': 'pixel-wise', 'F': lib.loss.PixelWiseQLoss(key='quaternion'), 'weight': 1.0}
         },
         'xy': {

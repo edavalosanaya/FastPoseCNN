@@ -322,6 +322,10 @@ def stack_class_matches(matches, key):
 
     return stacked_class_data
 
+def memory_leak_check():
+    memory_percentage = torch.cuda.memory_allocated()/torch.cuda.max_memory_allocated()
+    print(f"Memory used: {memory_percentage:.3f}")
+
 #-------------------------------------------------------------------------------
 # CuPy Functions
 
