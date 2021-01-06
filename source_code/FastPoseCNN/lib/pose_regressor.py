@@ -65,7 +65,8 @@ class PoseRegressor(torch.nn.Module):
             self.mask_decoder = smp.fpn.decoder.FPNDecoder(**param_dict)
             self.rotation_decoder = smp.fpn.decoder.FPNDecoder(**param_dict)
             self.translation_decoder = smp.fpn.decoder.FPNDecoder(**param_dict)
-        
+            self.scales_decoder = smp.fpn.decoder.FPNDecoder(**param_dict)
+
         # Obtain segmentation head
         self.segmentation_head = smp.base.SegmentationHead(
             in_channels=self.mask_decoder.out_channels,
@@ -86,7 +87,16 @@ class PoseRegressor(torch.nn.Module):
 
         # Creating translation head (xyz)
         self.translation_head = smp.base.SegmentationHead(
-            in_channels=self.rotation_decoder.out_channels,
+            in_channels=self.translation_decoder.out_channels,
+            out_channels=3*(classes-1), # Removing the background
+            activation=activation,
+            kernel_size=1,
+            upsampling=upsampling,
+        )
+
+        # Creating scales head (height, width, and length)
+        self.scales_head = smp.base.SegmentationHead(
+            in_channels=self.scales_decoder.out_channels,
             out_channels=3*(classes-1), # Removing the background
             activation=activation,
             kernel_size=1,
@@ -103,6 +113,9 @@ class PoseRegressor(torch.nn.Module):
         init.initialize_decoder(self.translation_decoder)
         init.initialize_head(self.translation_head)
 
+        init.initialize_decoder(self.scales_decoder)
+        init.initialize_head(self.scales_head)
+
     def forward(self, x):
 
         # Encoder
@@ -112,11 +125,13 @@ class PoseRegressor(torch.nn.Module):
         mask_decoder_output = self.mask_decoder(*features)
         rotation_decoder_output = self.rotation_decoder(*features)
         translation_decoder_output = self.translation_decoder(*features)
+        scales_decoder_output = self.scales_decoder(*features)
 
         # Heads 
         mask_logits = self.segmentation_head(mask_decoder_output)
         quat_logits = self.rotation_head(rotation_decoder_output)
         xyz_logits = self.translation_head(translation_decoder_output)
+        scales_logits = self.scales_head(scales_decoder_output)
 
         # Spliting the (xyz) to (xy, z) since they will eventually have different
         # ways of computing the loss.
@@ -148,6 +163,12 @@ class PoseRegressor(torch.nn.Module):
             data = z_logits
         )
 
+        cc_scales = gtf.class_compress(
+            num_of_classes = self.classes - 1,
+            cat_mask = cat_mask,
+            data = scales_logits
+        )
+
         # Squeezing the cc_z (Nx1xHxW) to (NxHxW) to match with ground truth
         cc_z = torch.squeeze(cc_z)
 
@@ -156,7 +177,8 @@ class PoseRegressor(torch.nn.Module):
             'mask': mask_logits,
             'quaternion': cc_quaternion,
             'xy': cc_xy,
-            'z': cc_z
+            'z': cc_z,
+            'scales': cc_scales
         }
 
         # Aggregating predictions

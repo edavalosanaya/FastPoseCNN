@@ -1,0 +1,66 @@
+Problem:
+Now I need to add scales component of the model to perform regression on the shape
+of the objects.
+
+Solution:
+
+
+Information:
+
+--------------------------------------------------------------------------------
+Daily Entries
+1/5/2021
+I added scales into the model by adding model decoders and heads for scales. Also
+added the criternions, metrics, visualization, and logging. Now I need to make the
+complete pose be vizualized based on the matches.
+
+When constructing the visualization of the pose, I encountered some weird bugs. 
+While visualizaing the ground truth, the resulting translation is completely wrong.
+I can confirm that something is wrong by using the debugger:
+
+> sample['z'][0].dtype
+dtype('float32')
+> np.unique(sample['z'][0])
+array([0.      , 6.961722], dtype=float32)
+> np.exp(6.961722)
+1055.4494772863222
+> np.unique(sample['xy'][0])
+array([0.        , 0.16041666, 0.7453125 ], dtype=float32)
+> np_match['xy']
+array([[0.08020833, 0.37265626],
+       [0.        , 0.        ]], dtype=float32)
+
+sample['xy'][0] does not match with np_match['xy].
+
+I deteremined that the method `dense_class_data_aggregation` in gpu_tensor_funcs, 
+when determing the aggreated values of scales and xy, they don't match after aggreation. 
+However, quaternion and z are not affected by this. 
+
+> torch.unique(scales_img)
+tensor([0.0000, 0.4187, 0.4856, 0.5042], device='cuda:0')
+> torch.unique(scales)
+tensor([0.1396, 0.1619, 0.1681], device='cuda:0')
+
+> torch.unique(dense_class_data['xy'][0])
+tensor([0.0000, 0.5281, 0.6208], device='cuda:0')
+> xy
+tensor([0.3104, 0.2641], device='cuda:0')
+
+Figured it out. When calculating the average, the total of ['quaternion','xy', ect]
+is divided by the total of the instance_mask. Scales and xy were divided by 
+scales_mask and xy_mask instead of instance_mask, therefore dividing twice or thrice 
+over.
+
+Now is this:
+
+> torch.unique(scales_img)
+tensor([0.0000, 0.0713, 0.1102, 0.1243], device='cuda:0')
+> torch.unique(scales)
+tensor([0.0713, 0.1102, 0.1243], device='cuda:0')
+
+Yay! Back to fixing pose visualization.
+
+Now I fixed pose visualization. Everything is good and stable:
+
+git pushed: "stable, added scales regression, visualization and overall pose 
+visualization as well."

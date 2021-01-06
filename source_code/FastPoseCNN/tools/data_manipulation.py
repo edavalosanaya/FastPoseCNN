@@ -665,6 +665,18 @@ def find_matches(preds, gts, image_tag=None):
 
     return pred_gt_matches
 
+def convert_norm_xy_to_pixel(xy, h, w):
+
+    # Calculating the translation vector
+    pixel_xy = xy.copy()
+
+    # Converting image ratio to pixel location
+    pixel_xy[:,0] = xy[:,1] * w
+    pixel_xy[:,1] = xy[:,0] * h
+    #pixel_xy = pixel_xy.reshape((-1,1))
+
+    return pixel_xy
+
 #-------------------------------------------------------------------------------
 # Get Raw Metrics
 

@@ -147,6 +147,10 @@ class MyCallback(pl.callbacks.Callback):
             # Log visualization of z
             self.log_epoch_z(mode, trainer, pl_module)
 
+        if 'scales' in self.tasks:
+            # Log visualization of scales
+            self.log_epoch_scales(mode, trainer, pl_module)
+
         if 'pose' in self.tasks:
             # Log visualization of pose
             self.log_epoch_pose(mode, trainer, pl_module)
@@ -302,6 +306,7 @@ class MyCallback(pl.callbacks.Callback):
         pl_module.logger.writers[mode].add_figure(f'xy_gen/{mode}', summary_fig, trainer.global_step)      
 
     # Z
+    @rank_zero_only
     def log_epoch_z(self, mode, trainer, pl_module):
         
         # Obtaining the LightningDataModule
@@ -335,6 +340,41 @@ class MyCallback(pl.callbacks.Callback):
         # Log the figure to tensorboard
         pl_module.logger.writers[mode].add_figure(f'z_gen/{mode}', summary_fig, trainer.global_step)      
 
+    # SCALES
+    @rank_zero_only
+    def log_epoch_scales(self, mode, trainer, pl_module):
+
+        # Obtaining the LightningDataModule
+        datamodule = trainer.datamodule
+
+        # Accessing the corresponding dataset
+        dataset = datamodule.datasets[mode]
+
+        # Get random sample
+        sample = dataset.get_random_batched_sample(batch_size=3)
+
+        # Given the sample, make the prediciton with the PyTorch Lightning Moduel
+        with torch.no_grad():
+            outputs = pl_module(torch.from_numpy(sample['image']).float().to(pl_module.device))
+        
+        # Applying activation function to the mask
+        pred_cat_mask = outputs['auxilary']['cat_mask'].cpu().numpy()
+
+        # Selecting the quaternion from the output
+        # https://pytorch.org/docs/stable/nn.functional.html?highlight=activation%20functions
+        pred_scales = outputs['scales'].cpu().numpy()
+
+        # Create the pose figure
+        summary_fig = tools.vz.compare_scales_performance(
+            sample, 
+            pred_scales, 
+            pred_cat_mask=pred_cat_mask, 
+            mask_colormap=dataset.COLORMAP
+        )
+
+        # Log the figure to tensorboard
+        pl_module.logger.writers[mode].add_figure(f'scales_gen/{mode}', summary_fig, trainer.global_step)      
+
     # POSE
     @rank_zero_only
     def log_epoch_pose(self, mode, trainer, pl_module):
@@ -355,6 +395,9 @@ class MyCallback(pl.callbacks.Callback):
         with torch.no_grad():
             outputs = pl_module(batch['image'].float())
 
+        # Applying activation function to the mask
+        pred_cat_mask = outputs['auxilary']['cat_mask'].cpu().numpy()
+
         # Obtain the matches between aggregated predictions and ground truth data
         agg_gt = lib.gtf.dense_class_data_aggregation(
             mask=batch['mask'],
@@ -368,17 +411,20 @@ class MyCallback(pl.callbacks.Callback):
         )
 
         # Create summary for the pose
-        """
-        summary_fig = tools.vz.compare_pose_performance_v4(
-            sample,
-            outputs,
-            gt_pred_matches,
-            dataset.INTRINSICS
-        )
+        try:
+            summary_fig = tools.vz.compare_pose_performance_v4(
+                sample,
+                pred_cat_mask,
+                gt_pred_matches,
+                dataset.INTRINSICS,
+                mask_colormap=dataset.COLORMAP
+            )
 
-        # Log the figure to tensorboard
-        pl_module.logger.writers[mode].add_figure(f'pose_gen/{mode}', summary_fig, trainer.global_step)      
-        """
+            # Log the figure to tensorboard
+            pl_module.logger.writers[mode].add_figure(f'pose_gen/{mode}', summary_fig, trainer.global_step)      
+
+        except Exception as e:
+            print('pose visualization error: ', e)
         
     #---------------------------------------------------------------------------
     # End of Training

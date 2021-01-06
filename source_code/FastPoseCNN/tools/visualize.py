@@ -225,6 +225,28 @@ def get_visualized_quaternions(quaternions):
         
     return colorized_quaternions
 
+def get_visualized_scale(scale):
+    """
+    Since scale is composed three quantities, each one can be map to the a 
+    different colormap.
+    """
+
+    # Changing (3xHxW) to (HxWx3)
+    colorized_scale = np.moveaxis(scale, 0, -1)
+
+    # Normalize data to improve visualization
+
+    return colorized_scale
+
+def get_visualized_scales(scales):
+    
+    colorized_scales = np.zeros((scales.shape[0], scales.shape[2], scales.shape[3], 3), dtype=np.float32)
+
+    for id, scale in enumerate(scales):
+        colorized_scales[id,:,:,:] = get_visualized_scale(scale)
+
+    return colorized_scales
+
 def d4_to_d3(image):
 
     new_image = np.zeros((image.shape[0], image.shape[1], 3))
@@ -473,6 +495,29 @@ def compare_z_performance(sample, pred_z, pred_cat_mask, mask_colormap):
 
     return summary_fig
 
+def compare_scales_performance(sample, pred_scales, pred_cat_mask, mask_colormap):
+
+    # Selecting clean image and mask if available
+    image_key = 'clean_image' if 'clean_image' in sample.keys() else 'image'
+
+    # Converting visual images into np.uint8 for matplotlib compatibility
+    image_vis = sample[image_key]#.astype(np.uint8)
+    pred_mask_vis = get_visualized_masks(pred_cat_mask, mask_colormap)
+
+    # Get colorized dense z info
+    gt_scales_vis = get_visualized_scales(sample['scales'])
+    pred_scales_vis = get_visualized_scales(pred_scales)
+
+    # Create a matplotlib figure illustrating the inputs vs outputs
+    summary_fig = make_summary_figure(
+        image = image_vis,
+        pred_mask=pred_mask_vis,
+        gt_scales = gt_scales_vis,
+        pred_z = pred_scales_vis
+    )
+
+    return summary_fig
+
 #-------------------------------------------------------------------------------
 # Visualization of Complete Task
 
@@ -674,8 +719,11 @@ def compare_pose_performance_v3(preds, gts, intrinsics, pred_mask=None, mask_col
 
     return summary_fig
 
-def compare_pose_performance_v4(sample, outputs, pred_gt_matches, intrinsics):
+def compare_pose_performance_v4(sample, pred_cat_mask, pred_gt_matches, intrinsics, mask_colormap):
     
+    # Create colorized mask
+    pred_mask_vis = get_visualized_masks(pred_cat_mask, mask_colormap)
+
     # Spliting matches based on their sample id
     per_sample_matches = {}
     for match in pred_gt_matches:
@@ -686,27 +734,56 @@ def compare_pose_performance_v4(sample, outputs, pred_gt_matches, intrinsics):
         else:
             per_sample_matches[match['sample_id']].append(match)
 
-    # Creating pose drawings depending on the sample
-    max_sample_id = max(list(per_sample_matches.keys()))
+    draw_images = []
 
     # Iterating through all the samples
-    for i in range(max_sample_id):
+    for i in per_sample_matches.keys():
 
+        # Selecting the clean image for the specific sample
+        draw_image = sample['clean_image'][i]
+
+        # Then selecting the matches associated with that sample
         sample_matches = per_sample_matches[i]
 
-        draw_image = sample['image']
-
+        # Now visualize each match if 'iou_2d_mask' is greater than 0
         for match in sample_matches:
 
-            return None
+            # Skip non-true matches
+            #if match['iou_2d_mask'] <= 0:
+            #    continue
 
-            """
+            # Exponentiating z to undo torch.log 
+            match['z'] = torch.exp(match['z'])
+
+            # Convert match (tensor) to numpy
+            np_match = {}
+            for k,v in match.items():
+                if type(v) == torch.Tensor:
+                    np_match[k] = v.cpu().numpy()
+                else:
+                    np_match[k] = v
+
+            # Converting [0,1] xy to pixel xy
+            pixel_xy = dm.convert_norm_xy_to_pixel(np_match['xy'], draw_image.shape[0], draw_image.shape[1])
+
+            # separating gt and pred pixel xy
+            gt_pixel_xy = pixel_xy[0].reshape((-1,1))
+            pred_pixel_xy = pixel_xy[1].reshape((-1,1))
+
+            # Creating the translation vectors
+            gt_T = dm.create_translation_vector(gt_pixel_xy, np_match['z'][0], intrinsics)
+            pred_T = dm.create_translation_vector(pred_pixel_xy, np_match['z'][1], intrinsics)
+
+            # Creating rotation matrix
+            gt_RT = dm.quat_2_RT_given_T_in_world(np_match['quaternion'][0], gt_T)
+            pred_RT = dm.quat_2_RT_given_T_in_world(np_match['quaternion'][1], pred_T)
+
             # Drawing the ground truth pose
             draw_image = dr.draw_RT(
                 image = draw_image, 
                 intrinsics = intrinsics,
-                RTs = gts_aggregated_data['RT'],
-                scales = gts_aggregated_data['scales'],
+                RT = gt_RT,
+                scale = np_match['scales'][0],
                 color=(0,255,255)
             )
 
@@ -714,11 +791,24 @@ def compare_pose_performance_v4(sample, outputs, pred_gt_matches, intrinsics):
             draw_image = dr.draw_RT(
                 image = draw_image, 
                 intrinsics = intrinsics,
-                RTs = preds_aggregated_data['RT'],
-                scales = preds_aggregated_data['scales'],
+                RT = pred_RT,
+                scale = np_match['scales'][1],
                 color=(255,0,255)
             )
-            """
+
+        # After drawing the image, added it to the list of drawn_images
+        draw_images.append(draw_image)
+
+    # Stack the drawn images
+    draw_images = np.stack(draw_images)
+
+    # Creating a matplotlib figure illustrating the inputs vs outputs
+    summary_fig = make_summary_figure(
+        poses=draw_images,
+        pred_mask=pred_mask_vis
+    )
+
+    return summary_fig
 
 #-------------------------------------------------------------------------------
 # Plot metrics

@@ -1045,6 +1045,7 @@ class NOCSPoseRegDataset(torch.utils.data.Dataset):
             'image': skimage.img_as_float32(sample['image']),
             'mask': sample['mask'].astype('long'),
             'quaternion': skimage.img_as_float32(sample['quaternion']),
+            'scales': skimage.img_as_float32(sample['scales']),
             'xy': skimage.img_as_float32(sample['xy']),
             'z': skimage.img_as_float32(sample['z'])
         })

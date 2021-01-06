@@ -77,15 +77,15 @@ class DEFAULT_POSE_HPARAM(argparse.Namespace):
     BATCH_SIZE = 8
     NUM_WORKERS = 18 # 36 total CPUs
     NUM_GPUS = 1
-    TRAIN_SIZE=5000
-    VALID_SIZE=200
+    TRAIN_SIZE=100#5000
+    VALID_SIZE=10#200
 
     # Training Specifications
     FREEZE_ENCODER = False
     FREEZE_MASK_DECODER = False
     LEARNING_RATE = 0.0001
     ENCODER_LEARNING_RATE = 0.0005
-    NUM_EPOCHS = 10
+    NUM_EPOCHS = 5
     DISTRIBUTED_BACKEND = None if NUM_GPUS <= 1 else 'ddp'
 
     # Architecture Parameters
@@ -453,8 +453,8 @@ if __name__ == '__main__':
             'loss_focal': {'D': 'pixel-wise', 'F': lib.loss.Focal(), 'weight': 1.0}
         },
         'quaternion': {
-            'loss_qloss': {'D': 'matched', 'F': lib.loss.AggregatedQLoss(key='quaternion'), 'weight': 1.0},
-            #'loss_mse': {'D': 'pixel-wise', 'F': lib.loss.MaskedMSELoss(key='quaternion'), 'weight': 1.0},
+            #'loss_qloss': {'D': 'matched', 'F': lib.loss.AggregatedQLoss(key='quaternion'), 'weight': 1.0},
+            'loss_mse': {'D': 'pixel-wise', 'F': lib.loss.MaskedMSELoss(key='quaternion'), 'weight': 1.0},
             #'loss_pw_qloss': {'D': 'pixel-wise', 'F': lib.loss.PixelWiseQLoss(key='quaternion'), 'weight': 1.0}
         },
         'xy': {
@@ -462,14 +462,11 @@ if __name__ == '__main__':
         },
         'z': {
             'loss_mse': {'D': 'pixel-wise', 'F': lib.loss.MaskedMSELoss(key='z'), 'weight': 1.0}
+        },
+        'scales': {
+            'loss_mse': {'D': 'pixel-wise', 'F': lib.loss.MaskedMSELoss(key='scales'), 'weight': 1.0}
         }
     }
-
-    """
-    'scales': {
-        'loss_mse': {'F': lib.loss.MaskedMSELoss(key='scales'), 'weight': 1.0}
-    },
-    """
 
     # Selecting metrics
     metrics = {
@@ -488,16 +485,12 @@ if __name__ == '__main__':
         },
         'z': {
             'mae': {'D': 'pixel-wise', 'F': pl.metrics.functional.mean_absolute_error}
+        },
+        'scales': {
+            'mae': {'D': 'pixel-wise', 'F': pl.metrics.functional.mean_absolute_error}
         }
     }
-
-    """
-    'scales': {
-        'mae': pl.metrics.functional.regression.mae
-    },
     
-    """
-
     # Noting what are the items that we want to see as the training develops
     tracked_data = {
         'minimize': list(tools.dm.compress_dict(criterion, additional_subkey='loss').keys()),
@@ -593,7 +586,7 @@ if __name__ == '__main__':
 
     # Creating my own callback
     custom_callback = plc.MyCallback(
-        tasks=['mask', 'quaternion', 'xy', 'z', 'pose'],
+        tasks=['mask', 'quaternion', 'xy', 'z', 'scales', 'pose'],
         hparams=runs_hparams,
         tracked_data=tracked_data,
         checkpoint_monitor={
@@ -627,7 +620,7 @@ if __name__ == '__main__':
         num_processes=HPARAM.NUM_WORKERS,
         distributed_backend=HPARAM.DISTRIBUTED_BACKEND, # required to work
         logger=tb_logger,
-        callbacks=[custom_callback, loss_checkpoint_callback],
+        callbacks=[custom_callback, loss_checkpoint_callback]
     )
 
     # Train

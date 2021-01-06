@@ -79,6 +79,7 @@ def dense_class_data_aggregation(mask, dense_class_data):
             quaternion: Nx4xHxW
             xy: Nx2xHxW
             z: NxHxW
+            scales: Nx3xHxW
 
     Returns:
         outputs: list
@@ -103,7 +104,8 @@ def dense_class_data_aggregation(mask, dense_class_data):
             'instance_mask': [],
             'quaternion': [],
             'xy': [],
-            'z': []
+            'z': [],
+            'scales': []
         }
 
         # Selecting the samples mask
@@ -148,10 +150,15 @@ def dense_class_data_aggregation(mask, dense_class_data):
                 z_mask = instance_mask.expand((1, instance_mask.shape[0], instance_mask.shape[1]))
                 z_img = torch.where(z_mask, dense_class_data['z'][n], torch.zeros_like(z_mask).float().to(sample_mask.device))
 
+                # Obtaining the pertaining scales
+                scales_mask = instance_mask.expand((3, instance_mask.shape[0], instance_mask.shape[1]))
+                scales_img = torch.where(scales_mask, dense_class_data['scales'][n], torch.zeros_like(scales_mask).float().to(sample_mask.device))
+
                 # Aggregate the values via naive average
                 quaternion = torch.sum(quaternion_img, dim=(1,2)) / torch.sum(instance_mask)
-                xy = torch.sum(xy_img, dim=(1,2)) / torch.sum(xy_mask)
-                z = torch.sum(z_img, dim=(1,2)) / torch.sum(z_mask)
+                xy = torch.sum(xy_img, dim=(1,2)) / torch.sum(instance_mask)
+                z = torch.sum(z_img, dim=(1,2)) / torch.sum(instance_mask)
+                scales = torch.sum(scales_img, dim=(1,2)) / torch.sum(instance_mask)
 
                 # Storing per-sample data
                 single_sample_output['class_id'].append(class_id)
@@ -160,6 +167,7 @@ def dense_class_data_aggregation(mask, dense_class_data):
                 single_sample_output['quaternion'].append(quaternion)
                 single_sample_output['xy'].append(xy)
                 single_sample_output['z'].append(z)
+                single_sample_output['scales'].append(scales)
 
         # Storing per sample data
         outputs.append(single_sample_output)
@@ -187,6 +195,9 @@ def find_matches_batched(preds, gts):
                 sample_id: int
                 class_id: torch.Tensor
                 quaternion: torch.Tensor
+                xy: torch.Tensor
+                z: torch.Tensor
+                scales: torch.Tensor
     """
 
     pred_gt_matches = []
@@ -238,21 +249,23 @@ def find_matches_batched(preds, gts):
                 # Creating the standard quaternion
                 standard_quaternion = torch.tensor(
                     [1,0,0,0],
-                    requires_grad=True,
                     dtype=gts[n]['quaternion'][gt_id].dtype,
                     device=gts[n]['quaternion'][gt_id].device
                 )
                 standard_xy = torch.tensor(
                     [0, 0],
-                    requires_grad=True,
                     dtype=gts[n]['xy'][gt_id].dtype,
                     device=gts[n]['xy'][gt_id].device
                 )
                 standard_z = torch.tensor(
                     [0],
-                    requires_grad=True,
-                    dtype=gts[n]['xy'][gt_id].dtype,
-                    device=gts[n]['xy'][gt_id].device
+                    dtype=gts[n]['z'][gt_id].dtype,
+                    device=gts[n]['z'][gt_id].device
+                )
+                standard_scales = torch.tensor(
+                    [0,0,0],
+                    dtype=gts[n]['scales'][gt_id].dtype,
+                    device=gts[n]['scales'][gt_id].device
                 )
 
                 # Create a match container
@@ -262,7 +275,8 @@ def find_matches_batched(preds, gts):
                     'iou_2d_mask': max_iou_2d_mask,
                     'quaternion': torch.stack((gts[n]['quaternion'][gt_id], standard_quaternion)),
                     'xy': torch.stack((gts[n]['xy'][gt_id], standard_xy)),
-                    'z': torch.stack((gts[n]['z'][gt_id], standard_z))
+                    'z': torch.stack((gts[n]['z'][gt_id], standard_z)),
+                    'scales': torch.stack((gts[n]['scales'][gt_id], standard_scales)),
                 }
 
             # Else, use the best possible matched quaternion
@@ -280,7 +294,8 @@ def find_matches_batched(preds, gts):
                     'iou_2d_mask': max_iou_2d_mask,
                     'quaternion': torch.stack((gts[n]['quaternion'][gt_id], preds[n]['quaternion'][max_id])),
                     'xy': torch.stack((gts[n]['xy'][gt_id], preds[n]['xy'][max_id])),
-                    'z': torch.stack((gts[n]['z'][gt_id], preds[n]['z'][max_id]))
+                    'z': torch.stack((gts[n]['z'][gt_id], preds[n]['z'][max_id])),
+                    'scales': torch.stack((gts[n]['scales'][gt_id], preds[n]['scales'][max_id])),
                 }
 
             # Store the container
