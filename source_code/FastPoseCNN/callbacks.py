@@ -23,13 +23,12 @@ import lib
 class MyCallback(pl.callbacks.Callback):
 
     @rank_zero_only
-    def __init__(self, tasks, hparams, tracked_data, checkpoint_monitor):
+    def __init__(self, tasks, hparams, checkpoint_monitor):
         super().__init__()
 
         # Saving parameters
         self.tasks = tasks
         self.hparams = hparams
-        self.tracked_data = tracked_data
 
         # Creating dictionary containing information about checkpoint
         self.checkpoint_monitor = {}
@@ -48,13 +47,6 @@ class MyCallback(pl.callbacks.Callback):
                 }
             else:
                 raise RuntimeError('Invalid mode: needs to be min or max')
-
-        # Setting initial values for the metrics/losses
-        max_metrics = {k:0 for k in self.tracked_data['maximize']}
-        min_metrics = {k:np.inf for k in self.tracked_data['minimize']}
-        
-        self.metric_dict = max_metrics
-        self.metric_dict.update(min_metrics)
 
     @rank_zero_only
     def on_train_epoch_end(self, trainer, pl_module, outputs):
@@ -162,42 +154,29 @@ class MyCallback(pl.callbacks.Callback):
 
         for log_name in log.keys():
 
+            # Removing the /batch to make it epoch level
             tb_log_name = log_name.replace('/batch', '')
 
-            # if the log name is from the desired tensorboard metrics, then use it
-            if tb_log_name in sum(self.tracked_data.values(), []):
+            # Move all items inside the logger into cuda:0
+            cuda_0_log = [x.to('cuda:0').float() for x in log[log_name] if torch.isnan(x) != True]
 
-                # Move all items inside the logger into cuda:0
-                cuda_0_log = [x.to('cuda:0').float() for x in log[log_name] if torch.isnan(x) != True]
+            # If cuda_0_log is not empty, then determine the average
+            if cuda_0_log:
+                average = torch.mean(torch.stack(cuda_0_log))
+            
+            else: # else just use nan as the average
+                average = torch.tensor(float('nan')).to('cuda:0').float()
 
-                # If cuda_0_log is not empty, then determine the average
-                if cuda_0_log:
-                    average = torch.mean(torch.stack(cuda_0_log))
-                
-                else: # else just use nan as the average
-                    average = torch.tensor(float('nan')).to('cuda:0').float()
+            # Log the average
+            trainer.logger.log_metrics(
+                mode, 
+                {f'{tb_log_name}/epoch': average},
+                trainer.current_epoch+1,
+                store=False
+            )
 
-                # Log the average
-                trainer.logger.log_metrics(
-                    mode, 
-                    {f'{tb_log_name}/epoch': average},
-                    trainer.current_epoch+1,
-                    store=False
-                )
-
-                # Save the best value (epoch level) to later log into hparams
-                # If maximize, take the maximum value
-                if tb_log_name in self.tracked_data['maximize']:
-                    if self.metric_dict[tb_log_name] < average:
-                        self.metric_dict[tb_log_name] = average
-                
-                # If minimize, take the minimum value
-                elif tb_log_name in self.tracked_data['minimize']:
-                    if self.metric_dict[tb_log_name] > average:
-                        self.metric_dict[tb_log_name] = average  
-
-                # Store the average as the initial value of the next epoch log
-                pl_module.logger.log[mode][log_name] = [average]
+            # Store the average as the initial value of the next epoch log
+            pl_module.logger.log[mode][log_name] = [average]
 
         # After an epoch, we clear out the log
         #pl_module.logger.clear_metrics(mode)
@@ -439,7 +418,7 @@ class MyCallback(pl.callbacks.Callback):
         """
         pl_module.logger.writers['base'].add_hparams(
             hparam_dict=self.hparams,
-            metric_dict=self.metric_dict
+            metric_dict={}#self.metric_dict
         )
 
         # Remove the additional folder for this hyperparameter entry

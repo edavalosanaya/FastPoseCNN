@@ -69,14 +69,14 @@ class DEFAULT_POSE_HPARAM(argparse.Namespace):
     
     # Experiment Identification 
     EXPERIMENT_NAME = "TESTING"
-    CHECKPOINT = None #pathlib.Path(os.getenv("LOGS")) / '20-12-22' / '22-57-MSE_BASELINE-NOCS-resnext50_32x4d-imagenet' / '_' / 'checkpoints' / 'epoch=32.ckpt'
+    CHECKPOINT = None #pathlib.Path(os.getenv("LOGS")) / '21-01-05' / '21-01-MSE_FULL-NOCS-resnet18-imagenet' / '_' / 'checkpoints' / 'last.ckpt'
     DATASET_NAME = 'NOCS'
     SELECTED_CLASSES = tools.pj.constants.NUM_CLASSES[DATASET_NAME]
 
     # Run Specifications
     BATCH_SIZE = 8
     NUM_WORKERS = 18 # 36 total CPUs
-    NUM_GPUS = 1
+    NUM_GPUS = 2
     TRAIN_SIZE=100#5000
     VALID_SIZE=10#200
 
@@ -125,14 +125,14 @@ class PoseRegresssionTask(pl.LightningModule):
         multi_task_losses, multi_task_metrics = self.shared_step('train', batch, batch_idx)
 
         # Placing the main loss into Train Result to perform backpropagation
-        result = pl.core.step_result.TrainResult(minimize=multi_task_losses['total_loss'])
+        result = pl.core.step_result.TrainResult(minimize=multi_task_losses['pose']['total_loss'])
 
         # Logging the val loss for each task
         for task_name in multi_task_losses.keys():
 
             # If it is the total loss, skip it, it was already log in the
             # previous line
-            if task_name == 'total_loss':
+            if task_name == 'total_loss' or 'loss' not in multi_task_losses[task_name]:
                 continue
             
             result.log(f'train_{task_name}_loss', multi_task_losses[task_name]['loss'])
@@ -152,14 +152,14 @@ class PoseRegresssionTask(pl.LightningModule):
         
         # Log the batch loss inside the pl.TrainResult to visualize in the
         # progress bar
-        result = pl.core.step_result.EvalResult(checkpoint_on=multi_task_losses['total_loss'])
+        result = pl.core.step_result.EvalResult(checkpoint_on=multi_task_losses['pose']['total_loss'])
 
         # Logging the val loss for each task
         for task_name in multi_task_losses.keys():
             
             # If it is the total loss, skip it, it was already log in the
             # previous line
-            if task_name == 'total_loss':
+            if task_name == 'total_loss' or 'loss' not in multi_task_losses[task_name]:
                 continue
 
             result.log(f'val_{task_name}_loss', multi_task_losses[task_name]['loss'])
@@ -190,47 +190,59 @@ class PoseRegresssionTask(pl.LightningModule):
         )
 
         # Storage for losses and metrics depending on the task
-        multi_task_losses = {'total_loss': torch.Tensor([0]).float().to(self.device)}
+        multi_task_losses = {'pose': {'total_loss': torch.tensor(0).float().to(self.device)}}
         multi_task_metrics = {}
 
-        # Calculate separate task losses and metrics
-        for task_name in outputs.keys():
-
-            # Some outputs should not be performed a loss and metrics on:
-            # such as the categorical mask
-            if task_name == 'auxilary':
-                continue
+        # Calculate separate task losses
+        for task_name in self.criterion.keys():
             
-            # Calculate the loss based on self.loss_function
-            losses, metrics = self.loss_function(
+            # Calculate the losses
+            losses = self.calculate_loss_function(
                 task_name,
                 outputs,
                 batch,
                 gt_pred_matches
             )
 
-            # Looking out for memory leakage here
-            #lib.gtf.memory_leak_check()
-
-            # Logging the batch loss to Tensorboard
-            for loss_name, loss_value in losses.items():
-                self.logger.log_metrics(mode, {f'{task_name}/{loss_name}/batch':loss_value.detach().clone()}, batch_idx)
-
-            # Logging the metric loss to Tensorboard
-            for metric_name, metric_value in metrics.items():
-                self.logger.log_metrics(mode, {f'{task_name}/{metric_name}/batch':metric_value.detach().clone()}, batch_idx) 
-
-            # Storing the losses and metrics for each task
+            # Storing the task losses
             multi_task_losses[task_name] = losses
-            multi_task_metrics[task_name] = metrics
 
             # Summing all task total losses (if it is not nan)
             if torch.isnan(losses['task_total_loss']) != True:
-                multi_task_losses['total_loss'] += losses['task_total_loss']
+                if 'total_loss' not in multi_task_losses['pose'].keys():
+                    multi_task_losses['pose']['total_loss'] = losses['task_total_loss']
+                else:
+                    multi_task_losses['pose']['total_loss'] += losses['task_total_loss']
+
+        # Logging the losses
+        for task_name in multi_task_losses.keys():
+            
+            # Logging the batch loss to Tensorboard
+            for loss_name, loss_value in multi_task_losses[task_name].items():
+                self.logger.log_metrics(mode, {f'{task_name}/{loss_name}/batch':loss_value.detach().clone()}, batch_idx)
+
+        # Calculate separate task metrics
+        for task_name in self.metrics.keys():
+
+            # Calculating the metrics
+            metrics = self.calculate_metrics(
+                task_name,
+                outputs,
+                batch,
+                gt_pred_matches
+            )
+
+            # Storing the task metrics
+            multi_task_metrics[task_name] = metrics
+
+        # Logging the metrics
+        for task_name in multi_task_metrics.keys():
+            for metric_name, metric_value in multi_task_metrics[task_name].items():
+                self.logger.log_metrics(mode, {f'{task_name}/{metric_name}/batch':metric_value.detach().clone()}, batch_idx) 
 
         return multi_task_losses, multi_task_metrics
 
-    def loss_function(self, task_name, outputs, inputs, gt_pred_matches):
+    def calculate_loss_function(self, task_name, outputs, inputs, gt_pred_matches):
         
         losses = {}
         
@@ -241,26 +253,6 @@ class PoseRegresssionTask(pl.LightningModule):
                 losses[loss_name] = loss_attrs['F'](outputs, inputs)
             elif loss_attrs['D'] == 'matched':
                 losses[loss_name] = loss_attrs['F'](gt_pred_matches)
-
-        # Indexing the task specific output
-        pred = outputs[task_name]
-        gt = inputs[task_name]
-
-        with torch.no_grad():
-
-            metrics = {}
-
-            for metric_name, metric_attrs in self.metrics[task_name].items():
-
-                # Handling times where metrics handle unexpectedly
-                if metric_name == 'iou' and task_name == 'mask':
-                    pred = outputs['auxilary']['cat_mask']
-
-                # Determing what type of input data
-                if metric_attrs['D'] == 'pixel-wise':
-                    metrics[metric_name] = metric_attrs['F'](pred, gt)
-                elif metric_attrs['D'] == 'matched':
-                    metrics[metric_name] = metric_attrs['F'](gt_pred_matches)
         
         # Remove losses that have nan
         true_losses = [x for x in losses.values() if torch.isnan(x) == False]
@@ -296,7 +288,33 @@ class PoseRegresssionTask(pl.LightningModule):
             if v.device == torch.device('cpu'):
                 raise RuntimeError(f'Invalid cpu tensor: {k}')
 
-        return losses, metrics
+        return losses
+
+    def calculate_metrics(self, task_name, outputs, inputs, gt_pred_matches):
+
+        with torch.no_grad():
+
+            metrics = {}
+
+            for metric_name, metric_attrs in self.metrics[task_name].items():
+
+                # Determing what type of input data
+                if metric_attrs['D'] == 'pixel-wise':
+                    
+                    # Indexing the task specific output
+                    pred = outputs[task_name]
+                    gt = inputs[task_name]
+
+                    # Handling times where metrics handle unexpectedly
+                    if metric_name == 'iou' and task_name == 'mask':
+                        pred = outputs['auxilary']['cat_mask']
+
+                    metrics[metric_name] = metric_attrs['F'](pred, gt)
+
+                elif metric_attrs['D'] == 'matched':
+                    metrics[metric_name] = metric_attrs['F'](gt_pred_matches)
+
+        return metrics
 
     def configure_optimizers(self):
 
@@ -476,9 +494,7 @@ if __name__ == '__main__':
             'f1': {'D': 'pixel-wise', 'F': pl.metrics.functional.f1_score}
         },
         'quaternion': {
-            #'mae': {'D': 'pixel-wise', 'F': pl.metrics.functional.regression.mae},
-            'rotation_accuracy': {'D': 'matched', 'F': lib.metrics.RotationAccuracy()},
-            'degree_error_AP_5': {'D': 'matched', 'F': lib.metrics.DegreeErrorMeanAP(5)}
+            'mae': {'D': 'pixel-wise', 'F': pl.metrics.functional.mean_absolute_error},
         },
         'xy': {
             'mae': {'D': 'pixel-wise', 'F': pl.metrics.functional.mean_absolute_error}
@@ -488,13 +504,11 @@ if __name__ == '__main__':
         },
         'scales': {
             'mae': {'D': 'pixel-wise', 'F': pl.metrics.functional.mean_absolute_error}
+        },
+        'pose': {
+            'rotation_accuracy': {'D': 'matched', 'F': lib.metrics.RotationAccuracy()},
+            'degree_error_AP_5': {'D': 'matched', 'F': lib.metrics.DegreeErrorMeanAP(5)}
         }
-    }
-    
-    # Noting what are the items that we want to see as the training develops
-    tracked_data = {
-        'minimize': list(tools.dm.compress_dict(criterion, additional_subkey='loss').keys()),
-        'maximize': list(tools.dm.compress_dict(metrics).keys())
     }
 
     # Deciding if to use a checkpoint to speed up training 
@@ -588,9 +602,8 @@ if __name__ == '__main__':
     custom_callback = plc.MyCallback(
         tasks=['mask', 'quaternion', 'xy', 'z', 'scales', 'pose'],
         hparams=runs_hparams,
-        tracked_data=tracked_data,
         checkpoint_monitor={
-            'quaternion/degree_error_AP_5': 'max'
+            'pose/degree_error_AP_5': 'max'
         }
     )
 
