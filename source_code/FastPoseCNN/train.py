@@ -69,7 +69,7 @@ class DEFAULT_POSE_HPARAM(argparse.Namespace):
     
     # Experiment Identification 
     EXPERIMENT_NAME = "TESTING"
-    CHECKPOINT = None #pathlib.Path(os.getenv("LOGS")) / '21-01-05' / '21-01-MSE_FULL-NOCS-resnet18-imagenet' / '_' / 'checkpoints' / 'last.ckpt'
+    CHECKPOINT = pathlib.Path(os.getenv("LOGS")) / '21-01-09' / '12-41-LAPTOP_FIX-NOCS-resnet18-imagenet' / '_' / 'checkpoints' / 'last.ckpt'
     DATASET_NAME = 'NOCS'
     SELECTED_CLASSES = tools.pj.constants.NUM_CLASSES[DATASET_NAME]
 
@@ -515,7 +515,7 @@ if __name__ == '__main__':
     if HPARAM.CHECKPOINT: # Not None
 
         # Loading from checkpoint
-        checkpoint = torch.load(HPARAM.CHECKPOINT)
+        checkpoint = torch.load(HPARAM.CHECKPOINT, map_location='cpu')
         OLD_HPARAM = checkpoint['hyper_parameters']
 
         # Merge the NameSpaces between the model's hyperparameters and 
