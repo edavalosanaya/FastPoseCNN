@@ -1,5 +1,6 @@
 import os
 import sys
+import gc
 
 import torch
 import torch.nn as nn
@@ -28,10 +29,10 @@ def class_compress(num_of_classes, cat_mask, data):
     """
 
     # Divide the data by the number of classes
-    class_data = torch.chunk(data, num_of_classes, dim=1)
+    all_class_data = torch.chunk(data, num_of_classes, dim=1)
 
     # Constructing the final compressed datas
-    compressed_data = torch.zeros_like(class_data[0], requires_grad=data.requires_grad)
+    compressed_data = torch.zeros_like(all_class_data[0], requires_grad=data.requires_grad)
 
     # Creating container for all class quats
     class_datas = []
@@ -47,7 +48,7 @@ def class_compress(num_of_classes, cat_mask, data):
 
         # Unsqueeze the class mask to make it (Nx1xHxW) making broadcastable with
         # the (NxAxHxW) data
-        class_data = torch.unsqueeze(class_mask, dim=1) * class_data[object_class_id-1]
+        class_data = torch.unsqueeze(class_mask, dim=1) * all_class_data[object_class_id-1]
 
         # Storing class_data into class_datas
         class_datas.append(class_data)
@@ -336,6 +337,25 @@ def stack_class_matches(matches, key):
         stacked_class_data[class_number] = torch.stack(class_data)
 
     return stacked_class_data
+
+#-------------------------------------------------------------------------------
+# Utility Functions (debugging)
+
+def count_tensors():
+
+    count = 0
+    empty_counter = 0
+
+    for obj in gc.get_objects():
+        try:
+            if torch.is_tensor(obj) or (hasattr(obj, 'data') and torch.is_tensor(obj.data)):
+                #print(type(obj), obj.size())
+                count += 1
+                if torch.empty(obj):
+                    empty_counter += 1
+        except: pass
+
+    return f'total: {count} - empty: {empty_counter}'
 
 def memory_leak_check():
     memory_percentage = torch.cuda.memory_allocated()/torch.cuda.max_memory_allocated()
