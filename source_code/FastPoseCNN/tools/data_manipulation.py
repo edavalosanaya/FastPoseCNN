@@ -166,7 +166,6 @@ def standardize_depth(depth):
 
 def compress_dict(my_dict, additional_subkey=None):
 
-
     new_dict = {}
 
     for key in my_dict.keys():
@@ -577,7 +576,7 @@ def aggregate_dense_sample(sample, intrinsics):
             pixel_xy = pixel_xy.reshape((-1,1))
 
             # Creating the translation RT matrix
-            translation_vector = create_translation_vector(pixel_xy, z, intrinsics)
+            translation_vector = create_translation_vector(pixel_xy, np.exp(z), intrinsics)
             RT = quat_2_RT_given_T_in_world(quaternion, translation_vector)
 
             # Storing data

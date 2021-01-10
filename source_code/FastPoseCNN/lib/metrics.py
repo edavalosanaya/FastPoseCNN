@@ -21,7 +21,6 @@ class DegreeErrorMeanAP(pl.metrics.Metric):
 
     def update(self, gt_pred_matches):
         """
-
         Args:
             pred_gt_matches [list]: 
             match ([dict]):
@@ -146,3 +145,54 @@ class RotationAccuracy(pl.metrics.Metric):
 
     def compute(self):
         return self.accuracy
+
+class Iou3dAP(pl.metrics.Metric):
+
+    def __init__(self):
+        super().__init__(f'3D_IOU_mAP')
+
+        # Adding state data
+        self.add_state('correct', default=torch.tensor(0), dist_reduce_fx='sum')
+        self.add_state('total', default=torch.tensor(0), dist_reduce_fx='sum')
+
+    def update(self, gt_pred_matches):
+        """
+        Args:
+            pred_gt_matches: [list]:
+            match ([dict]):
+                class_id: torch.Tensor
+                quaternion: torch.Tensor
+                xy: torch.Tensor
+                z: torch.Tensor
+                scales: torch.Tensor
+        """
+        pass
+
+    def compute(self):
+        return (self.correct.float() / self.total.float()) * 100
+
+class TranslationAP(pl.metrics.Metric):
+
+    def __init__(self):
+        super().__init__(f'Translation_mAP')
+
+        # Adding state data
+        self.add_state('correct', default=torch.tensor(0), dist_reduce_fx='sum')
+        self.add_state('total', default=torch.tensor(0), dist_reduce_fx='sum')
+
+    def update(self, gt_pred_matches):
+        """
+        Args:
+            pred_gt_matches: [list]:
+            match ([dict]):
+                class_id: torch.Tensor
+                quaternion: torch.Tensor
+                xy: torch.Tensor
+                z: torch.Tensor
+                scales: torch.Tensor
+        """
+        pass
+
+    def compute(self):
+        return (self.correct.float() / self.total.float()) * 100
+        
