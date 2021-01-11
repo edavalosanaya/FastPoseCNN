@@ -763,26 +763,19 @@ def compare_pose_performance_v4(sample, pred_cat_mask, pred_gt_matches, intrinsi
                 else:
                     np_match[k] = v
 
-            # Converting [0,1] xy to pixel xy
-            pixel_xy = dm.convert_norm_xy_to_pixel(np_match['xy'], draw_image.shape[0], draw_image.shape[1])
-
-            # separating gt and pred pixel xy
-            gt_pixel_xy = pixel_xy[0].reshape((-1,1))
-            pred_pixel_xy = pixel_xy[1].reshape((-1,1))
-
             # Creating the translation vectors
-            gt_T = dm.create_translation_vector(gt_pixel_xy, np_match['z'][0], intrinsics)
-            pred_T = dm.create_translation_vector(pred_pixel_xy, np_match['z'][1], intrinsics)
+            #gt_T = dm.create_translation_vector(np_match['xy'][0].reshape((-1,1)), np_match['z'][0], intrinsics)
+            #pred_T = dm.create_translation_vector(np_match['xy'][1].reshape((-1,1)), np_match['z'][1], intrinsics)
 
             # Creating rotation matrix
-            gt_RT = dm.quat_2_RT_given_T_in_world(np_match['quaternion'][0], gt_T)
-            pred_RT = dm.quat_2_RT_given_T_in_world(np_match['quaternion'][1], pred_T)
+            #gt_RT = dm.quat_2_RT_given_T_in_world(np_match['quaternion'][0], gt_T)
+            #pred_RT = dm.quat_2_RT_given_T_in_world(np_match['quaternion'][1], pred_T)
 
             # Drawing the ground truth pose
             draw_image = dr.draw_RT(
                 image = draw_image, 
                 intrinsics = intrinsics,
-                RT = gt_RT,
+                RT = np_match['RT'][0],
                 scale = np_match['scales'][0],
                 color=(0,255,255)
             )
@@ -791,7 +784,7 @@ def compare_pose_performance_v4(sample, pred_cat_mask, pred_gt_matches, intrinsi
             draw_image = dr.draw_RT(
                 image = draw_image, 
                 intrinsics = intrinsics,
-                RT = pred_RT,
+                RT = np_match['RT'][1],
                 scale = np_match['scales'][1],
                 color=(255,0,255)
             )

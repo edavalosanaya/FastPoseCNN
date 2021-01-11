@@ -940,6 +940,7 @@ class NOCSPoseRegDataset(torch.utils.data.Dataset):
     CLASSES = pj.constants.NOCS_CLASSES
     COLORMAP = pj.constants.NOCS_COLORMAP
     INTRINSICS = pj.constants.CAMERA_INTRINSICS
+    TORCH_INTRINSICS = torch.from_numpy(pj.constants.CAMERA_INTRINSICS).float()
     
     def __init__(
         self,

@@ -377,15 +377,22 @@ class MyCallback(pl.callbacks.Callback):
         # Applying activation function to the mask
         pred_cat_mask = outputs['auxilary']['cat_mask'].cpu().numpy()
 
+        agg_pred = lib.gtf.dense_class_data_aggregation(
+            mask=outputs['auxilary']['cat_mask'],
+            dense_class_data=outputs,
+            intrinsics=dataset.TORCH_INTRINSICS,
+        )
+
         # Obtain the matches between aggregated predictions and ground truth data
         agg_gt = lib.gtf.dense_class_data_aggregation(
             mask=batch['mask'],
-            dense_class_data=batch
+            dense_class_data=batch,
+            intrinsics=dataset.TORCH_INTRINSICS,
         )
 
         # Determine matches between the aggreated ground truth and preds
         gt_pred_matches = lib.gtf.find_matches_batched(
-            outputs['auxilary']['agg_pred'],
+            agg_pred,
             agg_gt
         )
 

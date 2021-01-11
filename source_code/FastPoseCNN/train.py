@@ -7,6 +7,7 @@ import pathlib
 import pdb
 
 import numpy as np
+import base64
 
 # Ignore annoying warnings
 os.environ["TF_CPP_MIN_LOG_LEVEL"]="3"
@@ -69,14 +70,14 @@ class DEFAULT_POSE_HPARAM(argparse.Namespace):
     
     # Experiment Identification 
     EXPERIMENT_NAME = "TESTING"
-    CHECKPOINT = pathlib.Path(os.getenv("LOGS")) / '21-01-09' / '12-41-LAPTOP_FIX-NOCS-resnet18-imagenet' / '_' / 'checkpoints' / 'last.ckpt'
+    CHECKPOINT = pathlib.Path(os.getenv("LOGS")) / '21-01-05' / '21-01-MSE_FULL-NOCS-resnet18-imagenet' / '_' / 'checkpoints' / 'last.ckpt'
     DATASET_NAME = 'NOCS'
     SELECTED_CLASSES = tools.pj.constants.NUM_CLASSES[DATASET_NAME]
 
     # Run Specifications
-    BATCH_SIZE = 8
+    BATCH_SIZE = 7
     NUM_WORKERS = 18 # 36 total CPUs
-    NUM_GPUS = 2
+    NUM_GPUS = 1
     TRAIN_SIZE=100#5000
     VALID_SIZE=10#200
 
@@ -180,12 +181,20 @@ class PoseRegresssionTask(pl.LightningModule):
         # Obtaining the aggregated values for the both the ground truth
         agg_gt = lib.gtf.dense_class_data_aggregation(
             mask=batch['mask'],
-            dense_class_data=batch
+            dense_class_data=batch,
+            intrinsics=self.trainer.datamodule.datasets['train'].TORCH_INTRINSICS
+        )
+
+        # Obtaining the aggregated values for the both the ground truth
+        agg_pred = lib.gtf.dense_class_data_aggregation(
+            mask=outputs['auxilary']['cat_mask'],
+            dense_class_data=outputs,
+            intrinsics=self.trainer.datamodule.datasets['train'].TORCH_INTRINSICS
         )
 
         # Determine matches between the aggreated ground truth and preds
         gt_pred_matches = lib.gtf.find_matches_batched(
-            outputs['auxilary']['agg_pred'],
+            agg_pred,
             agg_gt
         )
 
@@ -397,7 +406,10 @@ class PoseRegressionDataModule(pl.LightningDataModule):
             self.datasets = {
                 'train': train_dataset,
                 'valid': valid_dataset
-            }        
+            }
+        
+        else:
+            raise RuntimeError('Dataset needs to be selected')
 
     def get_loader(self, dataset_key):
 

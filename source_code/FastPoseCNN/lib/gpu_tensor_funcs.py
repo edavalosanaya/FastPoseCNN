@@ -72,7 +72,7 @@ def mask_gradients(to_be_masked, mask):
     if to_be_masked.requires_grad:
         to_be_masked.register_hook(lambda grad: grad * binary_mask.float())
 
-def dense_class_data_aggregation(mask, dense_class_data):
+def dense_class_data_aggregation(mask, dense_class_data, intrinsics):
     """
     Args:
         mask: NxHxW (categorical)
@@ -91,6 +91,7 @@ def dense_class_data_aggregation(mask, dense_class_data):
                 z: list (1)
                 xy: list (2)
                 quaternion: list (4)
+                T: list (3)
                 RT: list (4x4)
                 scales: list (3)
     """
@@ -106,7 +107,9 @@ def dense_class_data_aggregation(mask, dense_class_data):
             'quaternion': [],
             'xy': [],
             'z': [],
-            'scales': []
+            'scales': [],
+            'T': [],
+            'RT': []
         }
 
         # Selecting the samples mask
@@ -161,14 +164,26 @@ def dense_class_data_aggregation(mask, dense_class_data):
                 z = torch.sum(z_img, dim=(1,2)) / torch.sum(instance_mask)
                 scales = torch.sum(scales_img, dim=(1,2)) / torch.sum(instance_mask)
 
+                # Convert xy (embedded) to xy (pixel)
+                h,w = instance_mask.shape
+                pixel_xy = create_pixel_xy(xy, 'simple', h, w)
+
+                # Create translation vector
+                T = create_translation_vector(pixel_xy, torch.exp(z), intrinsics)
+
+                # Create rotation matrix
+                RT = quat_2_RT_given_T_in_world(quaternion, T)
+
                 # Storing per-sample data
                 single_sample_output['class_id'].append(class_id)
                 single_sample_output['instance_id'].append(instance_id)
                 single_sample_output['instance_mask'].append(instance_mask)
                 single_sample_output['quaternion'].append(quaternion)
-                single_sample_output['xy'].append(xy)
+                single_sample_output['xy'].append(pixel_xy)
                 single_sample_output['z'].append(z)
                 single_sample_output['scales'].append(scales)
+                single_sample_output['T'].append(T)
+                single_sample_output['RT'].append(RT)
 
         # Storing per sample data
         outputs.append(single_sample_output)
@@ -187,6 +202,7 @@ def find_matches_batched(preds, gts):
                 z: list (1)
                 xy: list (2)
                 quaternion: list (4)
+                T: list (3)
                 RT: list (4x4)
                 scales: list (3)
 
@@ -199,6 +215,8 @@ def find_matches_batched(preds, gts):
                 xy: torch.Tensor
                 z: torch.Tensor
                 scales: torch.Tensor
+                RT: torch.Tensor
+                T: torch.Tensor
     """
 
     pred_gt_matches = []
@@ -253,20 +271,30 @@ def find_matches_batched(preds, gts):
                     dtype=gts[n]['quaternion'][gt_id].dtype,
                     device=gts[n]['quaternion'][gt_id].device
                 )
-                standard_xy = torch.tensor(
-                    [0, 0],
+                standard_xy = torch.zeros_like(
+                    gts[n]['xy'][gt_id],
                     dtype=gts[n]['xy'][gt_id].dtype,
                     device=gts[n]['xy'][gt_id].device
                 )
-                standard_z = torch.tensor(
-                    [0],
+                standard_z = torch.zeros_like(
+                    gts[n]['z'][gt_id],
                     dtype=gts[n]['z'][gt_id].dtype,
                     device=gts[n]['z'][gt_id].device
                 )
-                standard_scales = torch.tensor(
-                    [0,0,0],
+                standard_scales = torch.zeros_like(
+                    gts[n]['scales'][gt_id],
                     dtype=gts[n]['scales'][gt_id].dtype,
                     device=gts[n]['scales'][gt_id].device
+                )
+                standard_T = torch.zeros_like(
+                    gts[n]['T'][gt_id],
+                    dtype=gts[n]['T'][gt_id].dtype,
+                    device=gts[n]['T'][gt_id].device
+                )
+                standard_RT = torch.zeros_like(
+                    gts[n]['RT'][gt_id],
+                    dtype=gts[n]['RT'][gt_id].dtype,
+                    device=gts[n]['RT'][gt_id].device
                 )
 
                 # Create a match container
@@ -278,6 +306,8 @@ def find_matches_batched(preds, gts):
                     'xy': torch.stack((gts[n]['xy'][gt_id], standard_xy)),
                     'z': torch.stack((gts[n]['z'][gt_id], standard_z)),
                     'scales': torch.stack((gts[n]['scales'][gt_id], standard_scales)),
+                    'T': torch.stack((gts[n]['T'][gt_id], standard_T)),
+                    'RT': torch.stack((gts[n]['RT'][gt_id], standard_RT)),
                 }
 
             # Else, use the best possible matched quaternion
@@ -297,18 +327,14 @@ def find_matches_batched(preds, gts):
                     'xy': torch.stack((gts[n]['xy'][gt_id], preds[n]['xy'][max_id])),
                     'z': torch.stack((gts[n]['z'][gt_id], preds[n]['z'][max_id])),
                     'scales': torch.stack((gts[n]['scales'][gt_id], preds[n]['scales'][max_id])),
+                    'T': torch.stack((gts[n]['T'][gt_id], preds[n]['T'][max_id])),
+                    'RT': torch.stack((gts[n]['RT'][gt_id], preds[n]['RT'][max_id])),
                 }
 
             # Store the container
             pred_gt_matches.append(match)
 
     return pred_gt_matches
-
-def torch_get_2d_iou(tensor1: torch.Tensor, tensor2: torch.Tensor) -> torch.Tensor:
-
-    intersection = torch.sum(torch.logical_and(tensor1, tensor2))
-    union = torch.sum(torch.logical_or(tensor1, tensor2))
-    return torch.true_divide(intersection,union)
 
 def stack_class_matches(matches, key):
 
@@ -339,7 +365,117 @@ def stack_class_matches(matches, key):
     return stacked_class_data
 
 #-------------------------------------------------------------------------------
-# Utility Functions (debugging)
+# Generative/Conversion Functions
+
+def create_pixel_xy(xy, input_type, h, w):
+
+    if input_type == 'simple':
+        pixel_xy = xy.clone()
+        pixel_xy[0] = xy[1] * w
+        pixel_xy[1] = xy[0] * h
+        pixel_xy = pixel_xy.reshape((-1,1))
+    else:
+        raise NotImplementedError("Other input_types for xy are not implemented yet!")
+
+    return pixel_xy
+
+def create_translation_vector(pixel_xy, exp_z, intrinsics):
+
+    # Including the Z component into the projection (2D to 3D)
+    projected_xy = pixel_xy.clone()
+    projected_xy = projected_xy * (exp_z/1000)
+
+    # Converting xy and z to xyz in homogenous form
+    homogenous_xyz = torch.vstack([projected_xy, exp_z.clone()/1000])
+
+    # Convert projections to world 3D coordinates
+    translation_vector = torch.inverse(intrinsics.to(pixel_xy.device)) @ homogenous_xyz
+
+    return translation_vector
+
+def quat_2_RT_given_T_in_world(q, T):
+
+    # First ensure that the quaternion is normalized
+    norm = q.norm()
+    if norm > 0:
+        q = q / norm
+    
+    # Convert quaternion to rotation matrix
+    R = quat_2_rotation_matrix(q)
+
+    # Modifying the rotation matrix to work
+    R = torch.rot90(R, 2).T
+    x = torch.tensor([
+        [1,-1,1],
+        [1,-1,1],
+        [-1,1,-1]
+    ], device=R.device, dtype=R.dtype)
+    R = torch.mul(R, x)
+
+    # Then invert the rotation matrix
+    inv_R = torch.inverse(R)
+
+    # Then combine to generate the inverse transformation matrix
+    inv_RT = torch.vstack([torch.hstack([inv_R, T]), torch.tensor([0,0,0,1], device=q.device, dtype=q.dtype)])
+
+    # Then undo the inverse to obtain the correct transformation matrix
+    RT = torch.inverse(inv_RT)
+
+    return RT
+
+def quat_2_rotation_matrix(quaternion):
+    # Code translated from here:
+    #https://github.com/KieranWynn/pyquaternion/blob/99025c17bab1c55265d61add13375433b35251af/pyquaternion/quaternion.py#L981
+
+    # Then perform the dot product between the q matrix and the q bar matrix
+    q_matrix = get_q_matrix(quaternion)
+    q_bar_matrix = get_q_bar_matrix(quaternion)
+    product = torch.mm(q_matrix, torch.conj(q_bar_matrix).T)
+
+    # Selecting the right components of the product creates the rotation matrix
+    R = product[1:][:,1:]
+
+    return R
+
+def get_q_matrix(q):
+
+    return torch.tensor([
+        [q[0], -q[1], -q[2], -q[3]],
+        [q[1],  q[0], -q[3],  q[2]],
+        [q[2],  q[3],  q[0], -q[1]],
+        [q[3], -q[2],  q[1],  q[0]]
+    ], device=q.device, dtype=q.dtype)
+
+def get_q_bar_matrix(q):
+
+    return torch.tensor([
+        [q[0], -q[1], -q[2], -q[3]],
+        [q[1],  q[0],  q[3], -q[2]],
+        [q[2], -q[3],  q[0],  q[1]],
+        [q[3],  q[2], -q[1],  q[0]]
+    ], device=q.device, dtype=q.dtype)
+
+def quat_2_rotation_matrix2(q):
+
+    qw, qx, qy, qz = q
+
+    return torch.tensor([
+        [1-2*(torch.pow(qy,2) - torch.pow(qz,2)), 2*(qx*qy - qz*qw)                      , 2*(qx*qz + qy*qw)],
+        [2*(qx*qy + qz*qw)                      , 1-2*(torch.pow(qx,2) - torch.pow(qz,2)), 2*(qy*qz - qx*qw)],
+        [2*(qx*qz - qy*qw)                      , 2*(qy*qz + qx*qw)                      , 1 - 2*(torch.pow(qx,2) - torch.pow(qy,2))]
+    ], device=q.device, dtype=q.dtype)
+
+#-------------------------------------------------------------------------------
+# Comparison Functions
+
+def torch_get_2d_iou(tensor1: torch.Tensor, tensor2: torch.Tensor) -> torch.Tensor:
+
+    intersection = torch.sum(torch.logical_and(tensor1, tensor2))
+    union = torch.sum(torch.logical_or(tensor1, tensor2))
+    return torch.true_divide(intersection,union)
+
+#-------------------------------------------------------------------------------
+# GPU Memory Functions
 
 def count_tensors():
 

@@ -1,4 +1,6 @@
 from typing import Optional, Union
+import os
+import base64
 
 import numpy as np
 
@@ -182,15 +184,18 @@ class PoseRegressor(torch.nn.Module):
         }
 
         # Aggregating predictions
+        """
         agg_pred = gtf.dense_class_data_aggregation(
             mask=cat_mask,
-            dense_class_data=output
+            dense_class_data=output,
+            intrinsics=self.intrinsics
         )
+        """
 
         # Attaching all non-logits outputs
         output['auxilary'] = {
             'cat_mask': cat_mask,
-            'agg_pred': agg_pred
+            #'agg_pred': agg_pred
         }
 
         return output

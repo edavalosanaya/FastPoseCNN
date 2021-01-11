@@ -148,8 +148,9 @@ class RotationAccuracy(pl.metrics.Metric):
 
 class Iou3dAP(pl.metrics.Metric):
 
-    def __init__(self):
-        super().__init__(f'3D_IOU_mAP')
+    def __init__(self, threshold):
+        super().__init__(f'3D_IOU_mAP_{threshold}')
+        self.threshold = threshold
 
         # Adding state data
         self.add_state('correct', default=torch.tensor(0), dist_reduce_fx='sum')
@@ -166,7 +167,19 @@ class Iou3dAP(pl.metrics.Metric):
                 z: torch.Tensor
                 scales: torch.Tensor
         """
-        pass
+        # Create matches that are only true
+        true_gt_pred_matches = []
+
+        # Remove false matches (meaning 'iou_2d_mask')
+        for match in gt_pred_matches:
+
+            # Keeping the match if the iou_2d_mask > 0
+            if match['iou_2d_mask'] > 0:
+                true_gt_pred_matches.append(match)
+
+        # If there is no true matches, simply end update function
+        if true_gt_pred_matches == []:
+            return
 
     def compute(self):
         return (self.correct.float() / self.total.float()) * 100
