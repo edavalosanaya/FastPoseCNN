@@ -53,20 +53,8 @@ class DegreeErrorMeanAP(pl.metrics.Metric):
             q0 = stacked_class_quaternion[class_number][:,0,:]
             q1 = stacked_class_quaternion[class_number][:,1,:]
 
-            # Determine the difference
-            q0_minus_q1 = q0 - q1
-            q0_plus_q1  = q0 + q1
-            
-            # Obtain the norm
-            d_minus = q0_minus_q1.norm(dim=1)
-            d_plus  = q0_plus_q1.norm(dim=1)
-
-            # Compare the norms and select the one with the smallest norm
-            ds = torch.stack((d_minus, d_plus))
-            rad_distance = torch.min(ds, dim=0).values
-
-            # Converting the rad to degree
-            degree_distance = torch.rad2deg(rad_distance)
+            # Calculating the distance between the quaternions
+            degree_distance = gtf.torch_quat_distance(q0, q1)
 
             # Compare against threshold
             thresh_degree_distance = (degree_distance < self.threshold)
@@ -78,11 +66,11 @@ class DegreeErrorMeanAP(pl.metrics.Metric):
     def compute(self):
         return (self.correct.float() / self.total.float()) * 100
 
-class RotationAccuracy(pl.metrics.Metric):
+class DegreeAccuracy(pl.metrics.Metric):
     # https://pytorch-lightning.readthedocs.io/en/stable/metrics.html
 
     def __init__(self):
-        super().__init__(f'rotation_accuracy')
+        super().__init__(f'degree_accuracy')
 
         # Adding state data
         self.add_state('accuracy', default=torch.tensor(0), dist_reduce_fx='mean')
@@ -122,20 +110,8 @@ class RotationAccuracy(pl.metrics.Metric):
             q0 = stacked_class_quaternion[class_number][:,0,:]
             q1 = stacked_class_quaternion[class_number][:,1,:]
 
-            # Determine the difference
-            q0_minus_q1 = q0 - q1
-            q0_plus_q1  = q0 + q1
-            
-            # Obtain the norm
-            d_minus = q0_minus_q1.norm(dim=1)
-            d_plus  = q0_plus_q1.norm(dim=1)
-
-            # Compare the norms and select the one with the smallest norm
-            ds = torch.stack((d_minus, d_plus))
-            rad_distance = torch.min(ds, dim=0).values
-
-            # Converting the rad to degree
-            degree_distance = torch.rad2deg(rad_distance)
+            # Calculating the distance between the quaternions
+            degree_distance = gtf.torch_quat_distance(q0, q1)
 
             # This rounds accuracy
             this_round_accuracy = torch.mean(degree_distance)
@@ -149,7 +125,7 @@ class RotationAccuracy(pl.metrics.Metric):
 class Iou3dAP(pl.metrics.Metric):
 
     def __init__(self, threshold):
-        super().__init__(f'3D_IOU_mAP_{threshold}')
+        super().__init__(f'3D_iou_mAP_{threshold}')
         self.threshold = threshold
 
         # Adding state data
@@ -181,8 +157,89 @@ class Iou3dAP(pl.metrics.Metric):
         if true_gt_pred_matches == []:
             return
 
+        # Obtain all the RT and scales stacked and categorized by class
+        stacked_class_RT = gtf.stack_class_matches(true_gt_pred_matches, 'RT')
+        stacked_class_scales = gtf.stack_class_matches(true_gt_pred_matches, 'scales')
+
+        # Performing task per class
+        for class_number in stacked_class_RT.keys():
+
+            # Grabbing the gt and pred (RT and scales)
+            gt_RTs = stacked_class_RT[class_number][:,0,:]
+            gt_scales = stacked_class_scales[class_number][:,0,:]
+            pred_RTs = stacked_class_RT[class_number][:,1,:]
+            pred_scales = stacked_class_scales[class_number][:,1,:]
+
+            # Calculating the iou 3d for between the ground truth and predicted 
+            ious_3d = gtf.get_3d_ious(gt_RTs, pred_RTs, gt_scales, pred_scales)
+
+            # Compare against threshold
+            thresh_iou_3d = (ious_3d < self.threshold)
+
+            # Update complete and total
+            self.correct = self.correct + torch.sum(thresh_iou_3d.int())
+            self.total = self.total + thresh_iou_3d.shape[0]
+
     def compute(self):
         return (self.correct.float() / self.total.float()) * 100
+
+class Iou3dAccuracy(pl.metrics.Metric):
+
+    def __init__(self):
+        super().__init__(f'3D_iou_accuracy')
+
+        # Adding state data
+        self.add_state('accuracy', default=torch.tensor(0), dist_reduce_fx='mean')
+
+    def update(self, gt_pred_matches):
+        """
+        Args:
+            pred_gt_matches: [list]:
+            match ([dict]):
+                class_id: torch.Tensor
+                quaternion: torch.Tensor
+                xy: torch.Tensor
+                z: torch.Tensor
+                scales: torch.Tensor
+        """
+        # Create matches that are only true
+        true_gt_pred_matches = []
+
+        # Remove false matches (meaning 'iou_2d_mask')
+        for match in gt_pred_matches:
+
+            # Keeping the match if the iou_2d_mask > 0
+            if match['iou_2d_mask'] > 0:
+                true_gt_pred_matches.append(match)
+
+        # If there is no true matches, simply end update function
+        if true_gt_pred_matches == []:
+            return
+
+        # Obtain all the RT and scales stacked and categorized by class
+        stacked_class_RT = gtf.stack_class_matches(true_gt_pred_matches, 'RT')
+        stacked_class_scales = gtf.stack_class_matches(true_gt_pred_matches, 'scales')
+
+        # Performing task per class
+        for class_number in stacked_class_RT.keys():
+
+            # Grabbing the gt and pred (RT and scales)
+            gt_RTs = stacked_class_RT[class_number][:,0,:]
+            gt_scales = stacked_class_scales[class_number][:,0,:]
+            pred_RTs = stacked_class_RT[class_number][:,1,:]
+            pred_scales = stacked_class_scales[class_number][:,1,:]
+
+            # Calculating the iou 3d for between the ground truth and predicted 
+            ious_3d = gtf.get_3d_ious(gt_RTs, pred_RTs, gt_scales, pred_scales)
+
+            # This rounds accuracy
+            this_round_accuracy = torch.mean(ious_3d)
+
+            # Update the mean accuracy
+            self.accuracy = (self.accuracy + this_round_accuracy) / 2
+
+    def compute(self):
+        return self.accuracy
 
 class TranslationAP(pl.metrics.Metric):
 
@@ -207,5 +264,4 @@ class TranslationAP(pl.metrics.Metric):
         pass
 
     def compute(self):
-        return (self.correct.float() / self.total.float()) * 100
-        
+        return (self.correct.float() / self.total.float()) * 100    

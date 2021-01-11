@@ -2,6 +2,8 @@ import os
 import sys
 import gc
 
+import numpy as np
+
 import torch
 import torch.nn as nn
 import torch.utils.dlpack
@@ -365,19 +367,36 @@ def stack_class_matches(matches, key):
     return stacked_class_data
 
 #-------------------------------------------------------------------------------
-# Generative/Conversion Functions
+# Camera/World Transformation Functions
 
-def create_pixel_xy(xy, input_type, h, w):
+def cartesian_2_homogeneous_coord(cartesian_coord):
+    """
+    Input: 
+        Cartesian Vector/Matrix of size [N,M]
+    Process:
+        Transforms a cartesian vector/matrix into a homogeneous by appending ones
+        as a new row to vector/matrix, making it a homogeneous vector/matrix.
+    Output:
+        Homogeneous Vector/Matrix of size [N+1, M]
+    """
 
-    if input_type == 'simple':
-        pixel_xy = xy.clone()
-        pixel_xy[0] = xy[1] * w
-        pixel_xy[1] = xy[0] * h
-        pixel_xy = pixel_xy.reshape((-1,1))
-    else:
-        raise NotImplementedError("Other input_types for xy are not implemented yet!")
+    homogeneous_coord = torch.vstack([cartesian_coord, torch.ones((1, cartesian_coord.shape[1]), device=cartesian_coord.device, dtype=cartesian_coord.dtype)])
+    return homogeneous_coord
 
-    return pixel_xy
+def homogeneous_2_cartesian_coord(homogeneous_coord):
+    """
+    Input: 
+        Homogeneous Vector/Matrix of size [N,M]
+    Process:
+        Transforms a homogeneous vector/matrix into a cartesian by removing the 
+        last row and dividing all the other rows by the last row, making it a 
+        cartesian vector/matrix.
+    Output:
+        Cartesian Vector/Matrix of size [N-1, M]
+    """
+
+    cartesian_coord = homogeneous_coord[:-1, :] / homogeneous_coord[-1, :]
+    return cartesian_coord
 
 def create_translation_vector(pixel_xy, exp_z, intrinsics):
 
@@ -423,6 +442,48 @@ def quat_2_RT_given_T_in_world(q, T):
 
     return RT
 
+def transform_3d_camera_coords_to_3d_world_coords(cartesian_camera_coordinates_3d, RT):
+    """
+    Input:
+        cartesian camera coordinates: [3, N]
+        RT: transformation matrix [4, 4]
+    Process:
+        Given the inputs, we do the following routine:
+            (1) Convert cartesian camera coordinates into homogeneous camera
+                coordinates.
+            (4) Convert homogeneous camera coordinate directly to homogeneous 3D
+                world coordinate by multiplying by the inverse of RT.
+            (5) Convert homogeneous 3D world coordinates into cartesian 3D world coordinates.
+    Output:
+        cartesian_projections_2d [2, N]
+    """
+
+    # Converting cartesian 3D coordinates to homogeneous 3D coordinates
+    homogeneous_camera_coordinates_3d = cartesian_2_homogeneous_coord(cartesian_camera_coordinates_3d)
+
+    # Obtaining the homogeneous world coordinates 3d
+    homogeneous_world_coordinates_3d = torch.inverse(RT) @ homogeneous_camera_coordinates_3d
+
+    # Converting the homogeneous projection into a cartesian projection
+    cartesian_world_coordinates_3d = homogeneous_2_cartesian_coord(homogeneous_world_coordinates_3d)
+
+    return cartesian_world_coordinates_3d 
+
+#-------------------------------------------------------------------------------
+# Generative/Conversion Functions
+
+def create_pixel_xy(xy, input_type, h, w):
+
+    if input_type == 'simple':
+        pixel_xy = xy.clone()
+        pixel_xy[0] = xy[1] * w
+        pixel_xy[1] = xy[0] * h
+        pixel_xy = pixel_xy.reshape((-1,1))
+    else:
+        raise NotImplementedError("Other input_types for xy are not implemented yet!")
+
+    return pixel_xy
+
 def quat_2_rotation_matrix(quaternion):
     # Code translated from here:
     #https://github.com/KieranWynn/pyquaternion/blob/99025c17bab1c55265d61add13375433b35251af/pyquaternion/quaternion.py#L981
@@ -465,6 +526,40 @@ def quat_2_rotation_matrix2(q):
         [2*(qx*qz - qy*qw)                      , 2*(qy*qz + qx*qw)                      , 1 - 2*(torch.pow(qx,2) - torch.pow(qy,2))]
     ], device=q.device, dtype=q.dtype)
 
+def get_3d_bbox(scale, shift = 0):
+    """
+    Input: 
+        scale: [3] or scalar
+        shift: [3] or scalar
+    Return 
+        bbox_3d: [3, N]
+
+    """
+    if hasattr(scale, "__iter__"):
+        bbox_3d = torch.tensor([
+            [scale[0] / 2, scale[1] / 2, scale[2] / 2],
+            [scale[0] / 2, scale[1] / 2, -scale[2] / 2],
+            [-scale[0] / 2, scale[1] / 2, scale[2] / 2],
+            [-scale[0] / 2, scale[1] / 2, -scale[2] / 2],
+            [scale[0] / 2, -scale[1] / 2, scale[2] / 2],
+            [scale[0] / 2, -scale[1] / 2, -scale[2] / 2],
+            [-scale[0] / 2, -scale[1] / 2, scale[2] / 2],
+            [-scale[0] / 2, -scale[1] / 2, -scale[2] / 2]], device=scale.device, dtype=scale.dtype)
+    else:
+        bbox_3d = torch.tensor([
+            [scale / 2, scale / 2, scale / 2],
+            [scale / 2, scale / 2, -scale / 2],
+            [-scale / 2, scale / 2, scale / 2],
+            [-scale / 2, scale / 2, -scale / 2],
+            [scale / 2, -scale / 2, scale / 2],
+            [scale / 2, -scale / 2, -scale / 2],
+            [-scale / 2, -scale / 2, scale / 2],
+            [-scale / 2, -scale / 2, -scale / 2]], device=scale.device, dtype=scale.dtype)
+
+    bbox_3d += shift
+    bbox_3d = bbox_3d.T
+    return bbox_3d 
+
 #-------------------------------------------------------------------------------
 # Comparison Functions
 
@@ -473,6 +568,96 @@ def torch_get_2d_iou(tensor1: torch.Tensor, tensor2: torch.Tensor) -> torch.Tens
     intersection = torch.sum(torch.logical_and(tensor1, tensor2))
     union = torch.sum(torch.logical_or(tensor1, tensor2))
     return torch.true_divide(intersection,union)
+
+def torch_quat_distance(q0, q1):
+
+    # Determine the difference
+    q0_minus_q1 = q0 - q1
+    q0_plus_q1  = q0 + q1
+    
+    # Obtain the norm
+    d_minus = q0_minus_q1.norm(dim=1)
+    d_plus  = q0_plus_q1.norm(dim=1)
+
+    # Compare the norms and select the one with the smallest norm
+    ds = torch.stack((d_minus, d_plus))
+    rad_distance = torch.min(ds, dim=0).values
+
+    # Converting the rad to degree
+    degree_distance = torch.rad2deg(rad_distance)
+
+    return degree_distance
+
+def y_rotation_matrix(theta):
+    return torch.tensor([
+        [torch.cos(theta), 0, torch.sin(theta), 0],
+        [0, 1, 0, 0],
+        [-torch.sin(theta), 0, torch.cos(theta), 0],
+        [0, 0, 0, 1]
+    ], device=theta.device, dtype=theta.dtype)
+
+def get_symmetric_3d_iou(RT_1, RT_2, scales_1, scales_2):
+
+    n = 20
+    max_iou = 0
+    for i in range(n):
+        theta = torch.tensor(2*np.pi*i/float(n), device=RT_1.device, dtype=RT_1.dtype)
+        rotated_RT1 = RT_1 @ y_rotation_matrix(theta)
+        max_iou = max(
+            max_iou,
+            get_asymmetric_3d_iou(
+                rotated_RT1,
+                RT_2,
+                scales_1,
+                scales_2
+            )
+        )
+
+def get_asymmetric_3d_iou(RT_1, RT_2, scales_1, scales_2):
+    
+    noc_cube_1 = get_3d_bbox(scales_1, 0)
+    bbox_3d_1 = transform_3d_camera_coords_to_3d_world_coords(noc_cube_1, RT_1)
+
+    noc_cube_2 = get_3d_bbox(scales_2, 0)
+    bbox_3d_2 = transform_3d_camera_coords_to_3d_world_coords(noc_cube_2, RT_2)
+
+    bbox_1_max = torch.amax(bbox_3d_1, dim=0)
+    bbox_1_min = torch.amin(bbox_3d_1, dim=0)
+    bbox_2_max = torch.amax(bbox_3d_2, dim=0)
+    bbox_2_min = torch.amin(bbox_3d_2, dim=0)
+
+    overlap_min = torch.maximum(bbox_1_min, bbox_2_min)
+    overlap_max = torch.minimum(bbox_1_max, bbox_2_max)
+
+    # intersections and union
+    if torch.amin(overlap_max - overlap_min) <0:
+        intersections = 0
+    else:
+        intersections = torch.prod(overlap_max - overlap_min)
+    
+    union = torch.prod(bbox_1_max - bbox_1_min) + torch.prod(bbox_2_max - bbox_2_min) - intersections
+    iou_3d = intersections / union
+    
+    return iou_3d
+
+def get_3d_iou(RT_1, RT_2, scales_1, scales_2):
+
+    symetry_flag = False
+    if symetry_flag:
+        return get_symmetric_3d_iou(RT_1, RT_2, scales_1, scales_2)
+    else:
+        return get_asymmetric_3d_iou(RT_1, RT_2, scales_1, scales_2)
+
+def get_3d_ious(RTs_1, RTs_2, scales_1, scales_2):
+
+    # For the number of entries, find the 3d_iou
+    ious_3d = []
+    for i in range(RTs_1.shape[0]):
+        ious_3d.append(get_3d_iou(RTs_1[i], RTs_2[i], scales_1[i], scales_2[i]))
+
+    ious_3d = torch.stack(ious_3d)
+
+    return ious_3d
 
 #-------------------------------------------------------------------------------
 # GPU Memory Functions

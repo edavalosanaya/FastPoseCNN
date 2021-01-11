@@ -518,8 +518,10 @@ if __name__ == '__main__':
             'mae': {'D': 'pixel-wise', 'F': pl.metrics.functional.mean_absolute_error}
         },
         'pose': {
-            'rotation_accuracy': {'D': 'matched', 'F': lib.metrics.RotationAccuracy()},
-            'degree_error_AP_5': {'D': 'matched', 'F': lib.metrics.DegreeErrorMeanAP(5)}
+            'degree_accuracy': {'D': 'matched', 'F': lib.metrics.DegreeAccuracy()},
+            'degree_error_AP_5': {'D': 'matched', 'F': lib.metrics.DegreeErrorMeanAP(5)},
+            'iou_3d_mAP_5': {'D': 'matched', 'F': lib.metrics.Iou3dAP(5)},
+            'iou_3d_accuracy': {'D': 'matched', 'F': lib.metrics.Iou3dAccuracy()}
         }
     }
 

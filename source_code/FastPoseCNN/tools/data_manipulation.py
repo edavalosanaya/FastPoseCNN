@@ -714,10 +714,10 @@ def get_asymmetric_3d_iou(RT_1, RT_2, scales_1, scales_2):
 def get_symmetric_3d_iou(RT_1, RT_2, scales_1, scales_2):
 
     def y_rotation_matrix(theta):
-            return np.array([[np.cos(theta), 0, np.sin(theta), 0],
-                             [0, 1, 0 , 0], 
-                             [-np.sin(theta), 0, np.cos(theta), 0],
-                             [0, 0, 0 , 1]])
+        return np.array([[np.cos(theta), 0, np.sin(theta), 0],
+                            [0, 1, 0 , 0], 
+                            [-np.sin(theta), 0, np.cos(theta), 0],
+                            [0, 0, 0 , 1]])
 
     n = 20
     max_iou = 0
