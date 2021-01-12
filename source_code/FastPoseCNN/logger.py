@@ -81,7 +81,7 @@ class MyLogger(pl.loggers.LightningLoggerBase):
         # Calculating the effective batch_size
         if self.pl_module.use_ddp:
             effective_batch_size = self.HPARAM.BATCH_SIZE * self.HPARAM.NUM_GPUS
-        elif self.pl_module.use_single_gpu or self.pl_module.use_dp:
+        elif self.pl_module.use_single_gpu or self.pl_module.use_dp or self.pl_module.on_gpu == False:
             effective_batch_size = self.HPARAM.BATCH_SIZE
         else:
             raise NotImplementedError('Invalid distributed backend option')
@@ -89,7 +89,7 @@ class MyLogger(pl.loggers.LightningLoggerBase):
         # Calculating the effective batch_idx
         if self.pl_module.use_ddp:
             effective_batch_idx = batch_idx * self.HPARAM.NUM_GPUS + 1
-        elif self.pl_module.use_single_gpu or self.pl_module.use_dp:
+        elif self.pl_module.use_single_gpu or self.pl_module.use_dp or self.pl_module.on_gpu == False:
             effective_batch_idx = batch_idx
         else:
             raise NotImplementedError('Invalid distributed backend option')

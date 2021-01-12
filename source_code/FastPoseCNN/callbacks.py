@@ -158,14 +158,20 @@ class MyCallback(pl.callbacks.Callback):
             tb_log_name = log_name.replace('/batch', '')
 
             # Move all items inside the logger into cuda:0
-            cuda_0_log = [x.to('cuda:0').float() for x in log[log_name] if torch.isnan(x) != True]
+            if pl_module.on_gpu:
+                cuda_0_log = [x.to('cuda:0').float() for x in log[log_name] if torch.isnan(x) != True]
+            else:
+                cuda_0_log = [x.to('cpu').float() for x in log[log_name] if torch.isnan(x) != True]
 
             # If cuda_0_log is not empty, then determine the average
             if cuda_0_log:
                 average = torch.mean(torch.stack(cuda_0_log))
             
             else: # else just use nan as the average
-                average = torch.tensor(float('nan')).to('cuda:0').float()
+                if pl_module.on_gpu():
+                    average = torch.tensor(float('nan')).to('cuda:0').float()
+                else:
+                    average = torch.tensor(float('nan')).to('cpu').float()
 
             # Log the average
             trainer.logger.log_metrics(

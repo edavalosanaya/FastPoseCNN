@@ -3,6 +3,7 @@ import sys
 import gc
 
 import numpy as np
+import scipy.ndimage
 
 import torch
 import torch.nn as nn
@@ -127,16 +128,8 @@ def dense_class_data_aggregation(mask, dense_class_data, intrinsics):
             # Selecting the class mask
             class_mask = (sample_mask == class_id) * torch.Tensor([1]).float().to(sample_mask.device)
 
-            # Converting torch to GPU numpy (cupy)
-            with cp.cuda.Device(class_mask.device.index):
-                cupy_class_mask = cp.asarray(class_mask)
-
-            # Shattering the segmentation into instances
-            cupy_instance_masks, num_of_instances = cupyx.scipy.ndimage.label(cupy_class_mask)
-
-            # Convert cupy to tensor
-            # https://discuss.pytorch.org/t/convert-torch-tensors-directly-to-cupy-tensors/2752/7
-            instance_masks = torch.utils.dlpack.from_dlpack(cupy_instance_masks.toDlpack())
+            # Breaking a class segmentation mask into instance masks
+            num_of_instances, instance_masks = break_segmentation_mask(class_mask)
 
             # Process data per instance
             for instance_id in range(1, num_of_instances+1):
@@ -472,6 +465,31 @@ def transform_3d_camera_coords_to_3d_world_coords(cartesian_camera_coordinates_3
 #-------------------------------------------------------------------------------
 # Generative/Conversion Functions
 
+def break_segmentation_mask(class_mask):
+
+    # Converting torch to GPU numpy (cupy)
+    if class_mask.is_cuda:
+        with cp.cuda.Device(class_mask.device.index):
+            cupy_class_mask = cp.asarray(class_mask)
+
+        # Shattering the segmentation into instances
+        cupy_instance_masks, num_of_instances = cupyx.scipy.ndimage.label(cupy_class_mask)
+
+        # Convert cupy to tensor
+        # https://discuss.pytorch.org/t/convert-torch-tensors-directly-to-cupy-tensors/2752/7
+        instance_masks = torch.utils.dlpack.from_dlpack(cupy_instance_masks.toDlpack())
+
+    else:
+        numpy_class_mask = np.asarray(class_mask)
+
+        # Shattering the segmentation into instances
+        numpy_instance_masks, num_of_instances = scipy.ndimage.label(numpy_class_mask)
+
+        # Convert numpy to tensor
+        instance_masks = torch.from_numpy(numpy_instance_masks)
+
+    return num_of_instances, instance_masks
+
 def create_pixel_xy(xy, input_type, h, w):
 
     if input_type == 'simple':
@@ -658,6 +676,20 @@ def get_3d_ious(RTs_1, RTs_2, scales_1, scales_2):
     ious_3d = torch.stack(ious_3d)
 
     return ious_3d
+
+def get_T_offset_errors(centers3d_1, centers3d_2):
+    
+    offset_errors = []
+    for i in range(centers3d_1.shape[0]):
+        offset_error = get_T_offset_error(centers3d_1[i], centers3d_2[i])
+        offset_errors.append(offset_error)
+
+    offset_errors = torch.stack(offset_errors)
+    return offset_errors
+
+def get_T_offset_error(center3d_1, center3d_2):
+    diff = center3d_1 - center3d_2
+    return torch.sqrt(torch.sum(torch.pow(diff,2)))
 
 #-------------------------------------------------------------------------------
 # GPU Memory Functions

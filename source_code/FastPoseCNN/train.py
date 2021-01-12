@@ -76,9 +76,9 @@ class DEFAULT_POSE_HPARAM(argparse.Namespace):
 
     # Run Specifications
     BATCH_SIZE = 7
-    NUM_WORKERS = 18 # 36 total CPUs
-    NUM_GPUS = 1
-    TRAIN_SIZE=100#5000
+    NUM_WORKERS = 0 # 36 total CPUs
+    NUM_GPUS = 0
+    TRAIN_SIZE=20#5000
     VALID_SIZE=10#200
 
     # Training Specifications
@@ -86,7 +86,7 @@ class DEFAULT_POSE_HPARAM(argparse.Namespace):
     FREEZE_MASK_DECODER = False
     LEARNING_RATE = 0.0001
     ENCODER_LEARNING_RATE = 0.0005
-    NUM_EPOCHS = 5
+    NUM_EPOCHS = 2
     DISTRIBUTED_BACKEND = None if NUM_GPUS <= 1 else 'ddp'
 
     # Architecture Parameters
@@ -294,8 +294,8 @@ class PoseRegresssionTask(pl.LightningModule):
 
         # Looking for the invalid tensor in the cpu
         for k,v in losses.items():
-            if v.device == torch.device('cpu'):
-                raise RuntimeError(f'Invalid cpu tensor: {k}')
+            if v.device != self.device:
+                raise RuntimeError(f'Invalid tensor for not being in the same device as the pl module: {k}')
 
         return losses
 
@@ -521,7 +521,9 @@ if __name__ == '__main__':
             'degree_accuracy': {'D': 'matched', 'F': lib.metrics.DegreeAccuracy()},
             'degree_error_AP_5': {'D': 'matched', 'F': lib.metrics.DegreeErrorMeanAP(5)},
             'iou_3d_mAP_5': {'D': 'matched', 'F': lib.metrics.Iou3dAP(5)},
-            'iou_3d_accuracy': {'D': 'matched', 'F': lib.metrics.Iou3dAccuracy()}
+            'iou_3d_accuracy': {'D': 'matched', 'F': lib.metrics.Iou3dAccuracy()},
+            'offset_error_AP_5cm': {'D': 'matched', 'F': lib.metrics.OffsetAP(5)},
+            'offset_accuracy': {'D': 'matched', 'F': lib.metrics.OffsetAccuracy()},
         }
     }
 
