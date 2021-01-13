@@ -1001,8 +1001,8 @@ class NOCSPoseRegDataset(torch.utils.data.Dataset):
         # Create dense representation of the data
         quaternions = dm.create_dense_quaternion(mask, json_data)
         scales = dm.create_dense_scales(mask, json_data)
-        #xy, z = dm.create_dense_3d_centers(mask, json_data)
-        xy, z = dm.create_simple_dense_3d_centers(mask, json_data)
+        xy, z = dm.create_dense_3d_centers(mask, json_data)
+        #xy, z = dm.create_simple_dense_3d_centers(mask, json_data)
 
         # After creating the dense data, replace the json_data['instance_dict']
         json_data['instance_dict'] = new_instance_dict

@@ -77,13 +77,13 @@ def get_visualized_masks(masks, colormap):
 
     return colorized_masks
 
-def get_visualized_u_vector_xy(mask, unit_vector, colormap='hsv'):
+def get_visualized_u_vector_xy(mask, xy, colormap='hsv'):
 
     # Make channels_last in the image
-    unit_vector = dm.set_image_data_format(unit_vector, 'channels_last')
+    xy = dm.set_image_data_format(xy, 'channels_last')
 
     # Determing the angle of the unit vectors: f: R^2 -> R^1
-    angle = np.arctan2(unit_vector[:,:,0], unit_vector[:,:,1])
+    angle = np.arctan2(xy[:,:,0], xy[:,:,1])
 
     # Create norm function to shift data to [0:1]
     norm = matplotlib.colors.Normalize(vmin=np.min(angle), vmax=np.max(angle))
@@ -98,6 +98,15 @@ def get_visualized_u_vector_xy(mask, unit_vector, colormap='hsv'):
     colorized_angle = np.where(np.expand_dims(mask, axis=-1) == 0, 0, colorized_angle)
 
     return colorized_angle
+
+def get_visualized_u_vector_xys(mask, xys, colormap='hsv'):
+
+    colorized_xys = np.zeros((xys.shape[0], xys.shape[2], xys.shape[3], 3), dtype=np.uint8)
+
+    for id, xy in enumerate(xys):
+        colorized_xys[id,:,:,:] = get_visualized_u_vector_xy(mask[id], xy, colormap)
+
+    return colorized_xys
 
 def get_visualized_simple_xy(xy):
 
@@ -459,8 +468,10 @@ def compare_xy_performance(sample, pred_xy, pred_cat_mask, mask_colormap):
     pred_mask_vis = get_visualized_masks(pred_cat_mask, mask_colormap)
 
     # Get colorized dense xy info
-    gt_xy_vis = get_visualized_simple_xys(sample['xy'])
-    pred_xy_vis = get_visualized_simple_xys(pred_xy)
+    #gt_xy_vis = get_visualized_simple_xys(sample['xy'])
+    #pred_xy_vis = get_visualized_simple_xys(pred_xy)
+    gt_xy_vis = get_visualized_u_vector_xys(sample['mask'], sample['xy'])
+    pred_xy_vis = get_visualized_u_vector_xys(pred_cat_mask, pred_xy)
 
     # Create a matplotlib figure illustrating the inputs vs outputs
     summary_fig = make_summary_figure(

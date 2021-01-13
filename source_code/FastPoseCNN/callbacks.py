@@ -168,7 +168,7 @@ class MyCallback(pl.callbacks.Callback):
                 average = torch.mean(torch.stack(cuda_0_log))
             
             else: # else just use nan as the average
-                if pl_module.on_gpu():
+                if pl_module.on_gpu:
                     average = torch.tensor(float('nan')).to('cuda:0').float()
                 else:
                     average = torch.tensor(float('nan')).to('cpu').float()

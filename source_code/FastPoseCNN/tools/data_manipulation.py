@@ -289,13 +289,13 @@ def create_dense_3d_centers(mask, json_data):
         vector = np.divide((center_2d - coord), np.expand_dims(np.linalg.norm(center_2d - coord, axis=-1), axis=-1))
 
         # Obtaining the z component for the 3D centroid
-        z_value = extract_z_from_RT(selected_RT)
+        z_value = np.log(extract_z_from_RT(selected_RT))
 
         # Applying the mask on the depth and the unit vectors
         z = instance_mask * z_value
         y = np.where(instance_mask, vector[:,:,0], 0)
         x = np.where(instance_mask, vector[:,:,1], 0)
-        xy = np.dstack([y,x])
+        xy = np.dstack([x,y])
 
         # Removing infinities and nan values
         xy = np.nan_to_num(xy)

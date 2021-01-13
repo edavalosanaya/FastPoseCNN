@@ -13,7 +13,7 @@ import base64
 os.environ["TF_CPP_MIN_LOG_LEVEL"]="3"
 warnings.filterwarnings('ignore')
 
-os.environ['CUDA_VISIBLE_DEVICES'] =  '2,3' #'0,1,2,3'
+os.environ['CUDA_VISIBLE_DEVICES'] =  '0,1,2,3'
 
 import torch
 import torch.nn.functional as F
@@ -75,18 +75,18 @@ class DEFAULT_POSE_HPARAM(argparse.Namespace):
     SELECTED_CLASSES = tools.pj.constants.NUM_CLASSES[DATASET_NAME]
 
     # Run Specifications
-    BATCH_SIZE = 7
-    NUM_WORKERS = 0 # 36 total CPUs
-    NUM_GPUS = 0
-    TRAIN_SIZE=20#5000
-    VALID_SIZE=10#200
+    BATCH_SIZE = 4
+    NUM_WORKERS = 18 # 36 total CPUs
+    NUM_GPUS = 4
+    TRAIN_SIZE=5000
+    VALID_SIZE=200
 
     # Training Specifications
     FREEZE_ENCODER = False
     FREEZE_MASK_DECODER = False
     LEARNING_RATE = 0.0001
     ENCODER_LEARNING_RATE = 0.0005
-    NUM_EPOCHS = 2
+    NUM_EPOCHS = 30
     DISTRIBUTED_BACKEND = None if NUM_GPUS <= 1 else 'ddp'
 
     # Architecture Parameters

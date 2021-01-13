@@ -1,3 +1,3 @@
-# FastPoseCNN: Real-time 6D Pose and Shape Estimation
+# FastPoseCNN: Real-time 6D Pose and Size Estimation
 
 

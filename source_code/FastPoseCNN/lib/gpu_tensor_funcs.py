@@ -142,8 +142,8 @@ def dense_class_data_aggregation(mask, dense_class_data, intrinsics):
                 quaternion_img = torch.where(quaternion_mask, dense_class_data['quaternion'][n], torch.zeros_like(quaternion_mask).float().to(sample_mask.device))
 
                 # Obtaining the pertaining xy
-                xy_mask = instance_mask.expand((2, instance_mask.shape[0], instance_mask.shape[1]))
-                xy_img = torch.where(xy_mask, dense_class_data['xy'][n], torch.zeros_like(xy_mask).float().to(sample_mask.device))
+                #xy_mask = instance_mask.expand((2, instance_mask.shape[0], instance_mask.shape[1]))
+                #xy_img = torch.where(xy_mask, dense_class_data['xy'][n], torch.zeros_like(xy_mask).float().to(sample_mask.device))
 
                 # Obtaining the pertaining z
                 z_mask = instance_mask.expand((1, instance_mask.shape[0], instance_mask.shape[1]))
@@ -155,13 +155,19 @@ def dense_class_data_aggregation(mask, dense_class_data, intrinsics):
 
                 # Aggregate the values via naive average
                 quaternion = torch.sum(quaternion_img, dim=(1,2)) / torch.sum(instance_mask)
-                xy = torch.sum(xy_img, dim=(1,2)) / torch.sum(instance_mask)
+                #xy = torch.sum(xy_img, dim=(1,2)) / torch.sum(instance_mask)
                 z = torch.sum(z_img, dim=(1,2)) / torch.sum(instance_mask)
                 scales = torch.sum(scales_img, dim=(1,2)) / torch.sum(instance_mask)
 
                 # Convert xy (embedded) to xy (pixel)
                 h,w = instance_mask.shape
-                pixel_xy = create_pixel_xy(xy, 'simple', h, w)
+                #pixel_xy = create_pixel_xy(xy, 'simple', h, w)
+
+                # ! Creating dummy xy for now
+                pixel_xy = torch.tensor([0, 0], dtype=dense_class_data['xy'][n].dtype, device=dense_class_data['xy'][n].device)
+                pixel_xy[0] = 0.5 * w
+                pixel_xy[1] = 0.5 * h
+                pixel_xy = pixel_xy.reshape((-1,1))
 
                 # Create translation vector
                 T = create_translation_vector(pixel_xy, torch.exp(z), intrinsics)
@@ -490,15 +496,12 @@ def break_segmentation_mask(class_mask):
 
     return num_of_instances, instance_masks
 
-def create_pixel_xy(xy, input_type, h, w):
+def create_pixel_xy(xy, h, w):
 
-    if input_type == 'simple':
-        pixel_xy = xy.clone()
-        pixel_xy[0] = xy[1] * w
-        pixel_xy[1] = xy[0] * h
-        pixel_xy = pixel_xy.reshape((-1,1))
-    else:
-        raise NotImplementedError("Other input_types for xy are not implemented yet!")
+    pixel_xy = xy.clone()
+    pixel_xy[0] = xy[1] * w
+    pixel_xy[1] = xy[0] * h
+    pixel_xy = pixel_xy.reshape((-1,1))
 
     return pixel_xy
 
