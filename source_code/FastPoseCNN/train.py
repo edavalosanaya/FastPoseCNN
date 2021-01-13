@@ -77,16 +77,16 @@ class DEFAULT_POSE_HPARAM(argparse.Namespace):
     # Run Specifications
     BATCH_SIZE = 4
     NUM_WORKERS = 18 # 36 total CPUs
-    NUM_GPUS = 4
-    TRAIN_SIZE=5000
-    VALID_SIZE=200
+    NUM_GPUS = 1
+    TRAIN_SIZE=100#5000
+    VALID_SIZE=20#200
 
     # Training Specifications
     FREEZE_ENCODER = False
     FREEZE_MASK_DECODER = False
     LEARNING_RATE = 0.0001
     ENCODER_LEARNING_RATE = 0.0005
-    NUM_EPOCHS = 30
+    NUM_EPOCHS = 3#30
     DISTRIBUTED_BACKEND = None if NUM_GPUS <= 1 else 'ddp'
 
     # Architecture Parameters
@@ -518,12 +518,12 @@ if __name__ == '__main__':
             'mae': {'D': 'pixel-wise', 'F': pl.metrics.functional.mean_absolute_error}
         },
         'pose': {
-            'degree_accuracy': {'D': 'matched', 'F': lib.metrics.DegreeAccuracy()},
+            'degree_error': {'D': 'matched', 'F': lib.metrics.DegreeError()},
             'degree_error_AP_5': {'D': 'matched', 'F': lib.metrics.DegreeErrorMeanAP(5)},
             'iou_3d_mAP_5': {'D': 'matched', 'F': lib.metrics.Iou3dAP(5)},
-            'iou_3d_accuracy': {'D': 'matched', 'F': lib.metrics.Iou3dAccuracy()},
+            'iou_3d_error': {'D': 'matched', 'F': lib.metrics.Iou3dError()},
             'offset_error_AP_5cm': {'D': 'matched', 'F': lib.metrics.OffsetAP(5)},
-            'offset_accuracy': {'D': 'matched', 'F': lib.metrics.OffsetAccuracy()},
+            'offset_error': {'D': 'matched', 'F': lib.metrics.OffsetError()},
         }
     }
 

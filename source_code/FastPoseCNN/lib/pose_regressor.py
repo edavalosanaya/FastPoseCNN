@@ -172,7 +172,7 @@ class PoseRegressor(torch.nn.Module):
         )
 
         # Squeezing the cc_z (Nx1xHxW) to (NxHxW) to match with ground truth
-        cc_z = torch.squeeze(cc_z)
+        cc_z = torch.squeeze(cc_z, dim=1)
 
         # Logits
         output = {

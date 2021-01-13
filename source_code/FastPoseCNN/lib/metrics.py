@@ -66,14 +66,14 @@ class DegreeErrorMeanAP(pl.metrics.Metric):
     def compute(self):
         return (self.correct.float() / self.total.float()) * 100
 
-class DegreeAccuracy(pl.metrics.Metric):
+class DegreeError(pl.metrics.Metric):
     # https://pytorch-lightning.readthedocs.io/en/stable/metrics.html
 
     def __init__(self):
-        super().__init__(f'degree_accuracy')
+        super().__init__(f'degree_error')
 
         # Adding state data
-        self.add_state('accuracy', default=torch.tensor(0), dist_reduce_fx='mean')
+        self.add_state('error', default=torch.tensor(0), dist_reduce_fx='mean')
 
     def update(self, gt_pred_matches):
         """
@@ -114,13 +114,13 @@ class DegreeAccuracy(pl.metrics.Metric):
             degree_distance = gtf.torch_quat_distance(q0, q1)
 
             # This rounds accuracy
-            this_round_accuracy = torch.mean(degree_distance)
+            this_round_error = torch.mean(degree_distance)
 
             # Update the mean accuracy
-            self.accuracy = (self.accuracy + this_round_accuracy) / 2
+            self.error = (self.error + this_round_error) / 2
 
     def compute(self):
-        return self.accuracy
+        return self.error
 
 class Iou3dAP(pl.metrics.Metric):
 
@@ -183,13 +183,13 @@ class Iou3dAP(pl.metrics.Metric):
     def compute(self):
         return (self.correct.float() / self.total.float()) * 100
 
-class Iou3dAccuracy(pl.metrics.Metric):
+class Iou3dError(pl.metrics.Metric):
 
     def __init__(self):
-        super().__init__(f'3D_iou_accuracy')
+        super().__init__(f'3D_iou_error')
 
         # Adding state data
-        self.add_state('accuracy', default=torch.tensor(0), dist_reduce_fx='mean')
+        self.add_state('error', default=torch.tensor(0), dist_reduce_fx='mean')
 
     def update(self, gt_pred_matches):
         """
@@ -233,13 +233,13 @@ class Iou3dAccuracy(pl.metrics.Metric):
             ious_3d = gtf.get_3d_ious(gt_RTs, pred_RTs, gt_scales, pred_scales)
 
             # This rounds accuracy
-            this_round_accuracy = torch.mean(ious_3d)
+            this_round_error = torch.mean(ious_3d)
 
             # Update the mean accuracy
-            self.accuracy = (self.accuracy + this_round_accuracy) / 2
+            self.error = (self.error + this_round_error) / 2
 
     def compute(self):
-        return self.accuracy
+        return self.error
 
 class OffsetAP(pl.metrics.Metric):
 
@@ -336,13 +336,13 @@ class OffsetAP(pl.metrics.Metric):
     def compute(self):
         return (self.correct.float() / self.total.float()) * 100
 
-class OffsetAccuracy(pl.metrics.Metric):
+class OffsetError(pl.metrics.Metric):
 
     def __init__(self):
-        super().__init__(f'offset_accuracy')
+        super().__init__(f'offset_error')
 
         # Adding state data
-        self.add_state('accuracy', default=torch.tensor(0), dist_reduce_fx='mean')
+        self.add_state('error', default=torch.tensor(0), dist_reduce_fx='mean')
 
     def update(self, gt_pred_matches):
         """
@@ -423,10 +423,10 @@ class OffsetAccuracy(pl.metrics.Metric):
             offset_errors *= 100
 
             # This rounds accuracy
-            this_round_accuracy = torch.mean(offset_errors)
+            this_round_error = torch.mean(offset_errors)
 
             # Update the mean accuracy
-            self.accuracy = (self.accuracy + this_round_accuracy) / 2
+            self.error = (self.error + this_round_error) / 2
 
     def compute(self):
-        return self.accuracy 
+        return self.error 
