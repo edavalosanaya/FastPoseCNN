@@ -15,7 +15,13 @@ import cupyx.scipy.ndimage
 
 # Local imports
 sys.path.append(os.getenv("TOOLS_DIR"))
-import visualize as vz
+
+try:
+    import visualize as vz
+except ImportError:
+    pass
+
+import hough_voting as hv
 
 #-------------------------------------------------------------------------------
 # Native PyTorch Functions
@@ -142,8 +148,8 @@ def dense_class_data_aggregation(mask, dense_class_data, intrinsics):
                 quaternion_img = torch.where(quaternion_mask, dense_class_data['quaternion'][n], torch.zeros_like(quaternion_mask).float().to(sample_mask.device))
 
                 # Obtaining the pertaining xy
-                #xy_mask = instance_mask.expand((2, instance_mask.shape[0], instance_mask.shape[1]))
-                #xy_img = torch.where(xy_mask, dense_class_data['xy'][n], torch.zeros_like(xy_mask).float().to(sample_mask.device))
+                xy_mask = instance_mask.expand((2, instance_mask.shape[0], instance_mask.shape[1]))
+                xy_img = torch.where(xy_mask, dense_class_data['xy'][n], torch.zeros_like(xy_mask).float().to(sample_mask.device))
 
                 # Obtaining the pertaining z
                 z_mask = instance_mask.expand((1, instance_mask.shape[0], instance_mask.shape[1]))
@@ -155,19 +161,11 @@ def dense_class_data_aggregation(mask, dense_class_data, intrinsics):
 
                 # Aggregate the values via naive average
                 quaternion = torch.sum(quaternion_img, dim=(1,2)) / torch.sum(instance_mask)
-                #xy = torch.sum(xy_img, dim=(1,2)) / torch.sum(instance_mask)
                 z = torch.sum(z_img, dim=(1,2)) / torch.sum(instance_mask)
                 scales = torch.sum(scales_img, dim=(1,2)) / torch.sum(instance_mask)
 
-                # Convert xy (embedded) to xy (pixel)
-                h,w = instance_mask.shape
-                #pixel_xy = create_pixel_xy(xy, 'simple', h, w)
-
-                # ! Creating dummy xy for now
-                pixel_xy = torch.tensor([0, 0], dtype=dense_class_data['xy'][n].dtype, device=dense_class_data['xy'][n].device)
-                pixel_xy[0] = 0.5 * w
-                pixel_xy[1] = 0.5 * h
-                pixel_xy = pixel_xy.reshape((-1,1))
+                # Convert xy (unit vector) to xy (pixel)
+                pixel_xy = hv.hough_voting(xy_img, instance_mask)
 
                 # Create translation vector
                 T = create_translation_vector(pixel_xy, torch.exp(z), intrinsics)
