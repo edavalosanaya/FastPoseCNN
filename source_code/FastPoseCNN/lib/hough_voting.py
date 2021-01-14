@@ -4,7 +4,7 @@ import scipy.special
 
 import gpu_tensor_funcs as gtf
 
-def hough_voting(uv_img, mask, N=50):
+def hough_voting(uv_img, mask, N=2):
 
     # Determine all the pixel that are in the mask
     pts = torch.stack(torch.where(mask), dim=1)
@@ -48,6 +48,19 @@ def hough_voting(uv_img, mask, N=50):
     # Indexing the pts unit vector values
     uv_img = uv_img.permute(1, 2, 0)
     uv_pt_pairs = uv_img[pt_pairs[:,:,0], pt_pairs[:,:,1]]
+
+    # Remove pairs if one of the pts has nan in it.
+    is_nan = torch.sum(torch.isnan(uv_pt_pairs), dim=(0,2)) != 0
+    
+    # If all are nan, then return nan
+    if is_nan.all():
+        return torch.tensor([float('nan'), float('nan')], device=uv_img.device).reshape((-1,1))
+    
+    # Elif any nan are present, keep only non_nan values
+    elif is_nan.any():
+        is_not_nan = ~is_nan
+        uv_pt_pairs = uv_pt_pairs[:,is_not_nan,:]
+        pt_pairs = pt_pairs[:,is_not_nan,:]
 
     # Construct the system of equations
     A = torch.stack((uv_pt_pairs[0], -uv_pt_pairs[1]), dim=-1)
