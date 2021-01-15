@@ -69,11 +69,12 @@ def generate_colormap(num_classes, cmap=matplotlib.cm.get_cmap('hsv'), bg_index=
 # All dataset variables
 
 constants.NUM_CLASSES = {}
+constants.INTRINSICS = {}
 
 #-------------------------------------------------------------------------------
 # NOCS Dataset Constants
 
-constants.CAMERA_INTRINSICS = np.array([[577.5, 0, 319.5], [0., 577.5, 239.5], [0., 0., 1.]]) # CAMERA intrinsics
+constants.INTRINSICS['NOCS'] = np.array([[577.5, 0, 319.5], [0., 577.5, 239.5], [0., 0., 1.]]) # CAMERA intrinsics
 
 constants.NOCS_CLASSES = ['bg', #0
                           'bottle', #1

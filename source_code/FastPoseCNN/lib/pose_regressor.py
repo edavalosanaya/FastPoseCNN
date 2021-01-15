@@ -25,6 +25,7 @@ class PoseRegressor(torch.nn.Module):
 
     def __init__(
         self,
+        intrinsics: torch.Tensor,
         architecture: str = 'FPN',
         encoder_name: str = "resnet34",
         encoder_depth: int = 5,
@@ -43,6 +44,7 @@ class PoseRegressor(torch.nn.Module):
 
         # Storing crucial parameters
         self.classes = classes # includes background
+        self.intrinsics = intrinsics
 
         # Obtain encoder
         self.encoder = smp.encoders.get_encoder(
@@ -184,18 +186,16 @@ class PoseRegressor(torch.nn.Module):
         }
 
         # Aggregating predictions
-        """
         agg_pred = gtf.dense_class_data_aggregation(
             mask=cat_mask,
             dense_class_data=output,
             intrinsics=self.intrinsics
         )
-        """
 
         # Attaching all non-logits outputs
         output['auxilary'] = {
             'cat_mask': cat_mask,
-            #'agg_pred': agg_pred
+            'agg_pred': agg_pred
         }
 
         return output

@@ -165,7 +165,10 @@ def dense_class_data_aggregation(mask, dense_class_data, intrinsics):
                 scales = torch.sum(scales_img, dim=(1,2)) / torch.sum(instance_mask)
 
                 # Convert xy (unit vector) to xy (pixel)
-                pixel_xy = hv.hough_voting(xy_img, instance_mask)
+                #pixel_xy = hv.hough_voting(xy_img, instance_mask)
+                h,w = instance_mask.shape
+                xy = torch.tensor([0,0], device=xy_img.device).float()
+                pixel_xy = create_pixel_xy(xy, h, w)
 
                 # Create translation vector
                 T = create_translation_vector(pixel_xy, torch.exp(z), intrinsics)

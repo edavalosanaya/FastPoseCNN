@@ -75,10 +75,10 @@ class DEFAULT_POSE_HPARAM(argparse.Namespace):
     SELECTED_CLASSES = tools.pj.constants.NUM_CLASSES[DATASET_NAME]
 
     # Run Specifications
-    BATCH_SIZE = 4
+    BATCH_SIZE = 6
     NUM_WORKERS = 18 # 36 total CPUs
-    NUM_GPUS = 1
-    TRAIN_SIZE=100#5000
+    NUM_GPUS = 4
+    TRAIN_SIZE=50#5000
     VALID_SIZE=20#200
 
     # Training Specifications
@@ -86,7 +86,7 @@ class DEFAULT_POSE_HPARAM(argparse.Namespace):
     FREEZE_MASK_DECODER = False
     LEARNING_RATE = 0.0001
     ENCODER_LEARNING_RATE = 0.0005
-    NUM_EPOCHS = 3#30
+    NUM_EPOCHS = 2#30
     DISTRIBUTED_BACKEND = None if NUM_GPUS <= 1 else 'ddp'
 
     # Architecture Parameters
@@ -185,16 +185,9 @@ class PoseRegresssionTask(pl.LightningModule):
             intrinsics=self.trainer.datamodule.datasets['train'].TORCH_INTRINSICS
         )
 
-        # Obtaining the aggregated values for the both the ground truth
-        agg_pred = lib.gtf.dense_class_data_aggregation(
-            mask=outputs['auxilary']['cat_mask'],
-            dense_class_data=outputs,
-            intrinsics=self.trainer.datamodule.datasets['train'].TORCH_INTRINSICS
-        )
-
         # Determine matches between the aggreated ground truth and preds
         gt_pred_matches = lib.gtf.find_matches_batched(
-            agg_pred,
+            outputs['auxilary']['agg_pred'],
             agg_gt
         )
 
@@ -546,6 +539,7 @@ if __name__ == '__main__':
 
         # Create base model
         base_model = lib.PoseRegressor(
+            intrinsics=torch.from_numpy(tools.pj.constants.INTRINSICS[HPARAM.DATASET_NAME]).float(),
             architecture=HPARAM.BACKBONE_ARCH,
             encoder_name=HPARAM.ENCODER,
             encoder_weights=HPARAM.ENCODER_WEIGHTS,
@@ -564,6 +558,7 @@ if __name__ == '__main__':
         
         # Creating base model
         base_model = lib.PoseRegressor(
+            intrinsics=torch.from_numpy(tools.pj.constants.INTRINSICS[HPARAM.DATASET_NAME]).float(),
             architecture=HPARAM.BACKBONE_ARCH,
             encoder_name=HPARAM.ENCODER,
             encoder_weights=HPARAM.ENCODER_WEIGHTS,

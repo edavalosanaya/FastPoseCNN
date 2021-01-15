@@ -939,8 +939,8 @@ class NOCSPoseRegDataset(torch.utils.data.Dataset):
 
     CLASSES = pj.constants.NOCS_CLASSES
     COLORMAP = pj.constants.NOCS_COLORMAP
-    INTRINSICS = pj.constants.CAMERA_INTRINSICS
-    TORCH_INTRINSICS = torch.from_numpy(pj.constants.CAMERA_INTRINSICS).float()
+    INTRINSICS = pj.constants.INTRINSICS['NOCS']
+    TORCH_INTRINSICS = torch.from_numpy(INTRINSICS).float()
     
     def __init__(
         self,
@@ -1001,7 +1001,7 @@ class NOCSPoseRegDataset(torch.utils.data.Dataset):
         # Create dense representation of the data
         quaternions = dm.create_dense_quaternion(mask, json_data)
         scales = dm.create_dense_scales(mask, json_data)
-        xy, z = dm.create_dense_3d_centers(mask, json_data)
+        xy, z = dm.create_dense_3d_centers(mask, json_data, self.INTRINSICS)
         #xy, z = dm.create_simple_dense_3d_centers(mask, json_data)
 
         # After creating the dense data, replace the json_data['instance_dict']

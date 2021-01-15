@@ -247,7 +247,7 @@ def create_dense_scales(mask, json_data):
 
     return scales
 
-def create_dense_3d_centers(mask, json_data):
+def create_dense_3d_centers(mask, json_data, intrinsics):
 
     # Ultimately the output
     xys = np.zeros((mask.shape[0], mask.shape[1], 2))
@@ -278,7 +278,7 @@ def create_dense_3d_centers(mask, json_data):
         center_2d = transform_3d_camera_coords_to_2d_quantized_projections(
             center,
             selected_RT,
-            project.constants.CAMERA_INTRINSICS
+            intrinsics
         )[0]
         center_2d = np.flip(center_2d)
 

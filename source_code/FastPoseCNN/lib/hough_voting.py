@@ -6,7 +6,10 @@ import scipy.special
 
 import gpu_tensor_funcs as gtf
 
-def hough_voting(uv_img, mask, N=50):
+#-------------------------------------------------------------------------------
+# Primary Hough Voting Routines
+
+def hough_voting(uv_img, mask, N=10):
 
     # Determine all the pixel that are in the mask
     pts = torch.stack(torch.where(mask), dim=1)
@@ -73,11 +76,13 @@ def hough_voting(uv_img, mask, N=50):
     #Y = lstsq_solver(A, B, pt_pairs, uv_pt_pairs)
     Y = batched_pinverse_solver(A, B, pt_pairs, uv_pt_pairs)
 
-    # Determine the average and standard deviation
-    pixel_xy = torch.mean(Y, dim=0).reshape((-1,1))
-    std_xy = torch.std(Y, dim=0)
+    # Determine the true 3D center
+    pixel_xy = simple_mean(Y)
 
     return pixel_xy
+
+#-------------------------------------------------------------------------------
+# Linear System of Equations Solvers
 
 def lstsq_solver(A, B, pt_pairs, uv_pt_pairs):
 
@@ -130,6 +135,20 @@ def batched_pinverse_solver(A, B, pt_pairs, uv_pt_pairs):
     Y = X1 * uv_pt_pairs[0] + pt_pairs[0]
 
     return Y
+
+#-------------------------------------------------------------------------------
+# Intersection Reduction Functions
+
+def simple_mean(Y):
+
+    return torch.mean(Y, dim=0).reshape((-1,1))
+
+def std_trimming_mean(Y, k=3):
+
+    raw_mean = torch.mean(Y, dim=0)
+    std = torch.std(Y, dim=0)
+
+#-------------------------------------------------------------------------------
 
 if __name__ == '__main__':
 
