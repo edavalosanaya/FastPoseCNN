@@ -1,10 +1,12 @@
+import time
+
 import torch
 
 import scipy.special
 
 import gpu_tensor_funcs as gtf
 
-def hough_voting(uv_img, mask, N=2):
+def hough_voting(uv_img, mask, N=50):
 
     # Determine all the pixel that are in the mask
     pts = torch.stack(torch.where(mask), dim=1)
@@ -67,6 +69,18 @@ def hough_voting(uv_img, mask, N=2):
     B = torch.stack((-pt_pairs[0], pt_pairs[1]), dim=-1)
     B = (B[:,:,0] + B[:,:,1]).reshape((pt_pairs.shape[1],-1,1))
 
+    # Solving the linear system of equations
+    #Y = lstsq_solver(A, B, pt_pairs, uv_pt_pairs)
+    Y = batched_pinverse_solver(A, B, pt_pairs, uv_pt_pairs)
+
+    # Determine the average and standard deviation
+    pixel_xy = torch.mean(Y, dim=0).reshape((-1,1))
+    std_xy = torch.std(Y, dim=0)
+
+    return pixel_xy
+
+def lstsq_solver(A, B, pt_pairs, uv_pt_pairs):
+
     # Determine the scalar required to make the vectors meet (per pt pair)
     Y = []
     for i in range(pt_pairs.shape[1]):
@@ -94,12 +108,28 @@ def hough_voting(uv_img, mask, N=2):
 
     # Combining the results
     Y = torch.stack(Y)
+    return Y
 
-    # Determine the average and standard deviation
-    pixel_xy = torch.mean(Y, dim=0).reshape((-1,1))
-    std_xy = torch.std(Y, dim=0)
+def batched_pinverse_solver(A, B, pt_pairs, uv_pt_pairs):
+    """
+    Optimized version of lstsq_solver function!
+    lstsq_solver: 0.0016908645629882812
+    batched_pinverse_solver: 0.0008175373077392578
+    """
 
-    return pixel_xy
+    # Solving the batch problem
+    X = torch.bmm(
+        torch.pinverse(A).float(),
+        B.float()
+    )
+
+    # Selecting the scalar needed for the first pt, to calculate the intersection
+    X1 = X[:,0,:]
+
+    # Using the determine values to find the intersection point y = mx + b
+    Y = X1 * uv_pt_pairs[0] + pt_pairs[0]
+
+    return Y
 
 if __name__ == '__main__':
 
