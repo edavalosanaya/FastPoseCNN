@@ -14,6 +14,7 @@ os.environ["TF_CPP_MIN_LOG_LEVEL"]="3"
 warnings.filterwarnings('ignore')
 
 os.environ['CUDA_VISIBLE_DEVICES'] =  '0,1,2,3'
+os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
 
 import torch
 import torch.nn.functional as F
@@ -77,8 +78,8 @@ class DEFAULT_POSE_HPARAM(argparse.Namespace):
     # Run Specifications
     BATCH_SIZE = 6
     NUM_WORKERS = 18 # 36 total CPUs
-    NUM_GPUS = 4
-    TRAIN_SIZE=50#5000
+    NUM_GPUS = 1
+    TRAIN_SIZE=100#5000
     VALID_SIZE=20#200
 
     # Training Specifications
@@ -86,7 +87,7 @@ class DEFAULT_POSE_HPARAM(argparse.Namespace):
     FREEZE_MASK_DECODER = False
     LEARNING_RATE = 0.0001
     ENCODER_LEARNING_RATE = 0.0005
-    NUM_EPOCHS = 2#30
+    NUM_EPOCHS = 5#30
     DISTRIBUTED_BACKEND = None if NUM_GPUS <= 1 else 'ddp'
 
     # Architecture Parameters
@@ -179,17 +180,17 @@ class PoseRegresssionTask(pl.LightningModule):
         outputs = self.model(batch['image'])
 
         # Obtaining the aggregated values for the both the ground truth
-        agg_gt = lib.gtf.dense_class_data_aggregation(
-            mask=batch['mask'],
-            dense_class_data=batch,
-            intrinsics=self.trainer.datamodule.datasets['train'].TORCH_INTRINSICS
+        agg_gt = self.model.aggregation_layer.forward(
+            batch['mask'],
+            categos=batch
         )
 
         # Determine matches between the aggreated ground truth and preds
-        gt_pred_matches = lib.gtf.find_matches_batched(
+        gt_pred_matches = lib.gtf.batchwise_find_matches(
             outputs['auxilary']['agg_pred'],
             agg_gt
         )
+        
 
         # Storage for losses and metrics depending on the task
         multi_task_losses = {'pose': {'total_loss': torch.tensor(0).float().to(self.device)}}
@@ -509,7 +510,10 @@ if __name__ == '__main__':
         },
         'scales': {
             'mae': {'D': 'pixel-wise', 'F': pl.metrics.functional.mean_absolute_error}
-        },
+        }
+    }
+
+    """
         'pose': {
             'degree_error': {'D': 'matched', 'F': lib.metrics.DegreeError()},
             'degree_error_AP_5': {'D': 'matched', 'F': lib.metrics.DegreeErrorMeanAP(5)},
@@ -518,7 +522,7 @@ if __name__ == '__main__':
             'offset_error_AP_5cm': {'D': 'matched', 'F': lib.metrics.OffsetAP(5)},
             'offset_error': {'D': 'matched', 'F': lib.metrics.OffsetError()},
         }
-    }
+    """
 
     # Deciding if to use a checkpoint to speed up training 
     if HPARAM.CHECKPOINT: # Not None
@@ -611,11 +615,11 @@ if __name__ == '__main__':
 
     # Creating my own callback
     custom_callback = plc.MyCallback(
-        tasks=['mask', 'quaternion', 'xy', 'z', 'scales', 'pose'],
+        tasks=['mask', 'quaternion', 'xy', 'z', 'scales'],#, 'pose'],
         hparams=runs_hparams,
-        checkpoint_monitor={
-            'pose/degree_error_AP_5': 'max'
-        }
+        #checkpoint_monitor={
+        #    'pose/degree_error_AP_5': 'max'
+        #}
     )
 
     # Checkpoint callbacks

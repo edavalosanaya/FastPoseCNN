@@ -23,7 +23,7 @@ import lib
 class MyCallback(pl.callbacks.Callback):
 
     @rank_zero_only
-    def __init__(self, tasks, hparams, checkpoint_monitor):
+    def __init__(self, tasks, hparams, checkpoint_monitor=None):
         super().__init__()
 
         # Saving parameters
@@ -31,22 +31,25 @@ class MyCallback(pl.callbacks.Callback):
         self.hparams = hparams
 
         # Creating dictionary containing information about checkpoint
-        self.checkpoint_monitor = {}
-        for k,v in checkpoint_monitor.items():
-            if v == 'min':
-                self.checkpoint_monitor[k] = {
-                    'mode': 'min',
-                    'best_value': np.inf,
-                    'saved_checkpoint_fp': None
-                }
-            elif v == 'max': # max
-                self.checkpoint_monitor[k] = {
-                    'mode': 'max',
-                    'best_value': 0,
-                    'saved_checkpoint_fp': None
-                }
-            else:
-                raise RuntimeError('Invalid mode: needs to be min or max')
+        if checkpoint_monitor:
+            self.checkpoint_monitor = {}
+            for k,v in checkpoint_monitor.items():
+                if v == 'min':
+                    self.checkpoint_monitor[k] = {
+                        'mode': 'min',
+                        'best_value': np.inf,
+                        'saved_checkpoint_fp': None
+                    }
+                elif v == 'max': # max
+                    self.checkpoint_monitor[k] = {
+                        'mode': 'max',
+                        'best_value': 0,
+                        'saved_checkpoint_fp': None
+                    }
+                else:
+                    raise RuntimeError('Invalid mode: needs to be min or max')
+        else:
+            self.checkpoint_monitor = checkpoint_monitor
 
     @rank_zero_only
     def on_train_epoch_end(self, trainer, pl_module, outputs):
@@ -60,59 +63,62 @@ class MyCallback(pl.callbacks.Callback):
         # Performing the shared functions of logging after end of epoch
         self.shared_epoch_end('valid', trainer, pl_module)
 
-        # Creating variable for possible metrics to monitor
-        # Removing /batch from the metrics
-        monitorable_metrics = [x.replace('/batch', '') for x in list(pl_module.logger.log['valid'].keys())]
+        # If a checkpoint system has been request it, perform it
+        if self.checkpoint_monitor:
 
-        # If there is nothing logged yet, this must be the sanity test. Skip this.
-        if monitorable_metrics == []:
-            return
+            # Creating variable for possible metrics to monitor
+            # Removing /batch from the metrics
+            monitorable_metrics = [x.replace('/batch', '') for x in list(pl_module.logger.log['valid'].keys())]
 
-        # Save checkpoint depending on logged metrics/losses
-        for monitor_name, monitor_data in self.checkpoint_monitor.items():
+            # If there is nothing logged yet, this must be the sanity test. Skip this.
+            if monitorable_metrics == []:
+                return
 
-            # if the monitor name is not in the list of metrics, then raise error
-            if monitor_name not in monitorable_metrics:
-                raise RuntimeError(f'Invalid monitor name: possible include {monitorable_metrics}')
+            # Save checkpoint depending on logged metrics/losses
+            for monitor_name, monitor_data in self.checkpoint_monitor.items():
 
-            # Given the mode ('min' or 'max'), determine if the current epoch 
-            # scores better than the previous saved checkpoint
-            if monitor_data['mode'] == 'min':
-                comparison = operator.le
-            else: # 'max'
-                comparison = operator.ge
+                # if the monitor name is not in the list of metrics, then raise error
+                if monitor_name not in monitorable_metrics:
+                    raise RuntimeError(f'Invalid monitor name: possible include {monitorable_metrics}')
 
-            # Obtaining the values that need to be compared
-            current_value = pl_module.logger.log['valid'][monitor_name+'/batch'][0]
-            best_value = monitor_data['best_value']
+                # Given the mode ('min' or 'max'), determine if the current epoch 
+                # scores better than the previous saved checkpoint
+                if monitor_data['mode'] == 'min':
+                    comparison = operator.le
+                else: # 'max'
+                    comparison = operator.ge
 
-            # If current is better than best, then update
-            if comparison(current_value, best_value):
+                # Obtaining the values that need to be compared
+                current_value = pl_module.logger.log['valid'][monitor_name+'/batch'][0]
+                best_value = monitor_data['best_value']
 
-                # Delete previous checkpoint (if it exist)
-                if monitor_data['saved_checkpoint_fp']:
-                    try:
-                        os.remove(monitor_data['saved_checkpoint_fp'])
-                    except FileNotFoundError:
-                        pass
+                # If current is better than best, then update
+                if comparison(current_value, best_value):
 
-                # Generating new checkpoint filepath
-                safe_monitor_name = monitor_name.replace("/", "_")
-                new_checkpoint_fp = f'epoch={trainer.current_epoch+1}--{safe_monitor_name}={current_value:.2f}.ckpt'
-                
-                # Avoid using trainer.log_dir, it causes the program to
-                # unexplaniably freeze right before training epoch.
-                #complete_checkpoint_path = trainer.log_dir + '/checkpoints/' + new_checkpoint_fp
-                complete_checkpoint_path = os.getenv('RUNS_LOG_DIR') + '/_/checkpoints/' + new_checkpoint_fp
+                    # Delete previous checkpoint (if it exist)
+                    if monitor_data['saved_checkpoint_fp']:
+                        try:
+                            os.remove(monitor_data['saved_checkpoint_fp'])
+                        except FileNotFoundError:
+                            pass
 
-                # Saving new checkpoint
-                #trainer.save_checkpoint(complete_checkpoint_path)
+                    # Generating new checkpoint filepath
+                    safe_monitor_name = monitor_name.replace("/", "_")
+                    new_checkpoint_fp = f'epoch={trainer.current_epoch+1}--{safe_monitor_name}={current_value:.2f}.ckpt'
+                    
+                    # Avoid using trainer.log_dir, it causes the program to
+                    # unexplaniably freeze right before training epoch.
+                    #complete_checkpoint_path = trainer.log_dir + '/checkpoints/' + new_checkpoint_fp
+                    complete_checkpoint_path = os.getenv('RUNS_LOG_DIR') + '/_/checkpoints/' + new_checkpoint_fp
 
-                # Saving the checkpoints location
-                self.checkpoint_monitor[monitor_name]['saved_checkpoint_fp'] = complete_checkpoint_path
+                    # Saving new checkpoint
+                    #trainer.save_checkpoint(complete_checkpoint_path)
 
-                # Save the current value as the best value now
-                self.checkpoint_monitor[monitor_name]['best_value'] = current_value
+                    # Saving the checkpoints location
+                    self.checkpoint_monitor[monitor_name]['saved_checkpoint_fp'] = complete_checkpoint_path
+
+                    # Save the current value as the best value now
+                    self.checkpoint_monitor[monitor_name]['best_value'] = current_value
 
         return None
 

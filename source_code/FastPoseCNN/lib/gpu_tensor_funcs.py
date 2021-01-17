@@ -315,28 +315,93 @@ def find_matches_batched(preds, gts):
             # Else, use the best possible matched quaternion
             else:
                 # use the mask with the highest 2d iou score
-                max_id = torch.argmax(all_iou_2d)
+                max_pred_id = torch.argmax(all_iou_2d)
 
                 # Mark the mask_id as taken
-                used_pred_ids.append(max_id)
+                used_pred_ids.append(max_pred_id)
 
                 # Create a match container
                 match = {
                     'sample_id': n,
                     'class_id': gts[n]['class_id'][gt_id],
                     'iou_2d_mask': max_iou_2d_mask,
-                    'quaternion': torch.stack((gts[n]['quaternion'][gt_id], preds[n]['quaternion'][max_id])),
-                    'xy': torch.stack((gts[n]['xy'][gt_id], preds[n]['xy'][max_id])),
-                    'z': torch.stack((gts[n]['z'][gt_id], preds[n]['z'][max_id])),
-                    'scales': torch.stack((gts[n]['scales'][gt_id], preds[n]['scales'][max_id])),
-                    'T': torch.stack((gts[n]['T'][gt_id], preds[n]['T'][max_id])),
-                    'RT': torch.stack((gts[n]['RT'][gt_id], preds[n]['RT'][max_id])),
+                    'quaternion': torch.stack((gts[n]['quaternion'][gt_id], preds[n]['quaternion'][max_pred_id])),
+                    'xy': torch.stack((gts[n]['xy'][gt_id], preds[n]['xy'][max_pred_id])),
+                    'z': torch.stack((gts[n]['z'][gt_id], preds[n]['z'][max_pred_id])),
+                    'scales': torch.stack((gts[n]['scales'][gt_id], preds[n]['scales'][max_pred_id])),
+                    'T': torch.stack((gts[n]['T'][gt_id], preds[n]['T'][max_pred_id])),
+                    'RT': torch.stack((gts[n]['RT'][gt_id], preds[n]['RT'][max_pred_id])),
                 }
 
             # Store the container
             pred_gt_matches.append(match)
 
     return pred_gt_matches
+
+def batchwise_find_matches(preds, gts):
+
+    pred_gt_matches = []
+
+    # For each class
+    for class_id in range(len(preds)):
+
+        class_data = {}
+
+        # Check the number of instances in pred and gts dicts
+        n_of_m1 = gts[class_id]['instance_masks'].shape[0]
+        n_of_m2 = preds[class_id]['instance_masks'].shape[0]
+
+        # If there is no instances of this class to begin with
+        if n_of_m1 == 0 or n_of_m2 == 0:
+            pred_gt_matches.append(class_data)
+            continue
+
+        # Find the 2D Iou between the pred and gt instance masks
+        iou_2ds = batchwise_get_2d_iou(
+            gts[class_id]['instance_masks'],
+            preds[class_id]['instance_masks']
+        )
+
+        #iou_2ds = torch.zeros((n_of_m1, n_of_m2))
+        #min_n = min(n_of_m1, n_of_m2)
+        #iou_2ds[torch.arange(min_n), torch.arange(min_n)] = 1
+
+        # Pair ground truth and predictions based on their iou_2ds
+        max_v, max_pred_id = torch.max(iou_2ds, dim=1)
+        max_gt_id = torch.arange(n_of_m1)
+
+        # Removing those whose max iou2d was zero
+        valid_max_id = max_v > 0
+
+        # Check that there is true matches to begin
+        if (valid_max_id == False).all():
+            pred_gt_matches.append(class_data)
+            continue            
+
+        # Keep only good matches
+        max_v = max_v[valid_max_id]
+        max_pred_id = max_pred_id[valid_max_id]
+        max_gt_id = max_gt_id[valid_max_id]
+
+        # Storing shared data
+        class_data['sample_ids'] = gts[class_id]['sample_ids'][max_gt_id]
+
+        # Select the match data and combined them together!
+        for data_key in ['instance_masks', 'quaternion', 'scales', 'xy', 'z', 'RT']:
+            stacked_data = torch.stack(
+                (
+                    gts[class_id][data_key][max_gt_id],
+                    preds[class_id][data_key][max_pred_id]
+                )
+            )
+
+            # Store stacked data
+            class_data[data_key] = stacked_data
+
+        # Store the class-specific data into the multi-class data container
+        pred_gt_matches.append(class_data)
+
+        return pred_gt_matches        
 
 def stack_class_matches(matches, key):
 
@@ -469,6 +534,49 @@ def transform_3d_camera_coords_to_3d_world_coords(cartesian_camera_coordinates_3
 
     return cartesian_world_coordinates_3d 
 
+def batchwise_get_RT(q, xys, exp_zs, inv_intrinsics):
+
+    # q = quaternion
+
+    # First construct the translation vector matrix
+    homogenous_xyzs = torch.vstack([xys.T, exp_zs.T])
+    T = inv_intrinsics @ homogenous_xyzs # torch.inverse(intrinsics) @ homo_xyz
+
+    # Then create R
+    norm = q.norm(dim=1)
+    safe_norm = torch.where(norm > 0, norm, torch.ones_like(norm, device=q.device))
+    q = q / torch.unsqueeze(safe_norm, dim=1)
+
+    # Creating container for the all R
+    R = torch.zeros((q.shape[0], 3, 3), device=q.device, dtype=q.dtype)
+
+    # Correction matrix
+    x = torch.tensor([
+        [1,-1,1],
+        [1,-1,1],
+        [-1,1,-1]
+    ], device=q.device, dtype=q.dtype)
+
+    # Processing each quaternion individually (too hard)
+    for i in range(q.shape[0]):
+        r = quat_2_rotation_matrix(q[i])
+        R[i] = torch.mul(torch.rot90(r, 2).T, x)
+    
+    # Need the inverse version to combine it with the translation
+    inv_R = torch.inverse(R)
+
+    # Then combining it to the translation vector
+    inv_RT = torch.cat(
+        [
+            torch.cat([inv_R, torch.unsqueeze(T.T, dim=-1)], dim=-1), 
+            torch.tensor([0,0,0,1], device=q.device, dtype=q.dtype).expand((q.shape[0],1,4))
+        ], dim=1)
+
+    # Inversing it to get the actual RT
+    RT = torch.inverse(inv_RT)
+
+    return RT
+
 #-------------------------------------------------------------------------------
 # Generative/Conversion Functions
 
@@ -590,6 +698,31 @@ def torch_get_2d_iou(tensor1: torch.Tensor, tensor2: torch.Tensor) -> torch.Tens
     intersection = torch.sum(torch.logical_and(tensor1, tensor2))
     union = torch.sum(torch.logical_or(tensor1, tensor2))
     return torch.true_divide(intersection,union)
+
+def batchwise_get_2d_iou(batch_masks1, batch_masks2):
+
+    # Number of masks
+    n_of_m1, h, w = batch_masks1.shape
+    n_of_m2 = batch_masks2.shape[0]
+
+    # Expand the masks to match size
+    expanded_b_masks1 = torch.unsqueeze(batch_masks1, dim=1).expand((n_of_m1, n_of_m2, h, w))
+    expanded_b_masks2 = batch_masks2.expand((n_of_m1, n_of_m2, h, w))
+
+    # Calculating the intersection and union
+    intersection = torch.sum(
+        torch.logical_and(expanded_b_masks1, expanded_b_masks2),
+        dim=(2,3)
+    )
+    union = torch.sum(
+        torch.logical_or(expanded_b_masks1, expanded_b_masks2),
+        dim=(2,3)
+    )
+
+    # Calculating iou
+    iou = intersection / union
+    
+    return iou
 
 def torch_quat_distance(q0, q1):
 

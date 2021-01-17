@@ -13,6 +13,7 @@ import segmentation_models_pytorch as smp
 # Local imports 
 import initialization as init
 import gpu_tensor_funcs as gtf
+import aggregation_layer as al
 
 #-------------------------------------------------------------------------------
 
@@ -107,6 +108,9 @@ class PoseRegressor(torch.nn.Module):
             upsampling=upsampling,
         )
 
+        # Creating aggregation layer
+        self.aggregation_layer = al.AggregationLayer(self.classes, self.intrinsics)
+
         # initialize the network
         init.initialize_decoder(self.mask_decoder)
         init.initialize_head(self.segmentation_head)
@@ -144,58 +148,31 @@ class PoseRegressor(torch.nn.Module):
         xy_logits = xyz_logits[:,xy_index,:,:]
         z_logits = xyz_logits[:,z_index,:,:]
 
+        # Storing all logits in a dictionary
+        logits = {
+            'quaternion': quat_logits,
+            'scales': scales_logits,
+            'xy': xy_logits,
+            'z': z_logits
+        }
+
         # Create categorical mask
         cat_mask = torch.argmax(torch.nn.LogSoftmax(dim=1)(mask_logits), dim=1)
 
-        # Class Compressing (cc) quaternions by masking it with the categorical mask
-        # Compressing the quaternion output to account for the segmentation output
-        cc_quaternion = gtf.class_compress(
-            num_of_classes = self.classes - 1,
-            cat_mask = cat_mask,
-            data = quat_logits
+        # Aggregating the results
+        agg_pred, cc_logits = self.aggregation_layer.forward(
+            cat_mask, 
+            logits=logits
         )
 
-        cc_xy = gtf.class_compress(
-            num_of_classes = self.classes - 1,
-            cat_mask = cat_mask,
-            data = xy_logits
-        )
-
-        cc_z = gtf.class_compress(
-            num_of_classes = self.classes - 1,
-            cat_mask = cat_mask,
-            data = z_logits
-        )
-
-        cc_scales = gtf.class_compress(
-            num_of_classes = self.classes - 1,
-            cat_mask = cat_mask,
-            data = scales_logits
-        )
-
-        # Squeezing the cc_z (Nx1xHxW) to (NxHxW) to match with ground truth
-        cc_z = torch.squeeze(cc_z, dim=1)
-
-        # Logits
+        # Generating complete output
         output = {
             'mask': mask_logits,
-            'quaternion': cc_quaternion,
-            'xy': cc_xy,
-            'z': cc_z,
-            'scales': cc_scales
-        }
-
-        # Aggregating predictions
-        agg_pred = gtf.dense_class_data_aggregation(
-            mask=cat_mask,
-            dense_class_data=output,
-            intrinsics=self.intrinsics
-        )
-
-        # Attaching all non-logits outputs
-        output['auxilary'] = {
-            'cat_mask': cat_mask,
-            'agg_pred': agg_pred
+            **cc_logits,
+            'auxilary': {
+                'cat_mask': cat_mask,
+                'agg_pred': agg_pred
+            }
         }
 
         return output

@@ -19,7 +19,7 @@ def hough_voting(uv_img, mask, N=10):
 
     # If there is less than 2 points, return nan
     if num_of_pts < 2:
-        return torch.tensor([float('nan'), float('nan')], device=uv_img.device).reshape((-1,1))
+        return torch.tensor([float('nan'), float('nan')], device=uv_img.device)
 
     # Selecting random pairs of pts (0-n) [n = number of pts]
     # By using torch.multinomial: https://pytorch.org/docs/stable/generated/torch.multinomial.html?highlight=multinomial
@@ -59,7 +59,7 @@ def hough_voting(uv_img, mask, N=10):
     
     # If all are nan, then return nan
     if is_nan.all():
-        return torch.tensor([float('nan'), float('nan')], device=uv_img.device).reshape((-1,1))
+        return torch.tensor([float('nan'), float('nan')], device=uv_img.device)
     
     # Elif any nan are present, keep only non_nan values
     elif is_nan.any():
@@ -141,7 +141,7 @@ def batched_pinverse_solver(A, B, pt_pairs, uv_pt_pairs):
 
 def simple_mean(Y):
 
-    return torch.mean(Y, dim=0).reshape((-1,1))
+    return torch.mean(Y, dim=0)
 
 def std_trimming_mean(Y, k=3):
 
