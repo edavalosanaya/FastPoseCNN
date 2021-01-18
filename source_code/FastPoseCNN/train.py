@@ -95,6 +95,9 @@ class DEFAULT_POSE_HPARAM(argparse.Namespace):
     ENCODER = 'resnet18' #'resnext50_32x4d'
     ENCODER_WEIGHTS = 'imagenet'
 
+    # Algorithmic Parameters
+    
+
 HPARAM = DEFAULT_POSE_HPARAM()
 
 #-------------------------------------------------------------------------------
@@ -191,7 +194,6 @@ class PoseRegresssionTask(pl.LightningModule):
             agg_gt
         )
         
-
         # Storage for losses and metrics depending on the task
         multi_task_losses = {'pose': {'total_loss': torch.tensor(0).float().to(self.device)}}
         multi_task_metrics = {}
@@ -615,7 +617,7 @@ if __name__ == '__main__':
 
     # Creating my own callback
     custom_callback = plc.MyCallback(
-        tasks=['mask', 'quaternion', 'xy', 'z', 'scales'],#, 'pose'],
+        tasks=['mask', 'quaternion', 'xy', 'z', 'scales', 'pose'],
         hparams=runs_hparams,
         #checkpoint_monitor={
         #    'pose/degree_error_AP_5': 'max'

@@ -814,6 +814,61 @@ def compare_pose_performance_v4(sample, pred_cat_mask, pred_gt_matches, intrinsi
 
     return summary_fig
 
+def compare_pose_performance_v5(
+    image: torch.Tensor, 
+    gt_pred_matches: dict, 
+    pred_cat_mask: torch.Tensor, 
+    mask_colormap,
+    intrinsics: np.ndarray
+    ):
+
+    # Draw image
+    draw_image = image.cpu().numpy()
+
+    # Create colorized mask
+    pred_mask_vis = get_visualized_masks(pred_cat_mask, mask_colormap)
+
+    # Per class visualization
+    for class_id in range(len(gt_pred_matches)):
+
+        # Obtaining the sample ids
+        try:
+            sample_ids = gt_pred_matches[class_id]['sample_ids']
+        except KeyError:
+            # No instances for this class, skip it
+            continue
+
+        # Drawing per sample
+        for sequence_id, sample_id in enumerate(sample_ids):
+
+            # Draw the ground truth pose
+            gt_pose = dr.draw_RT(
+                image=draw_image[sample_id],
+                intrinsics=intrinsics,
+                RT = gt_pred_matches[class_id]['RT'][0][sequence_id].cpu().numpy(),
+                scale = gt_pred_matches[class_id]['scales'][0][sequence_id].cpu().numpy(),
+                color=(0,255,255)
+            )
+
+            # Draw the pred pose 
+            gt_pred_pose = dr.draw_RT(
+                image=gt_pose,
+                intrinsics=intrinsics,
+                RT = gt_pred_matches[class_id]['RT'][1][sequence_id].cpu().numpy(),
+                scale = gt_pred_matches[class_id]['scales'][1][sequence_id].cpu().numpy(),
+                color=(255,0,255)
+            )
+
+            # Overwrite the older draw image
+            draw_image[sample_id] = gt_pred_pose            
+
+    summary_fig = make_summary_figure(
+        poses=draw_image,
+        pred_mask=pred_mask_vis
+    )
+
+    return summary_fig
+
 #-------------------------------------------------------------------------------
 # Plot metrics
 

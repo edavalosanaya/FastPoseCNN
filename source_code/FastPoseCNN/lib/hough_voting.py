@@ -11,6 +11,10 @@ import gpu_tensor_funcs as gtf
 
 def hough_voting(uv_img, mask, N=10):
 
+    # Debugging purposes:
+    #h,w = uv_img.shape[-2], uv_img.shape[-1]
+    #return torch.tensor([0.5*h, 0.5*w], device=uv_img.device)
+
     # Determine all the pixel that are in the mask
     pts = torch.stack(torch.where(mask), dim=1)
 
@@ -77,7 +81,14 @@ def hough_voting(uv_img, mask, N=10):
     Y = batched_pinverse_solver(A, B, pt_pairs, uv_pt_pairs)
 
     # Determine the true 3D center
-    pixel_xy = simple_mean(Y)
+    pixel_xy = std_trimming_mean(Y)
+
+    # Need to flip xy to yx
+    pixel_xy = torch.tensor(
+        [pixel_xy[1], pixel_xy[0]], 
+        device=pixel_xy.device, 
+        dtype=pixel_xy.dtype
+    )
 
     return pixel_xy
 
@@ -143,10 +154,39 @@ def simple_mean(Y):
 
     return torch.mean(Y, dim=0)
 
-def std_trimming_mean(Y, k=3):
+def std_trimming_mean(Y, goal_std=15, k=1, max_iter=15):
 
-    raw_mean = torch.mean(Y, dim=0)
-    std = torch.std(Y, dim=0)
+    # Perform until break condition
+    for i in range(max_iter):
+        #print(".", end = "")
+
+        # Calculate the std and mean
+        std = torch.std(Y, dim=0)
+        mean = torch.mean(Y, dim=0)
+
+        # Calculate the radius of std
+        std_radius = std.norm(dim=0)
+
+        # Break condition
+        if std_radius <= goal_std:
+            #print("")
+            return mean
+
+        # Calculating the distance of each point from the mean
+        distance_vector = mean - Y
+        euclidean_distance = distance_vector.norm(dim=1)
+
+        # Obtain the cutoff
+        cutoff = k * std_radius
+
+        # Determine inliers
+        inliers = euclidean_distance < cutoff
+
+        # Keep only inliers
+        Y = Y[inliers, :]
+
+    #print("")
+    return torch.mean(Y, dim=0)
 
 #-------------------------------------------------------------------------------
 

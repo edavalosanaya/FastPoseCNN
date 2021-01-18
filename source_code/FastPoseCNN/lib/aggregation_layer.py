@@ -175,6 +175,10 @@ class AggregationLayer(nn.Module):
                     mask_size = torch.sum(pure_instance_masks, dim=(-2, -1))
                     agg_data = torch.div(total_val, torch.unsqueeze(mask_size.T, dim=1))
 
+                    # Undoing the torch.log in data embedding
+                    if logit_key == 'z':
+                        agg_data = torch.exp(agg_data)
+
                 else: # for xy, we need hough voting
                     agg_data = self.batchwise_hough_voting(masked_data, pure_instance_masks)
 
@@ -186,9 +190,11 @@ class AggregationLayer(nn.Module):
             RT_data = gtf.batchwise_get_RT(
                 class_data['quaternion'],
                 class_data['xy'],
-                    torch.exp(class_data['z']),
-                    self.inv_intrinsics
-                )
+                class_data['z'],
+                self.inv_intrinsics
+            )
+
+            # Storing generated RT
             class_data['RT'] = RT_data
 
             # Storing the finished data of one class into the multi-class container

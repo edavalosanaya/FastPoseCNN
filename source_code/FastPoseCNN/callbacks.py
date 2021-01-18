@@ -376,11 +376,17 @@ class MyCallback(pl.callbacks.Callback):
         # Accessing the corresponding dataset
         dataset = datamodule.datasets[mode]
 
-        # Get random sample
-        sample = dataset.get_random_batched_sample(batch_size=2)
+        # Accessing the corresponding dataloader 
+        if mode == 'valid':
+            dataloader = trainer.val_dataloaders[0]
+        else: # train
+            dataloader = trainer.train_dataloader 
 
-        # Convert the random sample (numpy) to a batch (torch)
-        batch = {k:torch.from_numpy(v).to(pl_module.device) for k,v in sample.items()}
+        # Getting single sample
+        raw_batch = next(iter(dataloader))
+
+        # Trimming the batch, to make visualization easier to see
+        batch = {k:v[[0,1]].to(pl_module.device) for k,v in raw_batch.items()}
 
         # Given the sample, make the prediciton with the PyTorch Lightning Moduel
         with torch.no_grad():
@@ -389,40 +395,33 @@ class MyCallback(pl.callbacks.Callback):
         # Applying activation function to the mask
         pred_cat_mask = outputs['auxilary']['cat_mask'].cpu().numpy()
 
-        agg_pred = lib.gtf.dense_class_data_aggregation(
-            mask=outputs['auxilary']['cat_mask'],
-            dense_class_data=outputs,
-            intrinsics=dataset.TORCH_INTRINSICS,
-        )
-
         # Obtain the matches between aggregated predictions and ground truth data
-        agg_gt = lib.gtf.dense_class_data_aggregation(
-            mask=batch['mask'],
-            dense_class_data=batch,
-            intrinsics=dataset.TORCH_INTRINSICS,
+        agg_gt = pl_module.model.aggregation_layer.forward(
+            batch['mask'],
+            categos=batch
         )
 
         # Determine matches between the aggreated ground truth and preds
-        gt_pred_matches = lib.gtf.find_matches_batched(
-            agg_pred,
+        gt_pred_matches = lib.gtf.batchwise_find_matches(
+            outputs['auxilary']['agg_pred'],
             agg_gt
         )
 
         # Create summary for the pose
-        try:
-            summary_fig = tools.vz.compare_pose_performance_v4(
-                sample,
-                pred_cat_mask,
-                gt_pred_matches,
-                dataset.INTRINSICS,
-                mask_colormap=dataset.COLORMAP
-            )
+        #try:
+        summary_fig = tools.vz.compare_pose_performance_v5(
+            batch['clean_image'],
+            gt_pred_matches,
+            pred_cat_mask,
+            mask_colormap=dataset.COLORMAP,
+            intrinsics=dataset.INTRINSICS
+        )
 
-            # Log the figure to tensorboard
-            pl_module.logger.writers[mode].add_figure(f'pose_gen/{mode}', summary_fig, trainer.global_step)      
+        # Log the figure to tensorboard
+        pl_module.logger.writers[mode].add_figure(f'pose_gen/{mode}', summary_fig, trainer.global_step)      
 
-        except Exception as e:
-            print('pose visualization error: ', e)
+        #except Exception as e:
+        #    print('pose visualization error: ', e)
         
     #---------------------------------------------------------------------------
     # End of Training

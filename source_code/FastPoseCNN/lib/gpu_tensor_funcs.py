@@ -345,7 +345,7 @@ def batchwise_find_matches(preds, gts):
     # For each class
     for class_id in range(len(preds)):
 
-        class_data = {}
+        class_data = {'class_id': class_id}
 
         # Check the number of instances in pred and gts dicts
         n_of_m1 = gts[class_id]['instance_masks'].shape[0]
@@ -401,7 +401,7 @@ def batchwise_find_matches(preds, gts):
         # Store the class-specific data into the multi-class data container
         pred_gt_matches.append(class_data)
 
-        return pred_gt_matches        
+    return pred_gt_matches        
 
 def stack_class_matches(matches, key):
 
@@ -537,9 +537,11 @@ def transform_3d_camera_coords_to_3d_world_coords(cartesian_camera_coordinates_3
 def batchwise_get_RT(q, xys, exp_zs, inv_intrinsics):
 
     # q = quaternion
+    # Including the Z component into the projection (2D to 3D)
+    projected_xys = xys * (exp_zs/1000)
 
     # First construct the translation vector matrix
-    homogenous_xyzs = torch.vstack([xys.T, exp_zs.T])
+    homogenous_xyzs = torch.vstack([projected_xys.T, exp_zs.T/1000])
     T = inv_intrinsics @ homogenous_xyzs # torch.inverse(intrinsics) @ homo_xyz
 
     # Then create R
