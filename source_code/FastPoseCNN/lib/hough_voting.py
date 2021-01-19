@@ -1,6 +1,8 @@
 import time
+import argparse
 
 import torch
+import torch.nn as nn
 
 import scipy.special
 
@@ -9,190 +11,257 @@ import gpu_tensor_funcs as gtf
 #-------------------------------------------------------------------------------
 # Primary Hough Voting Routines
 
-def hough_voting(uv_img, mask, N=10):
-
-    # Debugging purposes:
-    #h,w = uv_img.shape[-2], uv_img.shape[-1]
-    #return torch.tensor([0.5*h, 0.5*w], device=uv_img.device)
-
-    # Determine all the pixel that are in the mask
-    pts = torch.stack(torch.where(mask), dim=1)
-
-    # Determining the number of pts present
-    num_of_pts = pts.shape[0]
-
-    # If there is less than 2 points, return nan
-    if num_of_pts < 2:
-        return torch.tensor([float('nan'), float('nan')], device=uv_img.device)
-
-    # Selecting random pairs of pts (0-n) [n = number of pts]
-    # By using torch.multinomial: https://pytorch.org/docs/stable/generated/torch.multinomial.html?highlight=multinomial
+class HoughVotingLayer(nn.Module):
     
-    # limit N based on the maximum number of possible combinations given the 
-    # number of points
-    max_num_of_pairs = int(scipy.special.comb(num_of_pts, 2))
-    N = min(N, max_num_of_pairs)
+    def __init__(self, HPARAM):
+        super().__init__()
+        self.HPARAM = HPARAM
 
-    # first creating uniform probability distribution
-    weights = torch.ones(num_of_pts, device=uv_img.device).expand(N, -1)
+    def forward(self, uv_img, mask):
 
-    # While true to ensure that at least one valid point pair is selected
-    while True:
+        # Debugging purposes:
+        #h,w = uv_img.shape[-2], uv_img.shape[-1]
+        #return torch.tensor([0.5*h, 0.5*w], device=uv_img.device)
 
-        # Obtaining the point pairs via sequence numbers: (N, 2)
-        point_pair_idx = torch.multinomial(weights, num_samples=2, replacement=True)
+        # Determine all the pixel that are in the mask
+        pts = torch.stack(torch.where(mask), dim=1)
 
-        # Detect pairs with the same pt and remove them
-        repeat_pt_pairs = point_pair_idx[:,0] == point_pair_idx[:,1]
-        point_pair_idx = point_pair_idx[repeat_pt_pairs == False]
+        # Determining the number of pts present
+        num_of_pts = pts.shape[0]
 
-        # If at least one valid point pair is selected, stop searching pairs
-        if point_pair_idx.shape[0] != 0:
-            break
+        # If there is less than 2 points, return nan
+        if num_of_pts < 2:
+            return torch.tensor([float('nan'), float('nan')], device=uv_img.device)
 
-    # Indexing the pts locations among the image (random_pt_pairs: 2xNx2)
-    # first index = (pair division), second index = (pt index), third index = (pt's x and y)
-    pt_pairs = torch.stack([pts[point_pair_idx[:,0]], pts[point_pair_idx[:,1]]])
+        # Generate hypothesis
+        hypothesis = self.generate_hypothesis(uv_img, pts)
 
-    # Indexing the pts unit vector values
-    uv_img = uv_img.permute(1, 2, 0)
-    uv_pt_pairs = uv_img[pt_pairs[:,:,0], pt_pairs[:,:,1]]
+        # Check that hypothesese are not just nan
+        if torch.isnan(hypothesis).all():
+            return torch.tensor([float('nan'), float('nan')], device=uv_img.device)
 
-    # Remove pairs if one of the pts has nan in it.
-    is_nan = torch.sum(torch.isnan(uv_pt_pairs), dim=(0,2)) != 0
-    
-    # If all are nan, then return nan
-    if is_nan.all():
-        return torch.tensor([float('nan'), float('nan')], device=uv_img.device)
-    
-    # Elif any nan are present, keep only non_nan values
-    elif is_nan.any():
-        is_not_nan = ~is_nan
-        uv_pt_pairs = uv_pt_pairs[:,is_not_nan,:]
-        pt_pairs = pt_pairs[:,is_not_nan,:]
+        # Calculate the weights of each hypothesis
+        weights = self.calculate_hypothesis_weights(uv_img, pts, hypothesis)
 
-    # Construct the system of equations
-    A = torch.stack((uv_pt_pairs[0], -uv_pt_pairs[1]), dim=-1)
-    B = torch.stack((-pt_pairs[0], pt_pairs[1]), dim=-1)
-    B = (B[:,:,0] + B[:,:,1]).reshape((pt_pairs.shape[1],-1,1))
+        # Calculate the weighted means
+        weighted_mean = torch.sum(hypothesis * weights.reshape((-1,1)), dim=0) / torch.sum(weights)
 
-    # Solving the linear system of equations
-    #Y = lstsq_solver(A, B, pt_pairs, uv_pt_pairs)
-    Y = batched_pinverse_solver(A, B, pt_pairs, uv_pt_pairs)
+        # Use the weighted mean as the 3D center
+        return weighted_mean
 
-    # Determine the true 3D center
-    pixel_xy = std_trimming_mean(Y)
+    def generate_hypothesis(self, uv_img, pts):
 
-    # Need to flip xy to yx
-    pixel_xy = torch.tensor(
-        [pixel_xy[1], pixel_xy[0]], 
-        device=pixel_xy.device, 
-        dtype=pixel_xy.dtype
-    )
+        # Determining the number of pts present
+        num_of_pts = pts.shape[0]
 
-    return pixel_xy
+        # Selecting random pairs of pts (0-n) [n = number of pts]
+        # By using torch.multinomial: https://pytorch.org/docs/stable/generated/torch.multinomial.html?highlight=multinomial
+        
+        # limit N based on the maximum number of possible combinations given the 
+        # number of points
+        max_num_of_pairs = int(scipy.special.comb(num_of_pts, 2))
+        N = min(self.HPARAM.HV_NUM_OF_HYPOTHESES, max_num_of_pairs)
 
-#-------------------------------------------------------------------------------
-# Linear System of Equations Solvers
+        # first creating uniform probability distribution
+        weights = torch.ones(num_of_pts, device=uv_img.device).expand(N, -1)
 
-def lstsq_solver(A, B, pt_pairs, uv_pt_pairs):
+        # While true to ensure that at least one valid point pair is selected
+        while True:
 
-    # Determine the scalar required to make the vectors meet (per pt pair)
-    Y = []
-    for i in range(pt_pairs.shape[1]):
+            # Obtaining the point pairs via sequence numbers: (N, 2)
+            point_pair_idx = torch.multinomial(weights, num_samples=2, replacement=True)
 
-        # If there is any nan in A, then skip it
-        if torch.isnan(A[i]).any():
-            continue
+            # Detect pairs with the same pt and remove them
+            repeat_pt_pairs = point_pair_idx[:,0] == point_pair_idx[:,1]
+            point_pair_idx = point_pair_idx[repeat_pt_pairs == False]
 
-        # If issue encountered solving the linear system of equations, skip it
-        try:
-            xs, qrs = torch.lstsq(A[i].float(), B[i].float())
-            
-            # Selecting the first x to find the intersection
-            x = xs[0] * torch.pow(qrs[0], 2)
-        except:
-            continue 
+            # If at least one valid point pair is selected, stop searching pairs
+            if point_pair_idx.shape[0] != 0:
+                break
 
-        # Using the determine values the intersection point y = mx + b
-        b = pt_pairs[0][i]
-        m = uv_pt_pairs[0][i]
-        y = x[0] * m + b
+        # Indexing the pts locations among the image (random_pt_pairs: 2xNx2)
+        # first index = (pair division), second index = (pt index), third index = (pt's x and y)
+        pt_pairs = torch.stack([pts[point_pair_idx[:,0]], pts[point_pair_idx[:,1]]])
 
-        # Storing the vectors intersection point
-        Y.append(y)
+        # Indexing the pts unit vector values
+        uv_img = uv_img.permute(1, 2, 0)
+        uv_pt_pairs = uv_img[pt_pairs[:,:,0], pt_pairs[:,:,1]]
 
-    # Combining the results
-    Y = torch.stack(Y)
-    return Y
+        # Remove pairs if one of the pts has nan in it.
+        is_nan = torch.sum(torch.isnan(uv_pt_pairs), dim=(0,2)) != 0
+        
+        # If all are nan, then return nan
+        if is_nan.all():
+            return torch.tensor([float('nan'), float('nan')], device=uv_img.device)
+        
+        # Elif any nan are present, keep only non_nan values
+        elif is_nan.any():
+            is_not_nan = ~is_nan
+            uv_pt_pairs = uv_pt_pairs[:,is_not_nan,:]
+            pt_pairs = pt_pairs[:,is_not_nan,:]
 
-def batched_pinverse_solver(A, B, pt_pairs, uv_pt_pairs):
-    """
-    Optimized version of lstsq_solver function!
-    lstsq_solver: 0.0016908645629882812
-    batched_pinverse_solver: 0.0008175373077392578
-    """
+        # Construct the system of equations
+        A = torch.stack((uv_pt_pairs[0], -uv_pt_pairs[1]), dim=-1)
+        B = torch.stack((-pt_pairs[0], pt_pairs[1]), dim=-1)
+        B = (B[:,:,0] + B[:,:,1]).reshape((pt_pairs.shape[1],-1,1))
 
-    # Solving the batch problem
-    X = torch.bmm(
-        torch.pinverse(A).float(),
-        B.float()
-    )
+        # Solving the linear system of equations
+        #Y = lstsq_solver(A, B, pt_pairs, uv_pt_pairs)
+        Y = self.batched_pinverse_solver(A, B, pt_pairs, uv_pt_pairs)
 
-    # Selecting the scalar needed for the first pt, to calculate the intersection
-    X1 = X[:,0,:]
+        """
+        # Determine the true 3D center
+        pixel_xy = std_trimming_mean(Y)
 
-    # Using the determine values to find the intersection point y = mx + b
-    Y = X1 * uv_pt_pairs[0] + pt_pairs[0]
+        # Need to flip xy to yx
+        pixel_xy = torch.tensor(
+            [pixel_xy[1], pixel_xy[0]], 
+            device=pixel_xy.device, 
+            dtype=pixel_xy.dtype
+        )
 
-    return Y
+        return pixel_xy
+        """
 
-#-------------------------------------------------------------------------------
-# Intersection Reduction Functions
+        # Prun any outliers using std trimming for Y
+        Y = self.std_trimming_mean(Y)
 
-def simple_mean(Y):
+        return Y
 
-    return torch.mean(Y, dim=0)
+    def calculate_hypothesis_weights(self, uv_img, pts, hypothesis):
 
-def std_trimming_mean(Y, goal_std=15, k=1, max_iter=15):
+        # Determine the size
+        n_of_h = hypothesis.shape[0]
+        n_of_p = pts.shape[0]
 
-    # Perform until break condition
-    for i in range(max_iter):
-        #print(".", end = "")
+        uv_img = uv_img.permute(1, 2, 0)
+        pts_uv_value = uv_img[pts[:,0], pts[:,1]]
 
-        # Calculate the std and mean
-        std = torch.std(Y, dim=0)
-        mean = torch.mean(Y, dim=0)
+        # Expand data to prepare large computation
+        expanded_hypo = torch.unsqueeze(hypothesis, dim=1).expand((n_of_h, n_of_p, 2))
+        expanded_pts = pts.expand((n_of_h, n_of_p, 2))
+        pts_uv_value = pts_uv_value.expand((n_of_h, n_of_p, 2))
 
-        # Calculate the radius of std
-        std_radius = std.norm(dim=0)
+        # Calculate weight
+        a = (expanded_hypo - expanded_pts)
+        a = a / torch.unsqueeze(a.norm(dim=-1), dim=-1)
+        b = torch.einsum('ijk,ijk->ij', a, pts_uv_value) > 0
+        weights = torch.sum(b, dim=-1)
 
-        # Break condition
-        if std_radius <= goal_std:
-            #print("")
-            return mean
+        return weights
 
-        # Calculating the distance of each point from the mean
-        distance_vector = mean - Y
-        euclidean_distance = distance_vector.norm(dim=1)
+    #-------------------------------------------------------------------------------
+    # Linear System of Equations Solvers
 
-        # Obtain the cutoff
-        cutoff = k * std_radius
+    def lstsq_solver(self, A, B, pt_pairs, uv_pt_pairs):
 
-        # Determine inliers
-        inliers = euclidean_distance < cutoff
+        # Determine the scalar required to make the vectors meet (per pt pair)
+        Y = []
+        for i in range(pt_pairs.shape[1]):
 
-        # Keep only inliers
-        Y = Y[inliers, :]
+            # If there is any nan in A, then skip it
+            if torch.isnan(A[i]).any():
+                continue
 
-    #print("")
-    return torch.mean(Y, dim=0)
+            # If issue encountered solving the linear system of equations, skip it
+            try:
+                xs, qrs = torch.lstsq(A[i].float(), B[i].float())
+                
+                # Selecting the first x to find the intersection
+                x = xs[0] * torch.pow(qrs[0], 2)
+            except:
+                continue 
+
+            # Using the determine values the intersection point y = mx + b
+            b = pt_pairs[0][i]
+            m = uv_pt_pairs[0][i]
+            y = x[0] * m + b
+
+            # Storing the vectors intersection point
+            Y.append(y)
+
+        # Combining the results
+        Y = torch.stack(Y)
+        return Y
+
+    def batched_pinverse_solver(self, A, B, pt_pairs, uv_pt_pairs):
+        """
+        Optimized version of lstsq_solver function!
+        lstsq_solver: 0.0016908645629882812
+        batched_pinverse_solver: 0.0008175373077392578
+        """
+
+        # Solving the batch problem
+        X = torch.bmm(
+            torch.pinverse(A).float(),
+            B.float()
+        )
+
+        # Selecting the scalar needed for the first pt, to calculate the intersection
+        X1 = X[:,0,:]
+
+        # Using the determine values to find the intersection point y = mx + b
+        Y = X1 * uv_pt_pairs[0] + pt_pairs[0]
+
+        return Y
+
+    #-------------------------------------------------------------------------------
+    # Intersection Reduction Functions
+
+    def simple_mean(self, Y):
+
+        return torch.mean(Y, dim=0)
+
+    def std_trimming_mean(self, Y):
+
+        # Perform until break condition
+        for i in range(self.HPARAM.PRUN_MAX_ITER):
+            #print(".", end = "")
+
+            # Calculate the std and mean
+            std = torch.std(Y, dim=0)
+            mean = torch.mean(Y, dim=0)
+
+            # Calculate the radius of std
+            std_radius = std.norm(dim=0)
+
+            # Break condition
+            if std_radius <= self.HPARAM.PRUN_GOAL_STD:
+                #print("")
+                return Y#mean
+
+            # Calculating the distance of each point from the mean
+            distance_vector = mean - Y
+            euclidean_distance = distance_vector.norm(dim=1)
+
+            # Obtain the cutoff
+            cutoff = self.HPARAM.PRUN_K_FROM_STD * std_radius
+
+            # Determine inliers
+            inliers = euclidean_distance < cutoff
+
+            # Keep only inliers
+            Y = Y[inliers, :]
+
+        #print("")
+        return Y #torch.mean(Y, dim=0)
 
 #-------------------------------------------------------------------------------
 
 if __name__ == '__main__':
 
+    class DEFAULT_POSE_HPARAM(argparse.Namespace):
+
+        # Algorithmic Parameters
+        HV_NUM_OF_HYPOTHESES = 50
+        PRUN_GOAL_STD = 25
+        PRUN_K_FROM_STD = 1
+        PRUN_MAX_ITER = 5
+
+    HPARAM = DEFAULT_POSE_HPARAM()
+
     # The code below is a simplified version of a real unit vector problem
+    hv_layer = HoughVotingLayer(HPARAM)
 
     # Creating test mask
     mask = torch.ones((5,5))
@@ -214,5 +283,5 @@ if __name__ == '__main__':
     vector = vector.permute(2,0,1)
 
     # Determine the center
-    center = hough_voting(vector, mask)
+    center = hv_layer.forward(vector, mask)
     print(f'Center: {center}')

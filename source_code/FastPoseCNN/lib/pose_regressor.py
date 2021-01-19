@@ -26,6 +26,7 @@ class PoseRegressor(torch.nn.Module):
 
     def __init__(
         self,
+        HPARAM,
         intrinsics: torch.Tensor,
         architecture: str = 'FPN',
         encoder_name: str = "resnet34",
@@ -44,6 +45,7 @@ class PoseRegressor(torch.nn.Module):
         super().__init__()
 
         # Storing crucial parameters
+        self.HPARAM = HPARAM # other algorithm and run hyperparameters
         self.classes = classes # includes background
         self.intrinsics = intrinsics
 
@@ -109,7 +111,11 @@ class PoseRegressor(torch.nn.Module):
         )
 
         # Creating aggregation layer
-        self.aggregation_layer = al.AggregationLayer(self.classes, self.intrinsics)
+        self.aggregation_layer = al.AggregationLayer(
+            self.HPARAM, 
+            self.classes, 
+            self.intrinsics
+        )
 
         # initialize the network
         init.initialize_decoder(self.mask_decoder)

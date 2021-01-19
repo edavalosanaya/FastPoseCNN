@@ -26,11 +26,13 @@ import gpu_tensor_funcs as gtf
 
 class AggregationLayer(nn.Module):
 
-    def __init__(self, classes, intrinsics):
+    def __init__(self, HPARAM, classes, intrinsics):
         super().__init__()
+        self.HPARAM = HPARAM
         self.classes = classes # including background
         self.intrinsics = intrinsics
         self.inv_intrinsics = torch.inverse(intrinsics)
+        self.hough_voting_layer = hv.HoughVotingLayer(self.HPARAM)        
 
         # Creating binary structure that does not attach batchwise data
         self.s = torch.tensor([
@@ -55,7 +57,7 @@ class AggregationLayer(nn.Module):
         self, 
         cat_mask: torch.Tensor, 
         logits: Union[dict, None] = None, # logical data
-        categos: Union[dict, None] = None # categorical data
+        categos: Union[dict, None] = None, # categorical data
         ):
 
         # Can only use either logits or categorical data
@@ -180,7 +182,10 @@ class AggregationLayer(nn.Module):
                         agg_data = torch.exp(agg_data)
 
                 else: # for xy, we need hough voting
-                    agg_data = self.batchwise_hough_voting(masked_data, pure_instance_masks)
+                    agg_data = self.batchwise_hough_voting(
+                        masked_data, 
+                        pure_instance_masks
+                    )
 
                 # Storing the mean of the instances to agg_pred
                 class_data[logit_key] = agg_data 
@@ -232,12 +237,12 @@ class AggregationLayer(nn.Module):
 
         return instance_masks, num_of_instances
 
-    def batchwise_hough_voting(self, uv_imgs, masks, N=25):
+    def batchwise_hough_voting(self, uv_imgs, masks):
 
         pixel_xys = torch.zeros((masks.shape[0], 2), device=masks.device).float()
 
         for instance_id in range(masks.shape[0]):
-            pixel_xy = hv.hough_voting(uv_imgs[instance_id], masks[instance_id], N)
+            pixel_xy = self.hough_voting_layer.forward(uv_imgs[instance_id], masks[instance_id])
             pixel_xys[instance_id] = pixel_xy
 
         return pixel_xys

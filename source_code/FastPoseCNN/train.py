@@ -14,7 +14,7 @@ os.environ["TF_CPP_MIN_LOG_LEVEL"]="3"
 warnings.filterwarnings('ignore')
 
 os.environ['CUDA_VISIBLE_DEVICES'] =  '0,1,2,3'
-os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
+#os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
 
 import torch
 import torch.nn.functional as F
@@ -96,6 +96,12 @@ class DEFAULT_POSE_HPARAM(argparse.Namespace):
     ENCODER_WEIGHTS = 'imagenet'
 
     # Algorithmic Parameters
+    
+    ## Hough Voting Parameters 
+    HV_NUM_OF_HYPOTHESES = 25
+    PRUN_GOAL_STD = 15
+    PRUN_K_FROM_STD = 1
+    PRUN_MAX_ITER = 5
     
 
 HPARAM = DEFAULT_POSE_HPARAM()
@@ -545,11 +551,12 @@ if __name__ == '__main__':
 
         # Create base model
         base_model = lib.PoseRegressor(
+            HPARAM,
             intrinsics=torch.from_numpy(tools.pj.constants.INTRINSICS[HPARAM.DATASET_NAME]).float(),
             architecture=HPARAM.BACKBONE_ARCH,
             encoder_name=HPARAM.ENCODER,
             encoder_weights=HPARAM.ENCODER_WEIGHTS,
-            classes=len(HPARAM.SELECTED_CLASSES),
+            classes=len(HPARAM.SELECTED_CLASSES)
         )
 
         # Create PyTorch Lightning Module
@@ -564,6 +571,7 @@ if __name__ == '__main__':
         
         # Creating base model
         base_model = lib.PoseRegressor(
+            HPARAM,
             intrinsics=torch.from_numpy(tools.pj.constants.INTRINSICS[HPARAM.DATASET_NAME]).float(),
             architecture=HPARAM.BACKBONE_ARCH,
             encoder_name=HPARAM.ENCODER,
