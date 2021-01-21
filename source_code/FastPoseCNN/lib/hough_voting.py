@@ -17,7 +17,173 @@ class HoughVotingLayer(nn.Module):
         super().__init__()
         self.HPARAM = HPARAM
 
-    def forward(self, uv_img, mask):
+    def forward(self, agg_data):
+
+        # Performing this per class
+        for class_id in range(len(agg_data)):
+
+            # Performing hough voting
+            uv_img = agg_data[class_id]['xy']
+            mask = agg_data[class_id]['instance_masks']
+            agg_data[class_id]['xy'] = self.batchwise_hough_voting(uv_img, mask)
+
+        return agg_data
+
+    #---------------------------------------------------------------------------
+    # Hough Voting per batch
+
+    def batchwise_hough_voting(self, uv_img, mask):
+
+        # Generate hypothesis
+        hypothesis, all_pts, valid_samples = self.batchwise_generate_hypothesis(
+            uv_img, 
+            mask
+        )
+
+        # If there is valid hypothesis, generate their weights.
+        if valid_samples:
+
+            # Calculate the weights of each hypothesis
+            weights = self.batchwise_calculate_hypothesis_weights(
+                valid_samples,
+                all_pts, 
+                uv_img, 
+                hypothesis
+            )
+
+            # Calculate the weighted means
+            numerator = torch.sum(hypothesis * torch.unsqueeze(weights, dim=-1), dim=1)
+            denominator = torch.unsqueeze(torch.sum(weights, dim=1), dim=-1)
+            weighted_mean = numerator / denominator
+
+            # Need to flip xy to yx
+            pixel_xy = weighted_mean[:,[1,0]]
+
+            # Filling in invalid samples
+            filled_pixel_xy = torch.zeros((uv_img.shape[0], 2), device=pixel_xy.device)
+            filled_pixel_xy[valid_samples,:] = pixel_xy
+
+            return filled_pixel_xy
+
+        else:
+
+            return torch.zeros((uv_img.shape[0], 2), device=uv_img.device)
+
+    def batchwise_generate_hypothesis(self, uv_img, mask):
+
+        valid_samples = []
+        all_pts = []
+
+        for i in range(uv_img.shape[0]):
+
+            # Obtain the pts of the mask
+            pts = torch.stack(torch.where(mask[i]), dim=1)
+
+            # Determining the number of pts present
+            num_of_pts = pts.shape[0]
+
+            # Determine if this is a valid number of pts (>1)
+            if num_of_pts < 2:
+                continue
+
+            # Store the points to avoid recalculating
+            all_pts.append(pts)
+
+            # Selecting random pairs of pts (0-n) [n = number of pts]
+            # By using torch.multinomial: https://pytorch.org/docs/stable/generated/torch.multinomial.html?highlight=multinomial
+
+            # first creating uniform probability distribution
+            weights = torch.ones(num_of_pts, device=uv_img.device).expand(self.HPARAM.HV_NUM_OF_HYPOTHESES, -1)
+
+            # Obtaining the point pairs via sequence numbers: (N, 2)
+            point_pair_idx = torch.multinomial(weights, num_samples=2, replacement=False)
+
+            # Indexing the pts locations among the image (random_pt_pairs: 2xNx2)
+            # first index = (pair division), second index = (pt index), third index = (pt's x and y)
+            pt_pairs = torch.stack([pts[point_pair_idx[:,0]], pts[point_pair_idx[:,1]]])
+
+            # Indexing the pts unit vector values
+            uv_pt_pairs = uv_img[i, :, pt_pairs[:,:,0], pt_pairs[:,:,1]]
+            uv_pt_pairs = uv_pt_pairs.permute(1,2,0)
+
+            # Construct the system of equations
+            A = torch.stack((uv_pt_pairs[0], -uv_pt_pairs[1]), dim=-1)
+            B = torch.stack((-pt_pairs[0], pt_pairs[1]), dim=-1)
+            B = (B[:,:,0] + B[:,:,1]).reshape((pt_pairs.shape[1],-1,1))
+
+            if len(valid_samples) == 0:
+                total_A = A
+                total_B = B
+                total_pt_pairs = pt_pairs
+                total_uv_pt_pairs = uv_pt_pairs
+            else:
+                total_A = torch.cat((total_A, A), dim=0)
+                total_B = torch.cat((total_B, B), dim=0)
+                total_pt_pairs = torch.cat((total_pt_pairs, pt_pairs), dim=1)
+                total_uv_pt_pairs =torch.cat((total_uv_pt_pairs, uv_pt_pairs), dim=1)
+
+            # Keep track of the idx of valid entries
+            valid_samples.append(i)
+
+        # If there is some valid samples, process them
+        if valid_samples:
+
+            total_Y = self.batched_pinverse_solver(
+                total_A, 
+                total_B, 
+                total_pt_pairs, 
+                total_uv_pt_pairs
+            )
+
+            # Splitting the total_Y based on the number of instances
+            total_Y = torch.stack(torch.chunk(total_Y, len(valid_samples)))
+
+            return total_Y, all_pts, valid_samples
+        
+        # else, return all None
+        else:
+            return None, None, None
+
+
+    def batchwise_calculate_hypothesis_weights(self, valid_samples, all_pts, uv_img, hypothesis):
+
+        all_weights = []
+
+        # Determine the size
+        for i in range(len(valid_samples)):
+
+            h = hypothesis[i]
+            pts = all_pts[i]
+
+            n_of_h = h.shape[0]
+            n_of_p = pts.shape[0]
+
+            pts_uv_value = uv_img[i, :, pts[:,0], pts[:,1]]
+            pts_uv_value = pts_uv_value.permute(1,0)
+
+            # Expand data to prepare large computation
+            expanded_hypo = torch.unsqueeze(h, dim=1).expand((n_of_h, n_of_p, 2))
+            expanded_pts = pts.expand((n_of_h, n_of_p, 2))
+            pts_uv_value = pts_uv_value.expand((n_of_h, n_of_p, 2))
+
+            # Calculate weight
+            a = (expanded_hypo - expanded_pts)
+            a = a / torch.unsqueeze(a.norm(dim=-1), dim=-1)
+            b = torch.einsum('ijk,ijk->ij', a, pts_uv_value) > 0
+            weights = torch.sum(b, dim=-1)
+
+            # Store weights
+            all_weights.append(weights)
+
+        # Stack the results
+        all_weights = torch.stack(all_weights)
+
+        return all_weights
+
+    #---------------------------------------------------------------------------
+    # Hough Voting per single input
+
+    def hough_voting(self, uv_img, mask):
 
         # Debugging purposes:
         #h,w = uv_img.shape[-2], uv_img.shape[-1]
@@ -46,8 +212,14 @@ class HoughVotingLayer(nn.Module):
         # Calculate the weighted means
         weighted_mean = torch.sum(hypothesis * weights.reshape((-1,1)), dim=0) / torch.sum(weights)
 
-        # Use the weighted mean as the 3D center
-        return weighted_mean
+        # Need to flip xy to yx
+        pixel_xy = torch.tensor(
+            [weighted_mean[1], weighted_mean[0]], 
+            device=weighted_mean.device, 
+            dtype=weighted_mean.dtype
+        )
+
+        return pixel_xy
 
     def generate_hypothesis(self, uv_img, pts):
 
@@ -65,19 +237,8 @@ class HoughVotingLayer(nn.Module):
         # first creating uniform probability distribution
         weights = torch.ones(num_of_pts, device=uv_img.device).expand(N, -1)
 
-        # While true to ensure that at least one valid point pair is selected
-        while True:
-
-            # Obtaining the point pairs via sequence numbers: (N, 2)
-            point_pair_idx = torch.multinomial(weights, num_samples=2, replacement=True)
-
-            # Detect pairs with the same pt and remove them
-            repeat_pt_pairs = point_pair_idx[:,0] == point_pair_idx[:,1]
-            point_pair_idx = point_pair_idx[repeat_pt_pairs == False]
-
-            # If at least one valid point pair is selected, stop searching pairs
-            if point_pair_idx.shape[0] != 0:
-                break
+        # Obtaining the point pairs via sequence numbers: (N, 2)
+        point_pair_idx = torch.multinomial(weights, num_samples=2, replacement=False)
 
         # Indexing the pts locations among the image (random_pt_pairs: 2xNx2)
         # first index = (pair division), second index = (pt index), third index = (pt's x and y)
@@ -109,20 +270,6 @@ class HoughVotingLayer(nn.Module):
         #Y = lstsq_solver(A, B, pt_pairs, uv_pt_pairs)
         Y = self.batched_pinverse_solver(A, B, pt_pairs, uv_pt_pairs)
 
-        """
-        # Determine the true 3D center
-        pixel_xy = std_trimming_mean(Y)
-
-        # Need to flip xy to yx
-        pixel_xy = torch.tensor(
-            [pixel_xy[1], pixel_xy[0]], 
-            device=pixel_xy.device, 
-            dtype=pixel_xy.dtype
-        )
-
-        return pixel_xy
-        """
-
         # Prun any outliers using std trimming for Y
         Y = self.std_trimming_mean(Y)
 
@@ -150,7 +297,7 @@ class HoughVotingLayer(nn.Module):
 
         return weights
 
-    #-------------------------------------------------------------------------------
+    #---------------------------------------------------------------------------
     # Linear System of Equations Solvers
 
     def lstsq_solver(self, A, B, pt_pairs, uv_pt_pairs):

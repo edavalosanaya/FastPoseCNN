@@ -78,7 +78,7 @@ class DEFAULT_POSE_HPARAM(argparse.Namespace):
     # Run Specifications
     BATCH_SIZE = 6
     NUM_WORKERS = 18 # 36 total CPUs
-    NUM_GPUS = 1
+    NUM_GPUS = 1 # 4 total GPUs
     TRAIN_SIZE=100#5000
     VALID_SIZE=20#200
 
@@ -87,7 +87,7 @@ class DEFAULT_POSE_HPARAM(argparse.Namespace):
     FREEZE_MASK_DECODER = False
     LEARNING_RATE = 0.0001
     ENCODER_LEARNING_RATE = 0.0005
-    NUM_EPOCHS = 5#30
+    NUM_EPOCHS = 3#30
     DISTRIBUTED_BACKEND = None if NUM_GPUS <= 1 else 'ddp'
 
     # Architecture Parameters
@@ -189,9 +189,9 @@ class PoseRegresssionTask(pl.LightningModule):
         outputs = self.model(batch['image'])
 
         # Obtaining the aggregated values for the both the ground truth
-        agg_gt = self.model.aggregation_layer.forward(
+        agg_gt = self.model.agg_hough_and_generate_RT(
             batch['mask'],
-            categos=batch
+            data=batch
         )
 
         # Determine matches between the aggreated ground truth and preds

@@ -579,6 +579,24 @@ def batchwise_get_RT(q, xys, exp_zs, inv_intrinsics):
 
     return RT
 
+def samplewise_get_RT(agg_data, inv_intrinsics):
+
+    for class_id in range(len(agg_data)):
+
+        # Once all the raw data has been aggregated, we need to calculate the 
+        # rotation matrix of each instance.
+        RT_data = batchwise_get_RT(
+            agg_data[class_id]['quaternion'],
+            agg_data[class_id]['xy'],
+            agg_data[class_id]['z'],
+            inv_intrinsics
+        )
+
+        # Storing generated RT
+        agg_data[class_id]['RT'] = RT_data
+
+    return agg_data
+
 #-------------------------------------------------------------------------------
 # Generative/Conversion Functions
 

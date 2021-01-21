@@ -396,9 +396,9 @@ class MyCallback(pl.callbacks.Callback):
         pred_cat_mask = outputs['auxilary']['cat_mask'].cpu().numpy()
 
         # Obtain the matches between aggregated predictions and ground truth data
-        agg_gt = pl_module.model.aggregation_layer.forward(
+        agg_gt = pl_module.model.agg_hough_and_generate_RT(
             batch['mask'],
-            categos=batch
+            data=batch
         )
 
         # Determine matches between the aggreated ground truth and preds

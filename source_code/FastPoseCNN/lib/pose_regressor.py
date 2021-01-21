@@ -3,6 +3,7 @@ import os
 import base64
 
 import numpy as np
+from numpy.core.fromnumeric import compress
 
 import torch
 import torch.nn as nn
@@ -14,6 +15,7 @@ import segmentation_models_pytorch as smp
 import initialization as init
 import gpu_tensor_funcs as gtf
 import aggregation_layer as al
+import hough_voting as hv
 
 #-------------------------------------------------------------------------------
 
@@ -48,6 +50,7 @@ class PoseRegressor(torch.nn.Module):
         self.HPARAM = HPARAM # other algorithm and run hyperparameters
         self.classes = classes # includes background
         self.intrinsics = intrinsics
+        self.inv_intrinsics = torch.inverse(self.intrinsics)
 
         # Obtain encoder
         self.encoder = smp.encoders.get_encoder(
@@ -113,8 +116,12 @@ class PoseRegressor(torch.nn.Module):
         # Creating aggregation layer
         self.aggregation_layer = al.AggregationLayer(
             self.HPARAM, 
-            self.classes, 
-            self.intrinsics
+            self.classes
+        )
+
+        # Creating hough voting layer
+        self.hough_voting_layer = hv.HoughVotingLayer(
+            self.HPARAM
         )
 
         # initialize the network
@@ -131,6 +138,11 @@ class PoseRegressor(torch.nn.Module):
         init.initialize_head(self.scales_head)
 
     def forward(self, x):
+
+        # Ensuring that intrinsics is in the same device
+        if self.intrinsics.device != x.device:
+            self.intrinsics = self.intrinsics.to(x.device)
+            self.inv_intrinsics = torch.inverse(self.intrinsics)
 
         # Encoder
         features = self.encoder(x)
@@ -165,10 +177,12 @@ class PoseRegressor(torch.nn.Module):
         # Create categorical mask
         cat_mask = torch.argmax(torch.nn.LogSoftmax(dim=1)(mask_logits), dim=1)
 
-        # Aggregating the results
-        agg_pred, cc_logits = self.aggregation_layer.forward(
-            cat_mask, 
-            logits=logits
+        # Perform aggregation, hough voting, and generate RT matrix given the 
+        # results of previous operations.
+        agg_pred, cc_logits = self.agg_hough_and_generate_RT(
+            cat_mask,
+            logits,
+            compress_data=True
         )
 
         # Generating complete output
@@ -182,6 +196,31 @@ class PoseRegressor(torch.nn.Module):
         }
 
         return output
+
+    def agg_hough_and_generate_RT(self, cat_mask, data, compress_data=False):
+
+        # Aggregating the results
+        if compress_data:
+            agg_data, cc_logits = self.aggregation_layer.forward(
+                cat_mask, 
+                logits=data
+            )
+        else:
+            agg_data = self.aggregation_layer.forward(
+                cat_mask, 
+                categos=data
+            )
+
+        # Perform hough voting
+        agg_data = self.hough_voting_layer(agg_data)
+
+        # Calculate RT
+        agg_data = gtf.samplewise_get_RT(agg_data, self.inv_intrinsics)
+
+        if compress_data:
+            return agg_data, cc_logits
+        else:
+            return agg_data
 
 #-------------------------------------------------------------------------------
 # File Main

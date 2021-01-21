@@ -26,12 +26,10 @@ import gpu_tensor_funcs as gtf
 
 class AggregationLayer(nn.Module):
 
-    def __init__(self, HPARAM, classes, intrinsics):
+    def __init__(self, HPARAM, classes):
         super().__init__()
         self.HPARAM = HPARAM
         self.classes = classes # including background
-        self.intrinsics = intrinsics
-        self.inv_intrinsics = torch.inverse(intrinsics)
         self.hough_voting_layer = hv.HoughVotingLayer(self.HPARAM)        
 
         # Creating binary structure that does not attach batchwise data
@@ -62,11 +60,6 @@ class AggregationLayer(nn.Module):
 
         # Can only use either logits or categorical data
         assert (logits == None) ^ (categos == None), "XOR: logits or categos"
-
-        # Ensuring that intrinsics is in the same device
-        if self.intrinsics.device != cat_mask.device:
-            self.intrinsics = self.intrinsics.to(cat_mask.device)
-            self.inv_intrinsics = torch.inverse(self.intrinsics)
 
         # Outputs
         agg_pred = []
@@ -171,7 +164,7 @@ class AggregationLayer(nn.Module):
                 else:
                     raise RuntimeError(f"Invalid input data for {logit_key}")
 
-                # Take the average of quaterins, scales and z's logit value
+                # Take the average of quaternions, scales and z's logit value
                 if logit_key in ['quaternion', 'scales', 'z']:
                     total_val = torch.sum(masked_data, dim=(-2, -1))
                     mask_size = torch.sum(pure_instance_masks, dim=(-2, -1))
@@ -181,26 +174,11 @@ class AggregationLayer(nn.Module):
                     if logit_key == 'z':
                         agg_data = torch.exp(agg_data)
 
-                else: # for xy, we need hough voting
-                    agg_data = self.batchwise_hough_voting(
-                        masked_data, 
-                        pure_instance_masks
-                    )
+                elif logit_key == 'xy':
+                    agg_data = masked_data
 
                 # Storing the mean of the instances to agg_pred
-                class_data[logit_key] = agg_data 
-
-            # Once all the raw data has been aggregated, we need to calculate the 
-            # rotation matrix of each instance.
-            RT_data = gtf.batchwise_get_RT(
-                class_data['quaternion'],
-                class_data['xy'],
-                class_data['z'],
-                self.inv_intrinsics
-            )
-
-            # Storing generated RT
-            class_data['RT'] = RT_data
+                class_data[logit_key] = agg_data
 
             # Storing the finished data of one class into the multi-class container
             agg_pred.append(class_data) 
