@@ -177,6 +177,8 @@ class PoseRegressor(torch.nn.Module):
         # Create categorical mask
         cat_mask = torch.argmax(torch.nn.LogSoftmax(dim=1)(mask_logits), dim=1)
 
+        return logits
+
         # Perform aggregation, hough voting, and generate RT matrix given the 
         # results of previous operations.
         agg_pred, cc_logits = self.agg_hough_and_generate_RT(

@@ -1,10 +1,22 @@
+import os
+import sys
 import time
 import argparse
+
+import matplotlib.pyplot as plt
 
 import torch
 import torch.nn as nn
 
 import scipy.special
+
+# Local imports
+sys.path.append(os.getenv("TOOLS_DIR"))
+
+try:
+    import visualize as vz
+except ImportError:
+    pass
 
 import gpu_tensor_funcs as gtf
 
@@ -43,16 +55,25 @@ class HoughVotingLayer(nn.Module):
         # If there is valid hypothesis, generate their weights.
         if valid_samples:
 
+            # Pruning of outliers
+            pruned_hypothesis = self.prun_outliers(hypothesis)
+
             # Calculate the weights of each hypothesis
             weights = self.batchwise_calculate_hypothesis_weights(
                 valid_samples,
                 all_pts, 
                 uv_img, 
-                hypothesis
+                pruned_hypothesis
             )
 
+            # Account for the pruning of outliers
+            is_nan = torch.isnan(pruned_hypothesis)
+            is_outlier = torch.squeeze(torch.logical_or(is_nan[:,:,0], is_nan[:,:,1]), dim=-1)
+            pruned_hypothesis[is_nan] = 0
+            weights[is_outlier] = 0
+
             # Calculate the weighted means
-            numerator = torch.sum(hypothesis * torch.unsqueeze(weights, dim=-1), dim=1)
+            numerator = torch.sum(pruned_hypothesis * torch.unsqueeze(weights, dim=-1), dim=1)
             denominator = torch.unsqueeze(torch.sum(weights, dim=1), dim=-1)
             weighted_mean = numerator / denominator
 
@@ -62,6 +83,17 @@ class HoughVotingLayer(nn.Module):
             # Filling in invalid samples
             filled_pixel_xy = torch.zeros((uv_img.shape[0], 2), device=pixel_xy.device)
             filled_pixel_xy[valid_samples,:] = pixel_xy
+
+            # Visualize hough voting information
+            self.visualize_hypothesis(
+                valid_samples,
+                hypothesis, 
+                pruned_hypothesis, 
+                weights, 
+                weighted_mean, # as the pixel_xy since it has the right order of xy 
+                uv_img, 
+                mask 
+            )
 
             return filled_pixel_xy
 
@@ -143,7 +175,6 @@ class HoughVotingLayer(nn.Module):
         # else, return all None
         else:
             return None, None, None
-
 
     def batchwise_calculate_hypothesis_weights(self, valid_samples, all_pts, uv_img, hypothesis):
 
@@ -352,46 +383,189 @@ class HoughVotingLayer(nn.Module):
 
         return Y
 
-    #-------------------------------------------------------------------------------
+    #---------------------------------------------------------------------------
     # Intersection Reduction Functions
 
-    def simple_mean(self, Y):
+    def prun_outliers(self, Y):
 
-        return torch.mean(Y, dim=0)
+        prun_Y = Y.clone()
 
-    def std_trimming_mean(self, Y):
+        # Performed the desired pruning method
+        if self.HPARAM.PRUN_METHOD == 'z-score':
+            outliers_idx = self.batchwise_z_score_trimming(prun_Y)
 
-        # Perform until break condition
-        for i in range(self.HPARAM.PRUN_MAX_ITER):
-            #print(".", end = "")
+        # Perform the desired behavior on the outliers
+        if self.HPARAM.PRUN_OUTLIER_DROP and self.HPARAM.PRUN_METHOD != None:
+            # Fill outliers with Nans
+            prun_Y[outliers_idx] = torch.tensor(float('nan'), device=prun_Y.device)
+        else:
 
-            # Calculate the std and mean
-            std = torch.std(Y, dim=0)
-            mean = torch.mean(Y, dim=0)
+            # If outliers are to be replaced, then what style (mean, median, mode)
+            if self.HPARAM.PRUN_OUTLIER_REPLACEMENT_STYLE == 'mean':
+                replace_data = torch.mean(prun_Y, dim=1)
+            elif self.HPARAM.PRUN_OUTLIER_REPLACEMENT_STYLE == 'median':
+                replace_data = torch.median(prun_Y, dim=1)
 
-            # Calculate the radius of std
-            std_radius = std.norm(dim=0)
+            expanded_replace_data = torch.unsqueeze(replace_data, dim=1).expand(prun_Y.shape)
 
-            # Break condition
-            if std_radius <= self.HPARAM.PRUN_GOAL_STD:
-                #print("")
-                return Y#mean
+            prun_Y = torch.where(outliers_idx, expanded_replace_data, prun_Y)
 
-            # Calculating the distance of each point from the mean
-            distance_vector = mean - Y
-            euclidean_distance = distance_vector.norm(dim=1)
+        return prun_Y
 
-            # Obtain the cutoff
-            cutoff = self.HPARAM.PRUN_K_FROM_STD * std_radius
+    def batchwise_z_score_trimming(self, Y):
 
-            # Determine inliers
-            inliers = euclidean_distance < cutoff
+        # Determing the characteristic of the data
+        polar_std = torch.std(Y, dim=1).norm(dim=1)
+        mean = torch.std(Y, dim=1)
 
-            # Keep only inliers
-            Y = Y[inliers, :]
+        # Calculate the z score
+        polar_diff = (Y - torch.unsqueeze(mean, dim=1)).norm(dim=-1)
+        z_score = polar_diff / torch.unsqueeze(polar_std, dim=-1)
 
-        #print("")
-        return Y #torch.mean(Y, dim=0)
+        # Determine the outliers
+        outliers = z_score > self.HPARAM.PRUN_ZSCORE_THRESHOLD
+        outliers_idx = torch.unsqueeze(outliers,dim=-1).expand(Y.shape)
+
+        return outliers_idx
+
+    def batchwise_iqr_trimming(self, Y):
+
+        # Determine Q2
+
+        # Determine Q1
+
+        # Determine Q3
+
+        # Calculate IQR score
+
+        # Determine outliers
+
+        # Remove outliers
+        return None
+
+    #---------------------------------------------------------------------------
+    # Visualization of Hough Voting
+
+    def visualize_hypothesis(self, 
+        valid_samples,
+        hypothesis, 
+        pruned_hypothesis,
+        weights,
+        pixel_xy,
+        uv_img, 
+        mask
+        ):
+
+        b,h,w = mask.shape
+
+        draw_image = torch.zeros(
+            (len(valid_samples), h, w, 3), 
+            dtype=torch.float32,
+            device=mask.device
+        )
+
+        colors = torch.tensor([
+            [0,0.5,0], # mask
+            [0,1,1], # original hypothesis
+            [1,1,0], # pruned hypothesis
+            [1,0,1], # final conclusion
+        ], dtype=torch.float32, device=mask.device)
+
+        safe_pixel_xy = self.make_pts_index_friendly(pixel_xy, h, w)
+
+        for enu_i, valid_id in enumerate(valid_samples):
+
+            # Drawing the mask (blue)
+            expand_mask = torch.unsqueeze(mask[valid_id], dim=-1).expand((h,w,3))
+            draw_image[enu_i] = torch.where(expand_mask != 0, colors[0], draw_image[enu_i])
+
+            # Draw the selected center pts
+            draw_image[enu_i] = self.draw_pts(
+                draw_image[enu_i],
+                torch.unsqueeze(safe_pixel_xy[enu_i], dim=0),
+                colors[3],
+                t=3
+            )
+
+            # Drawing the initial hypothesis (red)
+            draw_image[enu_i] = self.draw_pts(
+                draw_image[enu_i],
+                hypothesis[enu_i].long(),
+                colors[1],
+                t=2
+            )
+
+            # Draw the prun hypothesis
+            draw_image[enu_i] = self.draw_pts(
+                draw_image[enu_i],
+                pruned_hypothesis[enu_i].long(),
+                colors[2],
+                t=1
+            )
+
+        # Creating visualized unit vectors
+        vis_uv_img = vz.get_visualized_u_vector_xys(
+            mask.cpu().numpy(),
+            uv_img[list(range(len(valid_samples)))].cpu().numpy()
+        )
+
+        # Visualizing outputed images
+        plot = vz.make_summary_figure(
+            uv=vis_uv_img,
+            hough=draw_image.cpu().numpy()
+        )
+
+        return plot
+
+    def make_pts_index_friendly(self, pts, h, w):
+
+        # Creating a out of frame shift to more easily visualize pts outside 
+        # the image
+        out_of_frame_shift = 5
+
+        # Ensuring the dtype is correct
+        pts = pts.long()
+
+        # Height : Y
+        pts[:,0] = torch.where(pts[:,0] >= h, h-out_of_frame_shift, pts[:,0])
+        pts[:,0] = torch.where(pts[:,0] < 0, out_of_frame_shift, pts[:,0])
+        
+        # Width: X
+        pts[:,1] = torch.where(pts[:,1] >= w, w-out_of_frame_shift, pts[:,1])
+        pts[:,1] = torch.where(pts[:,1] < 0, out_of_frame_shift, pts[:,1])
+
+        return pts
+
+    def draw_pts(self, draw_image, pts, color, t=1):
+
+        h, w, _ = draw_image.shape
+
+        # Making the pts safe to begin with to allow for better visualization 
+        pts = self.make_pts_index_friendly(pts, h, w)
+
+        ys = pts[:,0]
+        xs = pts[:,1]
+
+        s = 2*t+1 # size
+        a = (torch.arange(0, s**2, device=draw_image.device) % s).reshape((s, s)) - t
+        kernel = torch.stack((a, a.t()), dim=-1).reshape((-1,2))
+        
+        for i in range(xs.shape[0]):
+            
+            dilate_x = kernel[:,0] + xs[i]
+            dilate_y = kernel[:,1] + ys[i]
+
+            dilate_pts = torch.stack((dilate_y, dilate_x)).t()
+            
+            """
+            safe_pts = self.make_pts_index_friendly(
+                dilate_pts, h, w
+            )
+            """
+
+            draw_image[dilate_pts[:,0], dilate_pts[:,1]] = color
+
+        return draw_image
 
 #-------------------------------------------------------------------------------
 

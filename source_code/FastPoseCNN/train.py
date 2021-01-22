@@ -76,7 +76,7 @@ class DEFAULT_POSE_HPARAM(argparse.Namespace):
     SELECTED_CLASSES = tools.pj.constants.NUM_CLASSES[DATASET_NAME]
 
     # Run Specifications
-    BATCH_SIZE = 6
+    BATCH_SIZE = 2
     NUM_WORKERS = 18 # 36 total CPUs
     NUM_GPUS = 1 # 4 total GPUs
     TRAIN_SIZE=100#5000
@@ -87,7 +87,7 @@ class DEFAULT_POSE_HPARAM(argparse.Namespace):
     FREEZE_MASK_DECODER = False
     LEARNING_RATE = 0.0001
     ENCODER_LEARNING_RATE = 0.0005
-    NUM_EPOCHS = 3#30
+    NUM_EPOCHS = 1#30
     DISTRIBUTED_BACKEND = None if NUM_GPUS <= 1 else 'ddp'
 
     # Architecture Parameters
@@ -98,10 +98,13 @@ class DEFAULT_POSE_HPARAM(argparse.Namespace):
     # Algorithmic Parameters
     
     ## Hough Voting Parameters 
-    HV_NUM_OF_HYPOTHESES = 25
-    PRUN_GOAL_STD = 15
-    PRUN_K_FROM_STD = 1
-    PRUN_MAX_ITER = 5
+    HV_NUM_OF_HYPOTHESES = 10 # Good at 50 though
+    PRUN_METHOD = 'z-score' # options = (None, 'z-score')
+    PRUN_OUTLIER_DROP = False
+    PRUN_OUTLIER_REPLACEMENT_STYLE = 'mean'
+
+    ### Pruning Method Parameters (Z-score)
+    PRUN_ZSCORE_THRESHOLD=3.5
     
 
 HPARAM = DEFAULT_POSE_HPARAM()
