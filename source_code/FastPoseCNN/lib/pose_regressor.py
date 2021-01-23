@@ -174,10 +174,11 @@ class PoseRegressor(torch.nn.Module):
             'z': z_logits
         }
 
+        # ! Debugging only
+        #return logits
+
         # Create categorical mask
         cat_mask = torch.argmax(torch.nn.LogSoftmax(dim=1)(mask_logits), dim=1)
-
-        return logits
 
         # Perform aggregation, hough voting, and generate RT matrix given the 
         # results of previous operations.

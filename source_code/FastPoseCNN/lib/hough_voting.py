@@ -73,9 +73,7 @@ class HoughVotingLayer(nn.Module):
             weights[is_outlier] = 0
 
             # Calculate the weighted means
-            numerator = torch.sum(pruned_hypothesis * torch.unsqueeze(weights, dim=-1), dim=1)
-            denominator = torch.unsqueeze(torch.sum(weights, dim=1), dim=-1)
-            weighted_mean = numerator / denominator
+            weighted_mean = torch.sum(pruned_hypothesis * torch.unsqueeze(weights, dim=-1), dim=1)
 
             # Need to flip xy to yx
             pixel_xy = weighted_mean[:,[1,0]]
@@ -85,6 +83,7 @@ class HoughVotingLayer(nn.Module):
             filled_pixel_xy[valid_samples,:] = pixel_xy
 
             # Visualize hough voting information
+            """
             self.visualize_hypothesis(
                 valid_samples,
                 hypothesis, 
@@ -94,6 +93,7 @@ class HoughVotingLayer(nn.Module):
                 uv_img, 
                 mask 
             )
+            #"""
 
             return filled_pixel_xy
 
@@ -202,6 +202,20 @@ class HoughVotingLayer(nn.Module):
             a = a / torch.unsqueeze(a.norm(dim=-1), dim=-1)
             b = torch.einsum('ijk,ijk->ij', a, pts_uv_value) > 0
             weights = torch.sum(b, dim=-1)
+
+            # Multiply the weight if the hypothesis is inside the mask
+            match = (expanded_hypo.long() == expanded_pts)
+            xy_match = torch.logical_and(match[...,0], match[...,1])
+            h_in_mask = torch.sum(xy_match, dim=1)
+            factor = torch.where(
+                h_in_mask == 1, 
+                self.HPARAM.HV_HYPOTHESIS_IN_MASK_MULTIPLIER,
+                1
+            )
+            weights = factor * weights
+
+            # Normalizing weight
+            weights = weights / torch.sum(weights)
 
             # Store weights
             all_weights.append(weights)
@@ -391,11 +405,17 @@ class HoughVotingLayer(nn.Module):
         prun_Y = Y.clone()
 
         # Performed the desired pruning method
-        if self.HPARAM.PRUN_METHOD == 'z-score':
+        if self.HPARAM.PRUN_METHOD == None:
+            return prun_Y
+        elif self.HPARAM.PRUN_METHOD == 'z-score':
             outliers_idx = self.batchwise_z_score_trimming(prun_Y)
+        elif self.HPARAM.PRUN_METHOD == 'iqr':
+            outliers_idx = self.batchwise_iqr_trimming(prun_Y)
+        else:
+            raise RuntimeError("Invalid HARAM.PRUN_METHOD")
 
         # Perform the desired behavior on the outliers
-        if self.HPARAM.PRUN_OUTLIER_DROP and self.HPARAM.PRUN_METHOD != None:
+        if self.HPARAM.PRUN_OUTLIER_DROP:
             # Fill outliers with Nans
             prun_Y[outliers_idx] = torch.tensor(float('nan'), device=prun_Y.device)
         else:
@@ -404,10 +424,12 @@ class HoughVotingLayer(nn.Module):
             if self.HPARAM.PRUN_OUTLIER_REPLACEMENT_STYLE == 'mean':
                 replace_data = torch.mean(prun_Y, dim=1)
             elif self.HPARAM.PRUN_OUTLIER_REPLACEMENT_STYLE == 'median':
-                replace_data = torch.median(prun_Y, dim=1)
+                replace_data = torch.median(prun_Y, dim=1).values
 
+            # Expanding the data to match the size of prun_Y
             expanded_replace_data = torch.unsqueeze(replace_data, dim=1).expand(prun_Y.shape)
 
+            # Filling the outliers with the expanded replacement data
             prun_Y = torch.where(outliers_idx, expanded_replace_data, prun_Y)
 
         return prun_Y
@@ -415,33 +437,75 @@ class HoughVotingLayer(nn.Module):
     def batchwise_z_score_trimming(self, Y):
 
         # Determing the characteristic of the data
-        polar_std = torch.std(Y, dim=1).norm(dim=1)
-        mean = torch.std(Y, dim=1)
+        std = torch.std(Y, dim=1)
+        mean = torch.mean(Y, dim=1)
 
         # Calculate the z score
-        polar_diff = (Y - torch.unsqueeze(mean, dim=1)).norm(dim=-1)
-        z_score = polar_diff / torch.unsqueeze(polar_std, dim=-1)
+        diff = (Y - torch.unsqueeze(mean, dim=1))
+        z_score = diff / torch.unsqueeze(std, dim=1)
 
         # Determine the outliers
         outliers = z_score > self.HPARAM.PRUN_ZSCORE_THRESHOLD
-        outliers_idx = torch.unsqueeze(outliers,dim=-1).expand(Y.shape)
+        logic_or_outliers = torch.logical_or(outliers[:,:,0], outliers[:,:,1])
+
+        outliers_idx = torch.unsqueeze(logic_or_outliers,dim=-1).expand(Y.shape)
 
         return outliers_idx
 
     def batchwise_iqr_trimming(self, Y):
 
         # Determine Q2
+        q2 = torch.median(Y, dim=1).values
 
-        # Determine Q1
+        # Creating data container for q1 and q3
+        q1 = torch.zeros((Y.shape[0], 2))
+        q3 = torch.zeros((Y.shape[0], 2))
 
-        # Determine Q3
+        # Iterating over the samples
+        for i in range(Y.shape[0]):
+
+            # Indexing the specific section we are handling
+            y = Y[i]
+            i_q2 = q2[i]
+
+            # Find the values below and above
+            e_i_q2 = torch.unsqueeze(i_q2, dim=0).expand(y.shape)
+            is_lower = y <= e_i_q2
+            is_higher = y >= e_i_q2
+
+            # Iterate per axis (x and y)
+            for j in range(y.shape[-1]):
+
+                lower_data = y[...,j][is_lower[...,j]]
+                higher_data = y[...,j][is_higher[...,j]]
+
+                ij_q1 = torch.median(lower_data)
+                ij_q3 = torch.median(higher_data)
+
+                q1[i,j] = ij_q1
+                q3[i,j] = ij_q3
 
         # Calculate IQR score
+        iqr = q3 - q1
+
+        # Creating cutoffs (top and bottom)
+        top_cut = q3 + self.HPARAM.IQR_MULTIPLIER * iqr
+        bot_cut = q1 - self.HPARAM.IQR_MULTIPLIER * iqr
+
+        # Expanding the cutoffs to match the data
+        expand_top_cut = torch.unsqueeze(top_cut, dim=1).expand(Y.shape)
+        expand_bot_cut = torch.unsqueeze(bot_cut, dim=1).expand(Y.shape)
 
         # Determine outliers
+        high_outliers = Y > expand_top_cut
+        low_outliers = Y < expand_bot_cut
 
-        # Remove outliers
-        return None
+        # Determine outliers indecies
+        outliers = torch.logical_or(high_outliers, low_outliers)
+        logic_or_outliers = torch.logical_or(outliers[:,:,0], outliers[:,:,1])
+        outliers_idx = torch.unsqueeze(logic_or_outliers,dim=-1).expand(Y.shape)
+
+        return outliers_idx
 
     #---------------------------------------------------------------------------
     # Visualization of Hough Voting
@@ -467,8 +531,8 @@ class HoughVotingLayer(nn.Module):
         colors = torch.tensor([
             [0,0.5,0], # mask
             [0,1,1], # original hypothesis
-            [1,1,0], # pruned hypothesis
-            [1,0,1], # final conclusion
+            [1,0,1], # pruned hypothesis
+            [1,0,0], # final conclusion
         ], dtype=torch.float32, device=mask.device)
 
         safe_pixel_xy = self.make_pts_index_friendly(pixel_xy, h, w)
@@ -478,14 +542,6 @@ class HoughVotingLayer(nn.Module):
             # Drawing the mask (blue)
             expand_mask = torch.unsqueeze(mask[valid_id], dim=-1).expand((h,w,3))
             draw_image[enu_i] = torch.where(expand_mask != 0, colors[0], draw_image[enu_i])
-
-            # Draw the selected center pts
-            draw_image[enu_i] = self.draw_pts(
-                draw_image[enu_i],
-                torch.unsqueeze(safe_pixel_xy[enu_i], dim=0),
-                colors[3],
-                t=3
-            )
 
             # Drawing the initial hypothesis (red)
             draw_image[enu_i] = self.draw_pts(
@@ -503,6 +559,14 @@ class HoughVotingLayer(nn.Module):
                 t=1
             )
 
+            # Draw the selected center pts
+            draw_image[enu_i] = self.draw_pts(
+                draw_image[enu_i],
+                torch.unsqueeze(safe_pixel_xy[enu_i], dim=0),
+                colors[3],
+                t=3
+            )
+
         # Creating visualized unit vectors
         vis_uv_img = vz.get_visualized_u_vector_xys(
             mask.cpu().numpy(),
@@ -514,6 +578,8 @@ class HoughVotingLayer(nn.Module):
             uv=vis_uv_img,
             hough=draw_image.cpu().numpy()
         )
+
+        #plt.show()
 
         return plot
 

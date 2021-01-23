@@ -77,10 +77,10 @@ class DEFAULT_POSE_HPARAM(argparse.Namespace):
 
     # Run Specifications
     BATCH_SIZE = 2
-    NUM_WORKERS = 18 # 36 total CPUs
-    NUM_GPUS = 1 # 4 total GPUs
-    TRAIN_SIZE=100#5000
-    VALID_SIZE=20#200
+    NUM_WORKERS = 0 # 18 # 36 total CPUs
+    NUM_GPUS = 0 # 4 total GPUs
+    TRAIN_SIZE=100 # 5000
+    VALID_SIZE=20 # 200
 
     # Training Specifications
     FREEZE_ENCODER = False
@@ -98,13 +98,17 @@ class DEFAULT_POSE_HPARAM(argparse.Namespace):
     # Algorithmic Parameters
     
     ## Hough Voting Parameters 
-    HV_NUM_OF_HYPOTHESES = 10 # Good at 50 though
-    PRUN_METHOD = 'z-score' # options = (None, 'z-score')
+    HV_NUM_OF_HYPOTHESES = 51 # Good at 50 though (preferably 2*n + 1 because of iqr)
+    HV_HYPOTHESIS_IN_MASK_MULTIPLIER = 3 
+    PRUN_METHOD = 'iqr' # options = (None, 'z-score', 'iqr')
     PRUN_OUTLIER_DROP = False
-    PRUN_OUTLIER_REPLACEMENT_STYLE = 'mean'
+    PRUN_OUTLIER_REPLACEMENT_STYLE = 'median'
 
     ### Pruning Method Parameters (Z-score)
-    PRUN_ZSCORE_THRESHOLD=3.5
+    PRUN_ZSCORE_THRESHOLD=1
+
+    ### Pruning Method Parameters (IQR)
+    IQR_MULTIPLIER=1.5
     
 
 HPARAM = DEFAULT_POSE_HPARAM()
