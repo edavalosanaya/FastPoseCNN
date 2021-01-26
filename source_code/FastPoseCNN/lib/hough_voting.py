@@ -458,8 +458,8 @@ class HoughVotingLayer(nn.Module):
         q2 = torch.median(Y, dim=1).values
 
         # Creating data container for q1 and q3
-        q1 = torch.zeros((Y.shape[0], 2))
-        q3 = torch.zeros((Y.shape[0], 2))
+        q1 = torch.zeros((Y.shape[0], 2), device=Y.device)
+        q3 = torch.zeros((Y.shape[0], 2), device=Y.device)
 
         # Iterating over the samples
         for i in range(Y.shape[0]):

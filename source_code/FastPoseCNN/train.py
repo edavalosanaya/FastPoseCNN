@@ -71,23 +71,23 @@ class DEFAULT_POSE_HPARAM(argparse.Namespace):
     
     # Experiment Identification 
     EXPERIMENT_NAME = "TESTING"
-    CHECKPOINT = pathlib.Path(os.getenv("LOGS")) / '21-01-05' / '21-01-MSE_FULL-NOCS-resnet18-imagenet' / '_' / 'checkpoints' / 'last.ckpt'
+    CHECKPOINT = pathlib.Path(os.getenv("LOGS")) / '21-01-23' / '12-49-SMALL_RUN-NOCS-resnet18-imagenet' / '_' / 'checkpoints' / 'last.ckpt'
     DATASET_NAME = 'NOCS'
     SELECTED_CLASSES = tools.pj.constants.NUM_CLASSES[DATASET_NAME]
 
     # Run Specifications
-    BATCH_SIZE = 2
-    NUM_WORKERS = 0 # 18 # 36 total CPUs
-    NUM_GPUS = 0 # 4 total GPUs
-    TRAIN_SIZE=100 # 5000
-    VALID_SIZE=20 # 200
+    BATCH_SIZE = 5
+    NUM_WORKERS = 18 # 36 total CPUs
+    NUM_GPUS = 4 # 4 total GPUs
+    TRAIN_SIZE=5000
+    VALID_SIZE=200
 
     # Training Specifications
     FREEZE_ENCODER = False
     FREEZE_MASK_DECODER = False
     LEARNING_RATE = 0.0001
     ENCODER_LEARNING_RATE = 0.0005
-    NUM_EPOCHS = 1#30
+    NUM_EPOCHS = 50
     DISTRIBUTED_BACKEND = None if NUM_GPUS <= 1 else 'ddp'
 
     # Architecture Parameters
