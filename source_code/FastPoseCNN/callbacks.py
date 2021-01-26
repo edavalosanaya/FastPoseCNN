@@ -149,6 +149,10 @@ class MyCallback(pl.callbacks.Callback):
             # Log visualization of scales
             self.log_epoch_scales(mode, trainer, pl_module)
 
+        if 'hough voting' in self.tasks:
+            # Log visualization of hough voting
+            self.log_epoch_hough_voting(mode, trainer, pl_module)
+
         if 'pose' in self.tasks:
             # Log visualization of pose
             self.log_epoch_pose(mode, trainer, pl_module)
@@ -366,6 +370,56 @@ class MyCallback(pl.callbacks.Callback):
         # Log the figure to tensorboard
         pl_module.logger.writers[mode].add_figure(f'scales_gen/{mode}', summary_fig, trainer.global_step)      
 
+    # HOUGH VOTING
+    @rank_zero_only
+    def log_epoch_hough_voting(self, mode, trainer, pl_module):
+
+        # Obtaining the LightningDataModule
+        datamodule = trainer.datamodule
+
+        # Accessing the corresponding dataset
+        dataset = datamodule.datasets[mode]
+
+        # Accessing the corresponding dataloader 
+        if mode == 'valid':
+            dataloader = trainer.val_dataloaders[0]
+        else: # train
+            dataloader = trainer.train_dataloader 
+
+        # Getting single sample
+        raw_batch = next(iter(dataloader))
+
+        # Trimming the batch, to make visualization easier to see
+        batch = {k:v[[0,1]].to(pl_module.device) for k,v in raw_batch.items()}
+
+        # Given the sample, make the prediciton with the PyTorch Lightning Moduel
+        with torch.no_grad():
+            outputs = pl_module(batch['image'].float())
+
+        # Applying activation function to the mask
+        pred_cat_mask = outputs['auxilary']['cat_mask'].cpu().numpy()
+
+        # Obtain the matches between aggregated predictions and ground truth data
+        agg_gt = pl_module.model.agg_hough_and_generate_RT(
+            batch['mask'],
+            data=batch
+        )
+
+        # Determine matches between the aggreated ground truth and preds
+        gt_pred_matches = lib.gtf.batchwise_find_matches(
+            outputs['auxilary']['agg_pred'],
+            agg_gt
+        )
+
+        # Create summary for the pose
+        summary_fig = tools.vz.compare_hough_voting_performance(
+            batch['clean_image'],
+            gt_pred_matches
+        )
+
+        # Log the figure to tensorboard
+        pl_module.logger.writers[mode].add_figure(f'hough_voting_gen/{mode}', summary_fig, trainer.global_step)
+
     # POSE
     @rank_zero_only
     def log_epoch_pose(self, mode, trainer, pl_module):
@@ -408,20 +462,20 @@ class MyCallback(pl.callbacks.Callback):
         )
 
         # Create summary for the pose
-        #try:
-        summary_fig = tools.vz.compare_pose_performance_v5(
-            batch['clean_image'],
-            gt_pred_matches,
-            pred_cat_mask,
-            mask_colormap=dataset.COLORMAP,
-            intrinsics=dataset.INTRINSICS
-        )
+        try:
+            summary_fig = tools.vz.compare_pose_performance_v5(
+                batch['clean_image'],
+                gt_pred_matches,
+                pred_cat_mask,
+                mask_colormap=dataset.COLORMAP,
+                intrinsics=dataset.INTRINSICS
+            )
 
-        # Log the figure to tensorboard
-        pl_module.logger.writers[mode].add_figure(f'pose_gen/{mode}', summary_fig, trainer.global_step)      
+            # Log the figure to tensorboard
+            pl_module.logger.writers[mode].add_figure(f'pose_gen/{mode}', summary_fig, trainer.global_step)      
 
-        #except Exception as e:
-        #    print('pose visualization error: ', e)
+        except Exception as e:
+            print('pose visualization error: ', e)
         
     #---------------------------------------------------------------------------
     # End of Training

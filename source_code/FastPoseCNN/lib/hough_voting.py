@@ -34,10 +34,15 @@ class HoughVotingLayer(nn.Module):
         # Performing this per class
         for class_id in range(len(agg_data)):
 
-            # Performing hough voting
+            # Obtain data needed for hough voting
             uv_img = agg_data[class_id]['xy']
             mask = agg_data[class_id]['instance_masks']
-            agg_data[class_id]['xy'] = self.batchwise_hough_voting(uv_img, mask)
+            
+            # Performing hough voting
+            output = self.batchwise_hough_voting(uv_img, mask)
+
+            # Store data
+            agg_data[class_id].update(output)
 
         return agg_data
 
@@ -46,21 +51,20 @@ class HoughVotingLayer(nn.Module):
 
     def batchwise_hough_voting(self, uv_img, mask):
 
-        # Generate hypothesis
-        hypothesis, all_pts, valid_samples = self.batchwise_generate_hypothesis(
-            uv_img, 
-            mask
-        )
+        # If instances exist, perform hough voting
+        if uv_img.shape[0] != 0:
 
-        # If there is valid hypothesis, generate their weights.
-        if valid_samples:
+            # Generate hypothesis
+            hypothesis, all_pts = self.batchwise_generate_hypothesis(
+                uv_img, 
+                mask
+            )
 
             # Pruning of outliers
             pruned_hypothesis = self.prun_outliers(hypothesis)
 
             # Calculate the weights of each hypothesis
             weights = self.batchwise_calculate_hypothesis_weights(
-                valid_samples,
                 all_pts, 
                 uv_img, 
                 pruned_hypothesis
@@ -78,32 +82,41 @@ class HoughVotingLayer(nn.Module):
             # Need to flip xy to yx
             pixel_xy = weighted_mean[:,[1,0]]
 
-            # Filling in invalid samples
-            filled_pixel_xy = torch.zeros((uv_img.shape[0], 2), device=pixel_xy.device)
-            filled_pixel_xy[valid_samples,:] = pixel_xy
-
-            # Visualize hough voting information
+            # Visualize hough voting
             """
-            self.visualize_hypothesis(
-                valid_samples,
-                hypothesis, 
-                pruned_hypothesis, 
-                weights, 
-                weighted_mean, # as the pixel_xy since it has the right order of xy 
-                uv_img, 
-                mask 
+            plot = vz.visualize_hypothesis(
+                hypothesis,
+                pruned_hypothesis,
+                pixel_xy,
+                uv_img,
+                mask
             )
-            #"""
+            """
 
-            return filled_pixel_xy
+            # Put all valuable data into dictionary
+            output = {
+                'xy': pixel_xy,
+                'xy_mask': uv_img,
+                'hypothesis': hypothesis,
+                'pruned_hypothesis': pruned_hypothesis
+            }
 
         else:
 
-            return torch.zeros((uv_img.shape[0], 2), device=uv_img.device)
+            # Output for no instances
+            output = {
+                'xy': torch.zeros((0, 2), device=uv_img.device),
+                'xy_mask': uv_img,
+                'hypothesis': torch.zeros((0, self.HPARAM.HV_NUM_OF_HYPOTHESES, 2), device=uv_img.device),
+                'pruned_hypothesis': torch.zeros((0, self.HPARAM.HV_NUM_OF_HYPOTHESES, 2), device=uv_img.device),
+            }
+
+        return output
 
     def batchwise_generate_hypothesis(self, uv_img, mask):
 
         valid_samples = []
+        single_pt_hypothesis = {}
         all_pts = []
 
         for i in range(uv_img.shape[0]):
@@ -114,12 +127,13 @@ class HoughVotingLayer(nn.Module):
             # Determining the number of pts present
             num_of_pts = pts.shape[0]
 
-            # Determine if this is a valid number of pts (>1)
-            if num_of_pts < 2:
-                continue
-
             # Store the points to avoid recalculating
             all_pts.append(pts)
+
+            # Determine if this is a valid number of pts (>1)
+            if num_of_pts < 2:
+                single_pt_hypothesis[i] = pts.expand((self.HPARAM.HV_NUM_OF_HYPOTHESES,2))
+                continue
 
             # Selecting random pairs of pts (0-n) [n = number of pts]
             # By using torch.multinomial: https://pytorch.org/docs/stable/generated/torch.multinomial.html?highlight=multinomial
@@ -157,31 +171,44 @@ class HoughVotingLayer(nn.Module):
             # Keep track of the idx of valid entries
             valid_samples.append(i)
 
-        # If there is some valid samples, process them
         if valid_samples:
-
-            total_Y = self.batched_pinverse_solver(
+            # Perform solver for system of linear system of equations to find
+            # intersection of the pts and vectors
+            valid_Y = self.batched_pinverse_solver(
                 total_A, 
                 total_B, 
                 total_pt_pairs, 
                 total_uv_pt_pairs
             )
 
-            # Splitting the total_Y based on the number of instances
-            total_Y = torch.stack(torch.chunk(total_Y, len(valid_samples)))
+            # Split the valid hypothesis and place them in a indentifying dictionary
+            chunked_valid_Y = torch.chunk(valid_Y, len(valid_samples))
+            valid_samples = {k:v for k,v in zip(valid_samples, chunked_valid_Y)}
 
-            return total_Y, all_pts, valid_samples
-        
-        # else, return all None
-        else:
-            return None, None, None
+        # Splitting the total_Y based on the number of instances
+        total_Y = torch.zeros(
+            (uv_img.shape[0], self.HPARAM.HV_NUM_OF_HYPOTHESES, 2)
+        )
 
-    def batchwise_calculate_hypothesis_weights(self, valid_samples, all_pts, uv_img, hypothesis):
+        # Combine all the hypothesis into a single tensor
+        for i in range(uv_img.shape[0]):
+
+            # Check if this is a valid sample
+            if i in valid_samples.keys():
+                total_Y[i] = valid_samples[i]
+            elif i in single_pt_hypothesis.keys():
+                total_Y[i] = single_pt_hypothesis[i]
+            else:
+                raise RuntimeError("Invalid key in hough votingsss")
+
+        return total_Y, all_pts
+
+    def batchwise_calculate_hypothesis_weights(self, all_pts, uv_img, hypothesis):
 
         all_weights = []
 
         # Determine the size
-        for i in range(len(valid_samples)):
+        for i in range(uv_img.shape[0]):
 
             h = hypothesis[i]
             pts = all_pts[i]
@@ -506,132 +533,6 @@ class HoughVotingLayer(nn.Module):
         outliers_idx = torch.unsqueeze(logic_or_outliers,dim=-1).expand(Y.shape)
 
         return outliers_idx
-
-    #---------------------------------------------------------------------------
-    # Visualization of Hough Voting
-
-    def visualize_hypothesis(self, 
-        valid_samples,
-        hypothesis, 
-        pruned_hypothesis,
-        weights,
-        pixel_xy,
-        uv_img, 
-        mask
-        ):
-
-        b,h,w = mask.shape
-
-        draw_image = torch.zeros(
-            (len(valid_samples), h, w, 3), 
-            dtype=torch.float32,
-            device=mask.device
-        )
-
-        colors = torch.tensor([
-            [0,0.5,0], # mask
-            [0,1,1], # original hypothesis
-            [1,0,1], # pruned hypothesis
-            [1,0,0], # final conclusion
-        ], dtype=torch.float32, device=mask.device)
-
-        safe_pixel_xy = self.make_pts_index_friendly(pixel_xy, h, w)
-
-        for enu_i, valid_id in enumerate(valid_samples):
-
-            # Drawing the mask (blue)
-            expand_mask = torch.unsqueeze(mask[valid_id], dim=-1).expand((h,w,3))
-            draw_image[enu_i] = torch.where(expand_mask != 0, colors[0], draw_image[enu_i])
-
-            # Drawing the initial hypothesis (red)
-            draw_image[enu_i] = self.draw_pts(
-                draw_image[enu_i],
-                hypothesis[enu_i].long(),
-                colors[1],
-                t=2
-            )
-
-            # Draw the prun hypothesis
-            draw_image[enu_i] = self.draw_pts(
-                draw_image[enu_i],
-                pruned_hypothesis[enu_i].long(),
-                colors[2],
-                t=1
-            )
-
-            # Draw the selected center pts
-            draw_image[enu_i] = self.draw_pts(
-                draw_image[enu_i],
-                torch.unsqueeze(safe_pixel_xy[enu_i], dim=0),
-                colors[3],
-                t=3
-            )
-
-        # Creating visualized unit vectors
-        vis_uv_img = vz.get_visualized_u_vector_xys(
-            mask.cpu().numpy(),
-            uv_img[list(range(len(valid_samples)))].cpu().numpy()
-        )
-
-        # Visualizing outputed images
-        plot = vz.make_summary_figure(
-            uv=vis_uv_img,
-            hough=draw_image.cpu().numpy()
-        )
-
-        #plt.show()
-
-        return plot
-
-    def make_pts_index_friendly(self, pts, h, w):
-
-        # Creating a out of frame shift to more easily visualize pts outside 
-        # the image
-        out_of_frame_shift = 5
-
-        # Ensuring the dtype is correct
-        pts = pts.long()
-
-        # Height : Y
-        pts[:,0] = torch.where(pts[:,0] >= h, h-out_of_frame_shift, pts[:,0])
-        pts[:,0] = torch.where(pts[:,0] < 0, out_of_frame_shift, pts[:,0])
-        
-        # Width: X
-        pts[:,1] = torch.where(pts[:,1] >= w, w-out_of_frame_shift, pts[:,1])
-        pts[:,1] = torch.where(pts[:,1] < 0, out_of_frame_shift, pts[:,1])
-
-        return pts
-
-    def draw_pts(self, draw_image, pts, color, t=1):
-
-        h, w, _ = draw_image.shape
-
-        # Making the pts safe to begin with to allow for better visualization 
-        pts = self.make_pts_index_friendly(pts, h, w)
-
-        ys = pts[:,0]
-        xs = pts[:,1]
-
-        s = 2*t+1 # size
-        a = (torch.arange(0, s**2, device=draw_image.device) % s).reshape((s, s)) - t
-        kernel = torch.stack((a, a.t()), dim=-1).reshape((-1,2))
-        
-        for i in range(xs.shape[0]):
-            
-            dilate_x = kernel[:,0] + xs[i]
-            dilate_y = kernel[:,1] + ys[i]
-
-            dilate_pts = torch.stack((dilate_y, dilate_x)).t()
-            
-            """
-            safe_pts = self.make_pts_index_friendly(
-                dilate_pts, h, w
-            )
-            """
-
-            draw_image[dilate_pts[:,0], dilate_pts[:,1]] = color
-
-        return draw_image
 
 #-------------------------------------------------------------------------------
 

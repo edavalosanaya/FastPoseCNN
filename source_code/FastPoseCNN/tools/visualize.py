@@ -286,6 +286,114 @@ def get_visualized(image, key, mask_colormap):
         return image
 
 #-------------------------------------------------------------------------------
+# Hough Voting Visualization
+
+def get_visualized_hough_voting(
+    hypothesis, 
+    pruned_hypothesis,
+    pixel_xy,
+    mask
+    ):
+
+    # Shape information
+    h,w = mask.shape
+
+    # Flip the x and y to match the style of visualization in this function
+    pixel_xy = pixel_xy[[1,0]]
+    safe_pixel_xy = torch.squeeze(
+        make_pts_index_friendly(torch.unsqueeze(pixel_xy, dim=0), h, w)
+    )
+
+    colors = torch.tensor([
+        [0,0.5,0], # mask
+        [0,1,1], # original hypothesis
+        [1,0,1], # pruned hypothesis
+        [1,0,0], # final conclusion
+    ], dtype=torch.float, device=mask.device)
+
+    bg = torch.zeros((h,w,3), dtype=torch.float)
+
+    # Drawing the mask (blue)
+    expand_mask = torch.unsqueeze(mask, dim=-1).expand((h,w,3))
+    draw_image = torch.where(expand_mask != 0.0, colors[0], bg)
+
+    # Drawing the initial hypothesis (red)
+    draw_image = draw_pts(
+        draw_image,
+        hypothesis.long(),
+        colors[1],
+        t=2
+    )
+
+    # Draw the prun hypothesis
+    draw_image = draw_pts(
+        draw_image,
+        pruned_hypothesis.long(),
+        colors[2],
+        t=1
+    )
+
+    # Draw the selected center pts
+    draw_image = draw_pts(
+        draw_image,
+        torch.unsqueeze(safe_pixel_xy, dim=0),
+        colors[3],
+        t=3
+    )
+
+    return draw_image
+
+def make_pts_index_friendly(pts, h, w):
+
+    # Creating a out of frame shift to more easily visualize pts outside 
+    # the image
+    out_of_frame_shift = 5
+
+    # Ensuring the dtype is correct
+    pts = pts.long()
+
+    # Height : Y
+    pts[:,0] = torch.where(pts[:,0] >= h-out_of_frame_shift, h-out_of_frame_shift, pts[:,0])
+    pts[:,0] = torch.where(pts[:,0] < 0, out_of_frame_shift, pts[:,0])
+    
+    # Width: X
+    pts[:,1] = torch.where(pts[:,1] >= w-out_of_frame_shift, w-out_of_frame_shift, pts[:,1])
+    pts[:,1] = torch.where(pts[:,1] < 0, out_of_frame_shift, pts[:,1])
+
+    return pts
+
+def draw_pts(draw_image, pts, color, t=1):
+
+    h, w, _ = draw_image.shape
+
+    # Making the pts safe to begin with to allow for better visualization 
+    pts = make_pts_index_friendly(pts, h, w)
+
+    ys = pts[:,0]
+    xs = pts[:,1]
+
+    s = 2*t+1 # size
+    a = (torch.arange(0, s**2, device=draw_image.device) % s).reshape((s, s)) - t
+    kernel = torch.stack((a, a.t()), dim=-1).reshape((-1,2))
+    
+    for i in range(xs.shape[0]):
+        
+        dilate_x = kernel[:,0] + xs[i]
+        dilate_y = kernel[:,1] + ys[i]
+
+        dilate_pts = torch.stack((dilate_y, dilate_x)).t()
+        
+        """
+        safe_pts = self.make_pts_index_friendly(
+            dilate_pts, h, w
+        )
+        """
+
+        draw_image[dilate_pts[:,0], dilate_pts[:,1]] = color
+
+    return draw_image
+
+#-------------------------------------------------------------------------------
 # General Matplotlib Functions
 
 def make_summary_figure(**images):
@@ -525,6 +633,80 @@ def compare_scales_performance(sample, pred_scales, pred_cat_mask, mask_colormap
         pred_mask=pred_mask_vis,
         gt_scales = gt_scales_vis,
         pred_z = pred_scales_vis
+    )
+
+    return summary_fig
+
+def compare_hough_voting_performance(image, gt_pred_matches):
+
+    # Obtaining image shape information
+    b, h, w, _ = image.shape
+
+
+    # Container for all the drawn images 
+    drawn_gt_uv = torch.zeros_like(image, device=image.device)
+    drawn_pred_uv = torch.zeros_like(image, device=image.device)
+    drawn_gt_hv = torch.zeros_like(image, device=image.device)
+    drawn_pred_hv = torch.zeros_like(image, device=image.device)
+
+    # Per class visualization
+    for class_id in range(len(gt_pred_matches)):
+
+        # Obtaining the sample ids
+        try:
+            sample_ids = gt_pred_matches[class_id]['sample_ids']
+        except KeyError:
+            # No instances for this class, skip it
+            continue
+
+        for sequence_id, sample_id in enumerate(sample_ids):
+
+            # Visualize the gt uv
+            gt_vis_uv_img = torch.from_numpy(get_visualized_u_vector_xy(
+                gt_pred_matches[class_id]['instance_masks'][0][sequence_id].cpu().numpy(),
+                gt_pred_matches[class_id]['xy_mask'][0][sequence_id].cpu().numpy()
+            ))
+
+            # Visualize the pred uv
+            pred_vis_uv_img = torch.from_numpy(get_visualized_u_vector_xy(
+                gt_pred_matches[class_id]['instance_masks'][1][sequence_id].cpu().numpy(),
+                gt_pred_matches[class_id]['xy_mask'][1][sequence_id].cpu().numpy()
+            ))
+
+            # Visualize gt hypothesis (casting from float to uint8)
+            gt_vis_hypo_img = (get_visualized_hough_voting(
+                gt_pred_matches[class_id]['hypothesis'][0][sequence_id],
+                gt_pred_matches[class_id]['pruned_hypothesis'][0][sequence_id],
+                gt_pred_matches[class_id]['xy'][0][sequence_id],
+                gt_pred_matches[class_id]['instance_masks'][0][sequence_id],
+            )*255).type(torch.uint8)
+
+            # Visualize gt hypothesis (casting from float to uint8)
+            pred_vis_hypo_img = (get_visualized_hough_voting(
+                gt_pred_matches[class_id]['hypothesis'][1][sequence_id],
+                gt_pred_matches[class_id]['pruned_hypothesis'][1][sequence_id],
+                gt_pred_matches[class_id]['xy'][1][sequence_id],
+                gt_pred_matches[class_id]['instance_masks'][1][sequence_id],
+            )*255).type(torch.uint8)
+
+            drawn_gt_uv[sample_id] = torch.where(
+                drawn_gt_uv[sample_id] == 0, gt_vis_uv_img, drawn_gt_uv[sample_id]
+            )
+            drawn_pred_uv[sample_id] = torch.where(
+                drawn_pred_uv[sample_id] == 0, pred_vis_uv_img, drawn_pred_uv[sample_id]
+            )
+            drawn_gt_hv[sample_id] = torch.where(
+                drawn_gt_hv[sample_id] == 0, gt_vis_hypo_img, drawn_gt_hv[sample_id]
+            )
+            drawn_pred_hv[sample_id] = torch.where(
+                drawn_pred_hv[sample_id] == 0, pred_vis_hypo_img, drawn_pred_hv[sample_id]
+            )
+
+    summary_fig = make_summary_figure(
+        gt_uv=drawn_gt_uv.cpu().numpy(),
+        gt_hv=drawn_gt_hv.cpu().numpy(),
+        pred_uv=drawn_pred_uv.cpu().numpy(),
+        pred_hv=drawn_pred_hv.cpu().numpy()
     )
 
     return summary_fig

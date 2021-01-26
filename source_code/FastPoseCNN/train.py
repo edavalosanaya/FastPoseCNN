@@ -13,7 +13,7 @@ import base64
 os.environ["TF_CPP_MIN_LOG_LEVEL"]="3"
 warnings.filterwarnings('ignore')
 
-os.environ['CUDA_VISIBLE_DEVICES'] =  '0,1,2,3'
+os.environ['CUDA_VISIBLE_DEVICES'] = '' #'0,1,2,3'
 #os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
 
 import torch
@@ -76,18 +76,18 @@ class DEFAULT_POSE_HPARAM(argparse.Namespace):
     SELECTED_CLASSES = tools.pj.constants.NUM_CLASSES[DATASET_NAME]
 
     # Run Specifications
-    BATCH_SIZE = 5
-    NUM_WORKERS = 18 # 36 total CPUs
-    NUM_GPUS = 4 # 4 total GPUs
-    TRAIN_SIZE=5000
-    VALID_SIZE=200
+    BATCH_SIZE = 6
+    NUM_WORKERS = 0 # 18 # 18 # 36 total CPUs
+    NUM_GPUS = 0 # 4 total GPUs
+    TRAIN_SIZE= 100#5000
+    VALID_SIZE= 20#200
 
     # Training Specifications
     FREEZE_ENCODER = False
     FREEZE_MASK_DECODER = False
     LEARNING_RATE = 0.0001
     ENCODER_LEARNING_RATE = 0.0005
-    NUM_EPOCHS = 50
+    NUM_EPOCHS = 5
     DISTRIBUTED_BACKEND = None if NUM_GPUS <= 1 else 'ddp'
 
     # Architecture Parameters
@@ -109,7 +109,6 @@ class DEFAULT_POSE_HPARAM(argparse.Namespace):
 
     ### Pruning Method Parameters (IQR)
     IQR_MULTIPLIER=1.5
-    
 
 HPARAM = DEFAULT_POSE_HPARAM()
 
@@ -632,7 +631,7 @@ if __name__ == '__main__':
 
     # Creating my own callback
     custom_callback = plc.MyCallback(
-        tasks=['mask', 'quaternion', 'xy', 'z', 'scales', 'pose'],
+        tasks=['mask', 'quaternion', 'xy', 'z', 'scales', 'hough voting', 'pose'],
         hparams=runs_hparams,
         #checkpoint_monitor={
         #    'pose/degree_error_AP_5': 'max'

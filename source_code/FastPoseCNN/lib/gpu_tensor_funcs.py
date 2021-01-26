@@ -341,6 +341,14 @@ def find_matches_batched(preds, gts):
 def batchwise_find_matches(preds, gts):
 
     pred_gt_matches = []
+    keys_to_stack = [
+        'instance_masks', # Class
+        'quaternion', # Rotation
+        'scales', # Size
+        'xy', 'z', # Translation
+        'RT', # Transformation
+        'xy_mask', 'hypothesis', 'pruned_hypothesis' # Hough Voting
+    ]
 
     # For each class
     for class_id in range(len(preds)):
@@ -387,7 +395,7 @@ def batchwise_find_matches(preds, gts):
         class_data['sample_ids'] = gts[class_id]['sample_ids'][max_gt_id]
 
         # Select the match data and combined them together!
-        for data_key in ['instance_masks', 'quaternion', 'scales', 'xy', 'z', 'RT']:
+        for data_key in keys_to_stack:
             stacked_data = torch.stack(
                 (
                     gts[class_id][data_key][max_gt_id],
