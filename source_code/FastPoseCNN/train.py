@@ -13,7 +13,7 @@ import base64
 os.environ["TF_CPP_MIN_LOG_LEVEL"]="3"
 warnings.filterwarnings('ignore')
 
-os.environ['CUDA_VISIBLE_DEVICES'] = '' #'0,1,2,3'
+os.environ['CUDA_VISIBLE_DEVICES'] = '0,1,2,3'
 #os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
 
 import torch

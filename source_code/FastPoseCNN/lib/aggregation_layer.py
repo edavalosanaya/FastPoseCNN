@@ -97,7 +97,12 @@ class AggregationLayer(nn.Module):
                     # categorical ground truth data
                     if logit_key == 'z':
                         masked_class_chunk = torch.squeeze(masked_class_chunk, dim=1)
+                    
+                    # Normalize quaternion and xy
+                    elif logit_key == 'quaternion' or logit_key == 'xy':
+                        masked_class_chunk = gtf.normalize(masked_class_chunk, dim=1)
 
+                    # Store data
                     if logit_key in class_compress_logits.keys():
                         class_compress_logits[logit_key] += masked_class_chunk
                     else:
@@ -173,6 +178,10 @@ class AggregationLayer(nn.Module):
                     # Undoing the torch.log in data embedding
                     if logit_key == 'z':
                         agg_data = torch.exp(agg_data)
+
+                    # Normalizing data
+                    elif logit_key == 'quaternion':
+                        agg_data = gtf.normalize(agg_data, dim=1)
 
                 elif logit_key == 'xy':
                     agg_data = masked_data

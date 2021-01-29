@@ -311,7 +311,7 @@ def get_visualized_hough_voting(
         [1,0,0], # final conclusion
     ], dtype=torch.float, device=mask.device)
 
-    bg = torch.zeros((h,w,3), dtype=torch.float)
+    bg = torch.zeros((h,w,3), dtype=torch.float, device=mask.device)
 
     # Drawing the mask (blue)
     expand_mask = torch.unsqueeze(mask, dim=-1).expand((h,w,3))
@@ -642,7 +642,6 @@ def compare_hough_voting_performance(image, gt_pred_matches, return_as_figure=Tr
     # Obtaining image shape information
     b, h, w, _ = image.shape
 
-
     # Container for all the drawn images 
     drawn_gt_uv = torch.zeros_like(image, device=image.device)
     drawn_pred_uv = torch.zeros_like(image, device=image.device)
@@ -665,13 +664,13 @@ def compare_hough_voting_performance(image, gt_pred_matches, return_as_figure=Tr
             gt_vis_uv_img = torch.from_numpy(get_visualized_u_vector_xy(
                 gt_pred_matches[class_id]['instance_masks'][0][sequence_id].cpu().numpy(),
                 gt_pred_matches[class_id]['xy_mask'][0][sequence_id].cpu().numpy()
-            ))
+            )).to(image.device)
 
             # Visualize the pred uv
             pred_vis_uv_img = torch.from_numpy(get_visualized_u_vector_xy(
                 gt_pred_matches[class_id]['instance_masks'][1][sequence_id].cpu().numpy(),
                 gt_pred_matches[class_id]['xy_mask'][1][sequence_id].cpu().numpy()
-            ))
+            )).to(image.device)
 
             # Visualize gt hypothesis (casting from float to uint8)
             gt_vis_hypo_img = (get_visualized_hough_voting(
@@ -710,7 +709,7 @@ def compare_hough_voting_performance(image, gt_pred_matches, return_as_figure=Tr
     }
 
     if return_as_figure:
-        summary_fig = make_summary_figure(image)
+        summary_fig = make_summary_figure(**images)
         return summary_fig
     else:
         return images
@@ -1055,7 +1054,7 @@ def compare_pose_performance_v5(
     }        
 
     if return_as_figure:
-        summary_fig = make_summary_figure(images)
+        summary_fig = make_summary_figure(**images)
         return summary_fig
     else:
         return images

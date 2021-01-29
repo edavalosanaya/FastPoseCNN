@@ -26,6 +26,21 @@ import hough_voting as hv
 #-------------------------------------------------------------------------------
 # Native PyTorch Functions
 
+def normalize(data, dim):
+
+    # Determine the norm along that dimension
+    norm_data = data.norm(dim=dim, keepdim=True)
+
+    # Replace zero norm by one to avoid division by zero error
+    safe_norm_data = torch.where(
+        norm_data != 0, norm_data, torch.tensor(1.0, device=norm_data.device).float()
+    )
+
+    # Normalize data
+    normalized_data = data / safe_norm_data
+
+    return normalized_data
+
 def class_compress(num_of_classes, cat_mask, data):
     """
     Args:

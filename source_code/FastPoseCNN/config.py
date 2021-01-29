@@ -19,8 +19,8 @@ class DEFAULT_POSE_HPARAM(argparse.Namespace):
 
     # Run Specifications
     BATCH_SIZE = 6
-    NUM_WORKERS = 0 # 18 # 18 # 36 total CPUs
-    NUM_GPUS = 0 # 4 total GPUs
+    NUM_WORKERS = 18 # 18 # 18 # 36 total CPUs
+    NUM_GPUS = 1 # 4 total GPUs
     TRAIN_SIZE= 100#5000
     VALID_SIZE= 20#200
 
@@ -29,7 +29,7 @@ class DEFAULT_POSE_HPARAM(argparse.Namespace):
     FREEZE_MASK_DECODER = False
     LEARNING_RATE = 0.0001
     ENCODER_LEARNING_RATE = 0.0005
-    NUM_EPOCHS = 1
+    NUM_EPOCHS = 2
     DISTRIBUTED_BACKEND = None if NUM_GPUS <= 1 else 'ddp'
 
     # Architecture Parameters

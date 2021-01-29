@@ -187,7 +187,8 @@ class HoughVotingLayer(nn.Module):
 
         # Splitting the total_Y based on the number of instances
         total_Y = torch.zeros(
-            (uv_img.shape[0], self.HPARAM.HV_NUM_OF_HYPOTHESES, 2)
+            (uv_img.shape[0], self.HPARAM.HV_NUM_OF_HYPOTHESES, 2),
+            device=uv_img.device
         )
 
         # Combine all the hypothesis into a single tensor

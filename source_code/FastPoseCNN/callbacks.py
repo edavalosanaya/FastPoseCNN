@@ -252,7 +252,6 @@ class MyCallback(pl.callbacks.Callback):
         # Selecting the quaternion from the output
         # https://pytorch.org/docs/stable/nn.functional.html?highlight=activation%20functions
         pred_quaternion = outputs['quaternion'].cpu().numpy()
-        pred_quaternion /= np.max(np.abs(pred_quaternion))
 
         # Create the pose figure
         summary_fig = tools.vz.compare_quat_performance(
