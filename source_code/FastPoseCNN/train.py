@@ -34,6 +34,7 @@ import lib
 
 import logger as pll
 import callbacks as plc
+import config as cfg
 
 #-------------------------------------------------------------------------------
 # Documentation
@@ -66,51 +67,7 @@ To delete hanging Tensorboard processes use the following:
 #-------------------------------------------------------------------------------
 # File Constants
 
-# Run hyperparameters
-class DEFAULT_POSE_HPARAM(argparse.Namespace):
-    
-    # Experiment Identification 
-    EXPERIMENT_NAME = "TESTING"
-    CHECKPOINT = pathlib.Path(os.getenv("LOGS")) / '21-01-23' / '12-49-SMALL_RUN-NOCS-resnet18-imagenet' / '_' / 'checkpoints' / 'last.ckpt'
-    DATASET_NAME = 'NOCS'
-    SELECTED_CLASSES = tools.pj.constants.NUM_CLASSES[DATASET_NAME]
-
-    # Run Specifications
-    BATCH_SIZE = 6
-    NUM_WORKERS = 0 # 18 # 18 # 36 total CPUs
-    NUM_GPUS = 0 # 4 total GPUs
-    TRAIN_SIZE= 100#5000
-    VALID_SIZE= 20#200
-
-    # Training Specifications
-    FREEZE_ENCODER = False
-    FREEZE_MASK_DECODER = False
-    LEARNING_RATE = 0.0001
-    ENCODER_LEARNING_RATE = 0.0005
-    NUM_EPOCHS = 5
-    DISTRIBUTED_BACKEND = None if NUM_GPUS <= 1 else 'ddp'
-
-    # Architecture Parameters
-    BACKBONE_ARCH = 'FPN'
-    ENCODER = 'resnet18' #'resnext50_32x4d'
-    ENCODER_WEIGHTS = 'imagenet'
-
-    # Algorithmic Parameters
-    
-    ## Hough Voting Parameters 
-    HV_NUM_OF_HYPOTHESES = 51 # Good at 50 though (preferably 2*n + 1 because of iqr)
-    HV_HYPOTHESIS_IN_MASK_MULTIPLIER = 3 
-    PRUN_METHOD = 'iqr' # options = (None, 'z-score', 'iqr')
-    PRUN_OUTLIER_DROP = False
-    PRUN_OUTLIER_REPLACEMENT_STYLE = 'median'
-
-    ### Pruning Method Parameters (Z-score)
-    PRUN_ZSCORE_THRESHOLD=1
-
-    ### Pruning Method Parameters (IQR)
-    IQR_MULTIPLIER=1.5
-
-HPARAM = DEFAULT_POSE_HPARAM()
+HPARAM = cfg.DEFAULT_POSE_HPARAM()
 
 #-------------------------------------------------------------------------------
 # Classes
@@ -524,10 +481,7 @@ if __name__ == '__main__':
         },
         'scales': {
             'mae': {'D': 'pixel-wise', 'F': pl.metrics.functional.mean_absolute_error}
-        }
-    }
-
-    """
+        },
         'pose': {
             'degree_error': {'D': 'matched', 'F': lib.metrics.DegreeError()},
             'degree_error_AP_5': {'D': 'matched', 'F': lib.metrics.DegreeErrorMeanAP(5)},
@@ -536,7 +490,7 @@ if __name__ == '__main__':
             'offset_error_AP_5cm': {'D': 'matched', 'F': lib.metrics.OffsetAP(5)},
             'offset_error': {'D': 'matched', 'F': lib.metrics.OffsetError()},
         }
-    """
+    }
 
     # Deciding if to use a checkpoint to speed up training 
     if HPARAM.CHECKPOINT: # Not None

@@ -27,31 +27,18 @@ class DegreeErrorMeanAP(pl.metrics.Metric):
                 class_id: torch.Tensor
                 quaternion: torch.Tensor
         """
- 
-        # Create matches that are only true
-        true_gt_pred_matches = []
-
-        # Remove false matches (meaning 'iou_2d_mask')
-        for match in gt_pred_matches:
-
-            # Keeping the match if the iou_2d_mask > 0
-            if match['iou_2d_mask'] > 0:
-                true_gt_pred_matches.append(match)
-
-        # If there is no true matches, simply end update function
-        if true_gt_pred_matches == []:
-            return
-
-        # obtain all the quaternions stacked and categorized by class
-        stacked_class_quaternion = gtf.stack_class_matches(true_gt_pred_matches, 'quaternion')
         
         # Performing task per class
-        for class_number in stacked_class_quaternion.keys():
+        for class_id in range(len(gt_pred_matches)):
+
+            # Catching no-instance scenario
+            if 'quaternion' not in gt_pred_matches[class_id].keys():
+                continue
 
             # Determing the degree per error (absolute distance)
             # https://github.com/KieranWynn/pyquaternion/blob/99025c17bab1c55265d61add13375433b35251af/pyquaternion/quaternion.py#L772
-            q0 = stacked_class_quaternion[class_number][:,0,:]
-            q1 = stacked_class_quaternion[class_number][:,1,:]
+            q0 = gt_pred_matches[class_id]['quaternion'][0]
+            q1 = gt_pred_matches[class_id]['quaternion'][1]
 
             # Calculating the distance between the quaternions
             degree_distance = gtf.torch_quat_distance(q0, q1)
@@ -84,40 +71,31 @@ class DegreeError(pl.metrics.Metric):
                 class_id: torch.Tensor
                 quaternion: torch.Tensor
         """
-
-        # Create matches that are only true
-        true_gt_pred_matches = []
-
-        # Remove false matches (meaning 'iou_2d_mask')
-        for match in gt_pred_matches:
-
-            # Keeping the match if the iou_2d_mask > 0
-            if match['iou_2d_mask'] > 0:
-                true_gt_pred_matches.append(match)
-
-        # If there is no true matches, simply end update function
-        if true_gt_pred_matches == []:
-            return
-
-        # obtain all the quaternions stacked and categorized by class
-        stacked_class_quaternion = gtf.stack_class_matches(true_gt_pred_matches, 'quaternion')
+        all_degree_distances = []
         
         # Performing task per class
-        for class_number in stacked_class_quaternion.keys():
+        for class_id in range(len(gt_pred_matches)):
+
+            # Catching no-instance scenario
+            if 'quaternion' not in gt_pred_matches[class_id].keys():
+                continue
 
             # Determing the degree per error (absolute distance)
             # https://github.com/KieranWynn/pyquaternion/blob/99025c17bab1c55265d61add13375433b35251af/pyquaternion/quaternion.py#L772
-            q0 = stacked_class_quaternion[class_number][:,0,:]
-            q1 = stacked_class_quaternion[class_number][:,1,:]
+            q0 = gt_pred_matches[class_id]['quaternion'][0]
+            q1 = gt_pred_matches[class_id]['quaternion'][1]
 
             # Calculating the distance between the quaternions
             degree_distance = gtf.torch_quat_distance(q0, q1)
 
-            # This rounds accuracy
-            this_round_error = torch.mean(degree_distance)
+            # Storing all the degree_distances to later concat and take average
+            all_degree_distances.append(degree_distance)
 
-            # Update the mean accuracy
-            self.error = (self.error + this_round_error) / 2
+        # This rounds accuracy
+        this_round_error = torch.mean(torch.cat(all_degree_distances))
+
+        # Update the mean accuracy
+        self.error = (self.error + this_round_error) / 2
 
     def compute(self):
         return self.error
@@ -143,32 +121,19 @@ class Iou3dAP(pl.metrics.Metric):
                 z: torch.Tensor
                 scales: torch.Tensor
         """
-        # Create matches that are only true
-        true_gt_pred_matches = []
-
-        # Remove false matches (meaning 'iou_2d_mask')
-        for match in gt_pred_matches:
-
-            # Keeping the match if the iou_2d_mask > 0
-            if match['iou_2d_mask'] > 0:
-                true_gt_pred_matches.append(match)
-
-        # If there is no true matches, simply end update function
-        if true_gt_pred_matches == []:
-            return
-
-        # Obtain all the RT and scales stacked and categorized by class
-        stacked_class_RT = gtf.stack_class_matches(true_gt_pred_matches, 'RT')
-        stacked_class_scales = gtf.stack_class_matches(true_gt_pred_matches, 'scales')
 
         # Performing task per class
-        for class_number in stacked_class_RT.keys():
+        for class_id in range(len(gt_pred_matches)):
+
+            # Catching no-instance scenario
+            if 'RT' not in gt_pred_matches[class_id].keys():
+                continue
 
             # Grabbing the gt and pred (RT and scales)
-            gt_RTs = stacked_class_RT[class_number][:,0,:]
-            gt_scales = stacked_class_scales[class_number][:,0,:]
-            pred_RTs = stacked_class_RT[class_number][:,1,:]
-            pred_scales = stacked_class_scales[class_number][:,1,:]
+            gt_RTs = gt_pred_matches[class_id]['RT'][0]
+            gt_scales = gt_pred_matches[class_id]['scales'][0]
+            pred_RTs = gt_pred_matches[class_id]['RT'][1]
+            pred_scales = gt_pred_matches[class_id]['scales'][1]
 
             # Calculating the iou 3d for between the ground truth and predicted 
             ious_3d = gtf.get_3d_ious(gt_RTs, pred_RTs, gt_scales, pred_scales)
@@ -202,41 +167,32 @@ class Iou3dError(pl.metrics.Metric):
                 z: torch.Tensor
                 scales: torch.Tensor
         """
-        # Create matches that are only true
-        true_gt_pred_matches = []
-
-        # Remove false matches (meaning 'iou_2d_mask')
-        for match in gt_pred_matches:
-
-            # Keeping the match if the iou_2d_mask > 0
-            if match['iou_2d_mask'] > 0:
-                true_gt_pred_matches.append(match)
-
-        # If there is no true matches, simply end update function
-        if true_gt_pred_matches == []:
-            return
-
-        # Obtain all the RT and scales stacked and categorized by class
-        stacked_class_RT = gtf.stack_class_matches(true_gt_pred_matches, 'RT')
-        stacked_class_scales = gtf.stack_class_matches(true_gt_pred_matches, 'scales')
+        all_ious_3d = []
 
         # Performing task per class
-        for class_number in stacked_class_RT.keys():
+        for class_id in range(len(gt_pred_matches)):
+
+            # Catching no-instance scenario
+            if 'RT' not in gt_pred_matches[class_id].keys():
+                continue
 
             # Grabbing the gt and pred (RT and scales)
-            gt_RTs = stacked_class_RT[class_number][:,0,:]
-            gt_scales = stacked_class_scales[class_number][:,0,:]
-            pred_RTs = stacked_class_RT[class_number][:,1,:]
-            pred_scales = stacked_class_scales[class_number][:,1,:]
+            gt_RTs = gt_pred_matches[class_id]['RT'][0]
+            gt_scales = gt_pred_matches[class_id]['scales'][0]
+            pred_RTs = gt_pred_matches[class_id]['RT'][1]
+            pred_scales = gt_pred_matches[class_id]['scales'][1]
 
             # Calculating the iou 3d for between the ground truth and predicted 
             ious_3d = gtf.get_3d_ious(gt_RTs, pred_RTs, gt_scales, pred_scales)
 
-            # This rounds accuracy
-            this_round_error = torch.mean(ious_3d)
+            # Storing all the ious to later concat and take average
+            all_ious_3d.append(ious_3d)
 
-            # Update the mean accuracy
-            self.error = (self.error + this_round_error) / 2
+        # This rounds accuracy
+        this_round_error = torch.mean(torch.cat(all_ious_3d))
+
+        # Update the mean accuracy
+        self.error = (self.error + this_round_error) / 2
 
     def compute(self):
         return self.error
@@ -262,68 +218,22 @@ class OffsetAP(pl.metrics.Metric):
                 z: torch.Tensor
                 scales: torch.Tensor
         """
-        # Create matches that are only true
-        true_gt_pred_matches = []
-
-        # Remove false matches (meaning 'iou_2d_mask')
-        for match in gt_pred_matches:
-
-            # Keeping the match if the iou_2d_mask > 0
-            if match['iou_2d_mask'] > 0:
-                true_gt_pred_matches.append(match)
-
-        # If there is no true matches, simply end update function
-        if true_gt_pred_matches == []:
-            return
-
-        # Obtain all the RT stacked and categorized by class
-        stacked_class_RT = gtf.stack_class_matches(true_gt_pred_matches, 'RT')
-
+        
         # Performing task per class
-        for class_number in stacked_class_RT.keys():
+        for class_id in range(len(gt_pred_matches)):
+
+            # Catching no-instance scenario
+            if 'RT' not in gt_pred_matches[class_id].keys():
+                continue
 
             # Grabbing the gt and pred RT
-            gt_RTs = stacked_class_RT[class_number][:,0,:]
-            pred_RTs = stacked_class_RT[class_number][:,1,:]
+            gt_RTs = gt_pred_matches[class_id]['RT'][0]
+            pred_RTs = gt_pred_matches[class_id]['RT'][1]
 
-             # Creating the value for the camera 3d center for later computations
-            camera_coord_3d_center = torch.tensor(
-                [[0,0,0]], 
-                device=gt_RTs.device,
-                dtype=gt_RTs.dtype
-            ).T
-
-            # Calculating the world centers of the objects (gt and preds)
-            # per RT
-            gt_world_coord_3d_centers = []
-            pred_world_coord_3d_centers = []
-            
-            for i in range(gt_RTs.shape[0]):
-
-                gt_world_coord_3d_center = gtf.transform_3d_camera_coords_to_3d_world_coords(
-                    camera_coord_3d_center,
-                    gt_RTs[i]
-                )
-
-                pred_world_coord_3d_center = gtf.transform_3d_camera_coords_to_3d_world_coords(
-                    camera_coord_3d_center,
-                    pred_RTs[i]
-                )
-                
-                gt_world_coord_3d_centers.append(gt_world_coord_3d_center)
-                pred_world_coord_3d_centers.append(pred_world_coord_3d_center)
-
-            # Combinding all the 3d centers
-            gt_world_coord_3d_centers = [x.flatten() for x in gt_world_coord_3d_centers]
-            pred_world_coord_3d_centers = [x.flatten() for x in pred_world_coord_3d_centers]
-
-            gt_world_coord_3d_centers = torch.stack(gt_world_coord_3d_centers)
-            pred_world_coord_3d_centers = torch.stack(pred_world_coord_3d_centers)
-
-            # Calculating the distance between the gt and pred points
-            offset_errors = gtf.get_T_offset_errors(
-                gt_world_coord_3d_centers,
-                pred_world_coord_3d_centers
+            # Determing the offset errors
+            offset_errors = gtf.from_RTs_get_T_offset_errors(
+                gt_RTs,
+                pred_RTs
             )
 
             # Compare against threshold
@@ -355,68 +265,22 @@ class OffsetError(pl.metrics.Metric):
                 z: torch.Tensor
                 scales: torch.Tensor
         """
-        # Create matches that are only true
-        true_gt_pred_matches = []
-
-        # Remove false matches (meaning 'iou_2d_mask')
-        for match in gt_pred_matches:
-
-            # Keeping the match if the iou_2d_mask > 0
-            if match['iou_2d_mask'] > 0:
-                true_gt_pred_matches.append(match)
-
-        # If there is no true matches, simply end update function
-        if true_gt_pred_matches == []:
-            return
-
-        # Obtain all the RT stacked and categorized by class
-        stacked_class_RT = gtf.stack_class_matches(true_gt_pred_matches, 'RT')
 
         # Performing task per class
-        for class_number in stacked_class_RT.keys():
+        for class_id in range(len(gt_pred_matches)):
+
+            # Catching no-instance scenario
+            if 'RT' not in gt_pred_matches[class_id].keys():
+                continue
 
             # Grabbing the gt and pred RT
-            gt_RTs = stacked_class_RT[class_number][:,0,:]
-            pred_RTs = stacked_class_RT[class_number][:,1,:]
+            gt_RTs = gt_pred_matches[class_id]['RT'][0]
+            pred_RTs = gt_pred_matches[class_id]['RT'][1]
 
-             # Creating the value for the camera 3d center for later computations
-            camera_coord_3d_center = torch.tensor(
-                [[0,0,0]], 
-                device=gt_RTs.device,
-                dtype=gt_RTs.dtype
-            ).T
-
-            # Calculating the world centers of the objects (gt and preds)
-            # per RT
-            gt_world_coord_3d_centers = []
-            pred_world_coord_3d_centers = []
-            
-            for i in range(gt_RTs.shape[0]):
-
-                gt_world_coord_3d_center = gtf.transform_3d_camera_coords_to_3d_world_coords(
-                    camera_coord_3d_center,
-                    gt_RTs[i]
-                )
-
-                pred_world_coord_3d_center = gtf.transform_3d_camera_coords_to_3d_world_coords(
-                    camera_coord_3d_center,
-                    pred_RTs[i]
-                )
-                
-                gt_world_coord_3d_centers.append(gt_world_coord_3d_center)
-                pred_world_coord_3d_centers.append(pred_world_coord_3d_center)
-
-            # Combinding all the 3d centers
-            gt_world_coord_3d_centers = [x.flatten() for x in gt_world_coord_3d_centers]
-            pred_world_coord_3d_centers = [x.flatten() for x in pred_world_coord_3d_centers]
-
-            gt_world_coord_3d_centers = torch.stack(gt_world_coord_3d_centers)
-            pred_world_coord_3d_centers = torch.stack(pred_world_coord_3d_centers)
-
-            # Calculating the distance between the gt and pred points
-            offset_errors = gtf.get_T_offset_errors(
-                gt_world_coord_3d_centers,
-                pred_world_coord_3d_centers
+            # Determing the offset errors
+            offset_errors = gtf.from_RTs_get_T_offset_errors(
+                gt_RTs,
+                pred_RTs
             )
 
             # Convert the offset (m) to (cm)

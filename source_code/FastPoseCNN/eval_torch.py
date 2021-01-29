@@ -15,33 +15,28 @@ import skimage.io
 
 import pytorch_lightning.overrides.data_parallel as pl_o_d
 
-os.environ['CUDA_VISIBLE_DEVICES'] = '0,1,2,3'
+os.environ['CUDA_VISIBLE_DEVICES'] = ''
 
 # Local Imports
 import setup_env
 import tools
 import lib
 import train
+from config import DEFAULT_POSE_HPARAM
 
 #-------------------------------------------------------------------------------
 # Constants
 
-PATH = pathlib.Path(os.getenv("LOGS")) / '20-12-24' / '19-09-PW_QLOSS_NEW_LOSS_FUNC-NOCS-resnext50_32x4d-imagenet' / '_' / 'checkpoints' / 'epoch=7.ckpt'
-
-# Run hyperparameters
-class DEFAULT_POSE_HPARAM(argparse.Namespace):
-    DATASET_NAME = 'NOCS'
-    SELECTED_CLASSES = ['bg','camera','laptop'] #tools.pj.constants.NUM_CLASSES[DATASET_NAME]
-    BATCH_SIZE = 8
-    NUM_WORKERS = 36 # 36 total CPUs
-    NUM_GPUS = 4
-    DISTRIBUTED_BACKEND = None if NUM_GPUS <= 1 else 'ddp'
-    TRAIN_SIZE = 1
-    VALID_SIZE = 2000
-    DRAW = True
-    COLLECT_DATA = False
+PATH = pathlib.Path(os.getenv("LOGS")) / 'good_saved_runs' / '09-23-LONG_RUN_N51_GPU4_IQR_PRUN-NOCS-resnet18-imagenet' / '_' / 'checkpoints' / 'last.ckpt'
 
 HPARAM = DEFAULT_POSE_HPARAM()
+HPARAM.VALID_SIZE = 1000
+HPARAM.HV_NUM_OF_HYPOTHESES = 501
+
+COLLECT_DATA = True
+DRAW = True
+TOTAL_DRAW_IMAGES = 50
+APS_NUM_OF_POINTS = 30
 
 #-------------------------------------------------------------------------------
 # File Main
@@ -49,7 +44,7 @@ HPARAM = DEFAULT_POSE_HPARAM()
 if __name__ == '__main__':
 
     # Construct the json path depending on the PATH string
-    json_path = PATH.parent.parent / f'pred_gt_{HPARAM.VALID_SIZE}_results.json'
+    pth_path = PATH.parent.parent / f'pred_gt_{HPARAM.VALID_SIZE}_results.pth'
 
     # Constructing folder of images if not existent
     images_path = PATH.parent.parent / 'images'
@@ -57,7 +52,7 @@ if __name__ == '__main__':
         os.mkdir(str(images_path))
 
     # Load from checkpoint
-    checkpoint = torch.load(PATH)
+    checkpoint = torch.load(PATH, map_location=torch.device('cpu'))
     OLD_HPARAM = checkpoint['hyper_parameters']
 
     # Merge the NameSpaces between the model's hyperparameters and 
@@ -67,10 +62,12 @@ if __name__ == '__main__':
 
     # Determining if collect model's performance data
     # or visualizing the results of the model's performance
-    if HPARAM.COLLECT_DATA:
+    if COLLECT_DATA:
 
         # Create model
         base_model = lib.PoseRegressor(
+            HPARAM,
+            intrinsics=torch.from_numpy(tools.pj.constants.INTRINSICS[HPARAM.DATASET_NAME]).float(),
             architecture=HPARAM.BACKBONE_ARCH,
             encoder_name=HPARAM.ENCODER,
             encoder_weights=HPARAM.ENCODER_WEIGHTS,
@@ -89,7 +86,7 @@ if __name__ == '__main__':
         model.freeze()
 
         # Put the model into evaluation mode
-        model.to('cuda') # ! Make it work with multiple GPUs
+        #model.to('cuda') # ! Make it work with multiple GPUs
         model.eval()
 
         # Load the PyTorch Lightning dataset
@@ -123,201 +120,145 @@ if __name__ == '__main__':
 
             # Forward pass
             with torch.no_grad():
-                output = model.forward(batch['image'])
+                outputs = model.forward(batch['image'])
 
-            # Removing auxilary outputs
-            aux_outputs = output.pop('auxilary')
+            # Obtaining the aggregated values for the both the ground truth
+            agg_gt = model.model.agg_hough_and_generate_RT(
+                batch['mask'],
+                data=batch
+            )
 
-            # Convert inputs and outputs to numpy arrays
-            numpy_aux_outputs = {k:v.cpu().numpy() for k,v in aux_outputs.items()}
-            numpy_inputs = {k:v.cpu().numpy() for k,v in batch.items()}
-            numpy_outputs = {k:v.cpu().numpy() for k,v in output.items()}
+            # Determine matches between the aggreated ground truth and preds
+            gt_pred_matches = lib.gtf.batchwise_find_matches(
+                outputs['auxilary']['agg_pred'],
+                agg_gt
+            )
 
-            # Obtaining the mask
-            numpy_outputs['mask'] = numpy_aux_outputs['cat_mask'] #np.argmax(torch.nn.functional.sigmoid(output['mask']).cpu().numpy(), axis=1)
-
-            # Placing the predicted information into the numpy outputs
-            numpy_outputs['quaternion'] = output['quaternion'].cpu().numpy()
-            
-            # Ensure that the value of quaternion is between -1 and 1
-            numpy_outputs['quaternion'] /= np.max(np.abs(numpy_outputs['quaternion']))
-
-            # ! Only for now we use the ground truth data that we have not regressed yet
-            for key in numpy_inputs.keys():
-                if key not in numpy_outputs.keys():
-                    numpy_outputs[key] = numpy_inputs[key]
-
-            # Iterate for each sample in the batch to obtain its information
-            for i in range(numpy_inputs['mask'].shape[0]):
-
-                # Obtain the single sample data and convert it to dataformat HWC        
-                single_preds = {k:tools.dm.set_image_data_format(v[i], 'channels_last') for k,v in numpy_outputs.items()}
-                single_gts = {k:tools.dm.set_image_data_format(v[i], 'channels_last') for k,v in numpy_inputs.items()}
-
-                # Obtain the data for the predictions via aggregation
-                preds_aggregated_data = tools.dm.aggregate_dense_sample(single_preds, valid_dataset.INTRINSICS)
-
-                # Obtain the data for the gts via aggregation
-                gts_aggregated_data = tools.dm.aggregate_dense_sample(single_gts, valid_dataset.INTRINSICS)
-
-                # Selecting clean image if available
-                image_key = 'clean_image' if 'clean_image' in single_gts.keys() else 'image'
-
-                # If the neural network did not make a prediction, ignore, else compare
-                if len(preds_aggregated_data['instance_id']) == 0:
-                    continue
-
-                # Find the matches between pred and gt data
-                pred_gt_matches = tools.dm.find_matches(
-                    preds_aggregated_data, 
-                    gts_aggregated_data,
-                    image_tag=image_counter
+            # Draw the output of the model
+            if DRAW and image_counter <= TOTAL_DRAW_IMAGES:
+                
+                # Accounting for the new image
+                image_counter += 1
+                
+                # Generating massive figure
+                gt_fig, pred_fig, poses_fig = tools.vz.compare_all_performance(
+                    batch,
+                    outputs,
+                    gt_pred_matches,
+                    valid_dataset.INTRINSICS,
+                    valid_dataset.COLORMAP
                 )
 
-                # Accumulate all the matches in the sample
-                all_matches.extend(pred_gt_matches)
+                # Saving figure
+                gt_fig.savefig(
+                    str(images_path / f'{image_counter}_gt.png')
+                )
+                pred_fig.savefig(
+                    str(images_path / f'{image_counter}_pred.png')
+                )
+                poses_fig.savefig(
+                    str(images_path / f'{image_counter}_poses.png')
+                )
+                
 
-                # If requested to draw the preds and gts
-                if HPARAM.DRAW and image_counter < 25:        
-
-                    # Draw a sample's poses
-                    gt_pose = tools.dr.draw_RTs(
-                        image = single_gts[image_key], 
-                        intrinsics = valid_dataset.INTRINSICS,
-                        RTs = gts_aggregated_data['RT'],
-                        scales = gts_aggregated_data['scales'],
-                        color=(0,255,255)
-                    )
-
-                    # Draw a sample's poses
-                    pose = tools.dr.draw_RTs(
-                        image = gt_pose, 
-                        intrinsics = valid_dataset.INTRINSICS,
-                        RTs = preds_aggregated_data['RT'],
-                        scales = preds_aggregated_data['scales'],
-                        color=(255,0,255)
-                    )
-
-                    # Save the image of the pose
-                    skimage.io.imsave(
-                        str(images_path / f'{image_counter}_pose.png'),
-                        pose
-                    )
-
-                    # Visually compare all inputs and outputs of this single sample
-                    single_sample_performance_fig = tools.vz.compare_all(
-                        single_preds, 
-                        single_gts,
-                        mask_colormap = valid_dataset.COLORMAP
-                    )
-
-                    # Save the figure into the images folder
-                    single_sample_performance_fig.savefig(
-                        str(images_path / f'{image_counter}.png')
-                    )
-
-                    # Clear matplotlib
-                    plt.clf()
-
-                # Update image counter
-                image_counter += 1
+            # Saving the matched data
+            all_matches.append(gt_pred_matches)
 
         # Store the simple data into a json file
-        tools.jt.save_to_json(json_path, all_matches)
+        torch.save(all_matches, pth_path)
 
     else:
 
-        # Load the json
-        all_matches = tools.jt.load_from_json(json_path)
-        cls_metrics = {
-            '3d_iou': [[] for cls in HPARAM.SELECTED_CLASSES],
-            'degree': [[] for cls in HPARAM.SELECTED_CLASSES],
-            'offset': [[] for cls in HPARAM.SELECTED_CLASSES]
+        # Raw data
+        raw_data = {
+            '3d_iou': {},
+            'degree_error': {},
+            'offset_error': {}
+            }
+
+        # Defining the nature of the metric (higher/lower is better)
+        metrics_operator = {
+            '3d_iou': torch.greater,
+            'degree_error': torch.less,
+            'offset_error': torch.less
         }
+
+        # The thresholds for the figure
+        figure_metrics_thresholds = {
+            '3d_iou': torch.linspace(0, 1, APS_NUM_OF_POINTS),
+            'degree_error': torch.linspace(0, 60, APS_NUM_OF_POINTS),
+            'offset_error': torch.linspace(0, 10, APS_NUM_OF_POINTS)
+        }
+
+        # The thresholds for the table
+        table_metrics_thresholds = {
+            '3d_iou': torch.tensor([0.25, 0.50]),
+            'degree_error': torch.tensor([5, 10]),
+            'offset_error': torch.tensor([5, 10])
+        }
+
+        # Load the .pth file with the tensors
+        all_matches = torch.load(pth_path)
 
         # For each match calculate the 3D IoU, degree error, and offset error 
         for match in tqdm.tqdm(all_matches):
 
-            # Determine representative data of the ground truth and prediction data
-            output_data = {
-                '3d_bbox': [],
-                '3d_center': []
-            }
+            for class_id in range(len(match)):
 
-            # For the pred and gt
-            for i in range(2):
+                # Catching no-instance scenario
+                if 'quaternion' not in match[class_id].keys():
+                    continue 
 
-                # Determine the 3D bounding box for 3D IoU
-                """
-                camera_coord_3d_bbox = tools.dm.get_3d_bbox(match['scales'][i], 0)
-                world_coord_3d_bbox = tools.dm.transform_3d_camera_coords_to_3d_world_coords(
-                    camera_coord_3d_bbox,
-                    match['RT'][i]
+                # Obtaining essential data
+                gt_q = match[class_id]['quaternion'][0]
+                pred_q = match[class_id]['quaternion'][1]
+                gt_RTs = match[class_id]['RT'][0]
+                gt_scales = match[class_id]['scales'][0]
+                pred_RTs = match[class_id]['RT'][1]
+                pred_scales = match[class_id]['scales'][1]
+
+                # Calculating the distance between the quaternions
+                degree_distance = lib.gtf.torch_quat_distance(gt_q, pred_q)
+
+                # Calculating the iou 3d for between the ground truth and predicted 
+                ious_3d = lib.gtf.get_3d_ious(gt_RTs, pred_RTs, gt_scales, pred_scales)
+
+                # Determing the offset errors
+                offset_errors = lib.gtf.from_RTs_get_T_offset_errors(
+                    gt_RTs,
+                    pred_RTs
                 )
-                """
 
-                camera_coord_3d_center = np.array([[0,0,0]]).transpose()
-                world_coord_3d_center = tools.dm.transform_3d_camera_coords_to_3d_world_coords(
-                    camera_coord_3d_center,
-                    match['RT'][i]
-                )
+                # Store data
+                if class_id not in raw_data['degree_error'].keys():
+                    raw_data['degree_error'][class_id] = [degree_distance]
+                    raw_data['3d_iou'][class_id] = [ious_3d]
+                    raw_data['offset_error'][class_id] = [offset_errors]
+                else:
+                    raw_data['degree_error'][class_id].append(degree_distance)
+                    raw_data['3d_iou'][class_id].append(ious_3d)
+                    raw_data['offset_error'][class_id].append(offset_errors)
 
-                #output_data['3d_bbox'].append(world_coord_3d_bbox.transpose())
-                output_data['3d_center'].append(world_coord_3d_center)
+        # After the loop of the matches
+        for class_id in range(len(HPARAM.SELECTED_CLASSES)-1): # -1 to remove bg
+            raw_data['degree_error'][class_id] = torch.cat(raw_data['degree_error'][class_id])
+            raw_data['3d_iou'][class_id] = torch.cat(raw_data['3d_iou'][class_id])
+            raw_data['offset_error'][class_id] = torch.cat(raw_data['offset_error'][class_id])
 
-            # Calculate the performance 
-            iou_3d = tools.dm.get_3d_iou(*match['RT'], *match['scales'])
-            degree_error = tools.dm.get_R_degree_error(*match['quaternion'])
-            offset_error = tools.dm.get_T_offset_error(*output_data['3d_center'])
-
-            # Store performance metrics depending on the class
-            cls_metrics['3d_iou'][match['class_id']].append(iou_3d)
-            cls_metrics['degree'][match['class_id']].append(degree_error)
-            cls_metrics['offset'][match['class_id']].append(offset_error)
-
-        # Remove background entry
-        for key in cls_metrics.keys():
-            cls_metrics[key].pop(0)
-
-        # Defining the nature of the metric (higher/lower is better)
-        metrics_operators = {
-            '3d_iou': np.greater,
-            'degree': np.less,
-            'offset': np.less
-        }
-
-        ########################################################################
-        # Generating plots of aps
-        num_of_points = 30
-
-        metrics_thresholds = {
-            '3d_iou': np.linspace(0, 1, num_of_points),
-            'degree': np.linspace(0, 60, num_of_points),
-            'offset': np.linspace(0, 10, num_of_points)
-        }
-
-        # Calculate the aps for each metric
-        aps = tools.dm.calculate_aps(
-            cls_metrics, 
-            metrics_thresholds,
-            metrics_operators
+        # Determine the APs values for figure data
+        figure_aps = lib.gtf.calculate_aps(
+            raw_data,
+            figure_metrics_thresholds,
+            metrics_operator
         )
 
-        # Save the raw aps to a JSON file
-        #aps_json_path = PATH.parent.parent / f'{HPARAM.VALID_SIZE}_aps_values_plot.json'
-        #tools.jt.save_to_json(aps_json_path, aps_complete_data)
-
-        # Save the raw aps to Excel file
-        excel_path = PATH.parent.parent / f'{HPARAM.VALID_SIZE}_aps_values_plot.xlsx'
-        tools.et.save_aps_to_excel(excel_path, metrics_thresholds, aps)
-        
-        # Plotting aps
+        # Plot the figure aps
         fig = tools.vz.plot_aps(
-            aps,
-            titles=['3D Iou AP', 'Rotation AP', 'Translation AP'],
-            x_ranges=list(metrics_thresholds.values()),
+            figure_aps,
+            titles={'3d_iou': '3D Iou AP', 'degree_error':'Rotation AP', 'offset_error': 'Translation AP'},
+            x_ranges=figure_metrics_thresholds,
             cls_names=HPARAM.SELECTED_CLASSES[1:] + ['mean'],
-            x_axis_labels=['3D IoU %', 'Rotation error/degree', 'Translation error/cm']
+            x_axis_labels={'3d_iou': '3D IoU %', 'degree_error': 'Rotation error/degree', 'offset_error': 'Translation error/cm'}
         )
 
         # Saving the plot
@@ -325,23 +266,13 @@ if __name__ == '__main__':
             str(PATH.parent.parent / f'all_metrics_{HPARAM.VALID_SIZE}_aps.png')
         )
 
-        ########################################################################
-        # Generating tabular data for comparision with state-of-the-art 
-        # methods
-
-        metrics_thresholds = {
-            '3d_iou': np.array([0.25, 0.50]),
-            'degree': np.array([5, 10]),
-            'offset': np.array([.05, .10])
-        }
-
-        # Calculate the aps for each metric
-        aps = tools.dm.calculate_aps(
-            cls_metrics, 
-            metrics_thresholds,
-            metrics_operators
+        # Determine the APs values for table data
+        table_aps = lib.gtf.calculate_aps(
+            raw_data,
+            table_metrics_thresholds,
+            metrics_operator
         )
 
-        # Saving the output data into excel
+        # Storing the table critical values into an excel sheet
         excel_path = PATH.parent.parent / f'{HPARAM.VALID_SIZE}_aps_values_table.xlsx'
-        tools.et.save_aps_to_excel(excel_path, metrics_thresholds, aps)
+        tools.et.save_aps_to_excel(excel_path, table_metrics_thresholds, table_aps)

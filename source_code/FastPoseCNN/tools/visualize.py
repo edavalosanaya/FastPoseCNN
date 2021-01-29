@@ -559,7 +559,7 @@ def compare_quat_performance(sample, pred_quaternion, pred_cat_mask, mask_colorm
     # Create a matplotlib figure illustrating the inputs vs outputs
     summary_fig = make_summary_figure(
         image = image_vis,
-        pred_mask=pred_mask_vis,
+        pred_mask = pred_mask_vis,
         gt_quaternion = gt_quat_vis,
         pred_quaternion = pred_quat_vis
     )
@@ -637,7 +637,7 @@ def compare_scales_performance(sample, pred_scales, pred_cat_mask, mask_colormap
 
     return summary_fig
 
-def compare_hough_voting_performance(image, gt_pred_matches):
+def compare_hough_voting_performance(image, gt_pred_matches, return_as_figure=True):
 
     # Obtaining image shape information
     b, h, w, _ = image.shape
@@ -702,17 +702,21 @@ def compare_hough_voting_performance(image, gt_pred_matches):
                 drawn_pred_hv[sample_id] == 0, pred_vis_hypo_img, drawn_pred_hv[sample_id]
             )
 
-    summary_fig = make_summary_figure(
-        gt_uv=drawn_gt_uv.cpu().numpy(),
-        gt_hv=drawn_gt_hv.cpu().numpy(),
-        pred_uv=drawn_pred_uv.cpu().numpy(),
-        pred_hv=drawn_pred_hv.cpu().numpy()
-    )
+    images = {
+        'gt_uv': drawn_gt_uv.cpu().numpy(),
+        'gt_hv': drawn_gt_hv.cpu().numpy(),
+        'pred_uv': drawn_pred_uv.cpu().numpy(),
+        'pred_hv': drawn_pred_hv.cpu().numpy()
+    }
 
-    return summary_fig
+    if return_as_figure:
+        summary_fig = make_summary_figure(image)
+        return summary_fig
+    else:
+        return images
 
 #-------------------------------------------------------------------------------
-# Visualization of Complete Task
+# Visualization of Pose
 
 def compare_pose_performance(sample, pred_quaternion):
 
@@ -1001,7 +1005,8 @@ def compare_pose_performance_v5(
     gt_pred_matches: dict, 
     pred_cat_mask: torch.Tensor, 
     mask_colormap,
-    intrinsics: np.ndarray
+    intrinsics: np.ndarray,
+    return_as_figure: bool = True,
     ):
 
     # Draw image
@@ -1042,14 +1047,89 @@ def compare_pose_performance_v5(
             )
 
             # Overwrite the older draw image
-            draw_image[sample_id] = gt_pred_pose            
+            draw_image[sample_id] = gt_pred_pose
 
-    summary_fig = make_summary_figure(
-        poses=draw_image,
-        pred_mask=pred_mask_vis
+    images = {
+        'poses': draw_image,
+        'pred_mask': pred_mask_vis
+    }        
+
+    if return_as_figure:
+        summary_fig = make_summary_figure(images)
+        return summary_fig
+    else:
+        return images
+
+#-------------------------------------------------------------------------------
+# Visualiation of All Things
+
+def compare_all_performance(sample, outputs, pred_gt_matches, intrinsics, mask_colormap):
+
+    # Clean image
+    image_key = 'clean_image' if 'clean_image' in sample.keys() else 'image'
+    image = sample[image_key]
+
+    # Masked
+    pred_mask_vis = get_visualized_masks(outputs['auxilary']['cat_mask'], mask_colormap)
+    gt_mask_vis = get_visualized_masks(sample['mask'], mask_colormap)
+
+    # z
+    gt_z_vis = get_visualized_zs(sample['z'])
+    pred_z_vis = get_visualized_zs(outputs['z'])
+
+    # scales
+    gt_scales_vis = get_visualized_scales(sample['scales'].cpu().numpy())
+    pred_scales_vis = get_visualized_scales(outputs['scales'].cpu().numpy())
+
+    # quaternion
+    gt_quat_vis = get_visualized_quaternions(sample['quaternion'].cpu().numpy())
+    pred_quat_vis = get_visualized_quaternions(outputs['quaternion'].cpu().numpy())
+
+    # unit vectors and hough voting
+    hv_images = compare_hough_voting_performance(
+        sample['clean_image'],
+        pred_gt_matches,
+        return_as_figure=False
     )
 
-    return summary_fig
+    # Pose
+    pose_images = compare_pose_performance_v5(
+        sample['clean_image'],
+        pred_gt_matches,
+        outputs['auxilary']['cat_mask'],
+        mask_colormap,
+        intrinsics,
+        return_as_figure=False
+    )
+
+    gt_images = {
+        'gt_mask': np.moveaxis(gt_mask_vis, 1,-1),
+        'gt_z': gt_z_vis,
+        'gt_scales': gt_scales_vis,
+        'gt_quat': gt_quat_vis,
+        'gt_xy': hv_images['gt_uv'],
+        'gt_hv': hv_images['gt_hv'],
+    }
+
+    pred_images = {
+        'pred_mask': np.moveaxis(pred_mask_vis, 1,-1),
+        'pred_z': pred_z_vis,
+        'pred_scales': pred_scales_vis,
+        'pred_quat': pred_quat_vis,
+        'pred_xy': hv_images['pred_uv'],
+        'pred_hv': hv_images['pred_hv'],
+    }
+
+    pose_images = {
+        'poses': pose_images['poses'],
+    }
+
+    # Creating a gigantic figure
+    poses_fig = make_summary_figure(**pose_images)
+    gt_fig = make_summary_figure(**gt_images)
+    pred_fig = make_summary_figure(**pred_images)
+
+    return gt_fig, pred_fig, poses_fig
 
 #-------------------------------------------------------------------------------
 # Plot metrics
@@ -1100,21 +1180,22 @@ def plot_aps(
     for ap_id, ap_name in enumerate(aps.keys()):
 
         # Setting plot title, xlabel, grid and xy limits
-        axs[ap_id].set_title(titles[ap_id])
-        axs[ap_id].set_xlabel(x_axis_labels[ap_id])
+        axs[ap_id].set_title(titles[ap_name])
+        axs[ap_id].set_xlabel(x_axis_labels[ap_name])
         axs[ap_id].grid(True)
         axs[ap_id].set_ylim([0, 100])
-        axs[ap_id].set_xlim([x_ranges[ap_id][0], x_ranges[ap_id][-1]])
 
-        for class_id, class_ap in enumerate(aps[ap_name]):
+        numpy_x_range = x_ranges[ap_name].cpu().numpy()
+        axs[ap_id].set_xlim([numpy_x_range[0], numpy_x_range[-1]])
 
-            class_name = cls_names[class_id]
+        for class_id, class_ap in enumerate(aps[ap_name].keys()):
 
             # Add the data to the plot
-            if class_name == 'mean':
-                axs[ap_id].plot(x_ranges[ap_id], class_ap * 100, '--', label=f'{class_name}')
+            if class_ap == 'mean':
+                axs[ap_id].plot(numpy_x_range, aps[ap_name][class_ap].cpu().numpy() * 100, '--', label=f'{class_ap}')
             else:
-                axs[ap_id].plot(x_ranges[ap_id], class_ap * 100, '-o', label=f'{class_name}')
+                class_name = cls_names[class_id]
+                axs[ap_id].plot(numpy_x_range, aps[ap_name][class_ap].cpu().numpy() * 100, '-o', label=f'{class_name}')
 
     plt.legend()
 

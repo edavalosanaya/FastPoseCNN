@@ -856,6 +856,97 @@ def get_T_offset_error(center3d_1, center3d_2):
     diff = center3d_1 - center3d_2
     return torch.sqrt(torch.sum(torch.pow(diff,2)))
 
+def from_RTs_get_T_offset_errors(gt_RTs, pred_RTs):
+
+    # Creating the value for the camera 3d center for later computations
+    camera_coord_3d_center = torch.tensor(
+        [[0,0,0]], 
+        device=gt_RTs.device,
+        dtype=gt_RTs.dtype
+    ).T
+
+    # Calculating the world centers of the objects (gt and preds)
+    # per RT
+    gt_world_coord_3d_centers = []
+    pred_world_coord_3d_centers = []
+    
+    for i in range(gt_RTs.shape[0]):
+
+        gt_world_coord_3d_center = transform_3d_camera_coords_to_3d_world_coords(
+            camera_coord_3d_center,
+            gt_RTs[i]
+        )
+
+        pred_world_coord_3d_center = transform_3d_camera_coords_to_3d_world_coords(
+            camera_coord_3d_center,
+            pred_RTs[i]
+        )
+        
+        gt_world_coord_3d_centers.append(gt_world_coord_3d_center)
+        pred_world_coord_3d_centers.append(pred_world_coord_3d_center)
+
+    # Combinding all the 3d centers
+    gt_world_coord_3d_centers = [x.flatten() for x in gt_world_coord_3d_centers]
+    pred_world_coord_3d_centers = [x.flatten() for x in pred_world_coord_3d_centers]
+
+    gt_world_coord_3d_centers = torch.stack(gt_world_coord_3d_centers)
+    pred_world_coord_3d_centers = torch.stack(pred_world_coord_3d_centers)
+
+    # Calculating the distance between the gt and pred points
+    offset_errors = get_T_offset_errors(
+        gt_world_coord_3d_centers,
+        pred_world_coord_3d_centers
+    ) * 10 # Converting units
+
+    return offset_errors
+
+def calculate_aps(raw_data, metrics_threshold, metrics_operator):
+
+    # Container for all aps
+    aps = {}
+
+    # Iteration over the metrics
+    for data_key in raw_data.keys():
+
+        # Creating container for metrics values
+        aps[data_key] = {}
+
+        # Select metrics information
+        data = raw_data[data_key]
+        thresholds = metrics_threshold[data_key]
+        operator = metrics_operator[data_key]
+
+        # Determine number of thresholds for later operations
+        n_of_t = thresholds.shape[0]
+
+        # Iterating over the classes
+        for class_id in data.keys():
+
+            # Selecting the class' data
+            class_data = data[class_id]
+
+            # Remove Nans from the calculations
+            class_data = class_data[torch.isnan(class_data) == False]
+            n_of_d = class_data.shape[0]
+
+            # Expanding data and thresholds to single-handed compute the metric value
+            expanded_class_data = torch.unsqueeze(class_data, dim=0).expand(n_of_t, n_of_d)
+            expanded_thresholds = torch.unsqueeze(thresholds, dim=1).expand(n_of_t, n_of_d)
+
+            # Applying operator
+            class_ap = operator(expanded_class_data, expanded_thresholds)
+
+            # Collapse result to the sizeof the thresholds
+            class_ap = torch.sum(class_ap, dim=1) / n_of_d
+
+            # Storing class aps
+            aps[data_key][class_id] = class_ap
+
+        # Calculating mean for class
+        aps[data_key]['mean'] = torch.mean(torch.stack(list(aps[data_key].values())).float(), dim=0)
+
+    return aps
+
 #-------------------------------------------------------------------------------
 # GPU Memory Functions
 

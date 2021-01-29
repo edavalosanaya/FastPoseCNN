@@ -380,17 +380,11 @@ class MyCallback(pl.callbacks.Callback):
         # Accessing the corresponding dataset
         dataset = datamodule.datasets[mode]
 
-        # Accessing the corresponding dataloader 
-        if mode == 'valid':
-            dataloader = trainer.val_dataloaders[0]
-        else: # train
-            dataloader = trainer.train_dataloader 
-
-        # Getting single sample
-        raw_batch = next(iter(dataloader))
+        # Get random sample
+        sample = dataset.get_random_batched_sample(batch_size=3)
 
         # Trimming the batch, to make visualization easier to see
-        batch = {k:v[[0,1]].to(pl_module.device) for k,v in raw_batch.items()}
+        batch = {k:torch.from_numpy(v).to(pl_module.device) for k,v in sample.items()}
 
         # Given the sample, make the prediciton with the PyTorch Lightning Moduel
         with torch.no_grad():
@@ -430,17 +424,11 @@ class MyCallback(pl.callbacks.Callback):
         # Accessing the corresponding dataset
         dataset = datamodule.datasets[mode]
 
-        # Accessing the corresponding dataloader 
-        if mode == 'valid':
-            dataloader = trainer.val_dataloaders[0]
-        else: # train
-            dataloader = trainer.train_dataloader 
-
-        # Getting single sample
-        raw_batch = next(iter(dataloader))
+        # Get random sample
+        sample = dataset.get_random_batched_sample(batch_size=3)
 
         # Trimming the batch, to make visualization easier to see
-        batch = {k:v[[0,1]].to(pl_module.device) for k,v in raw_batch.items()}
+        batch = {k:torch.from_numpy(v).to(pl_module.device) for k,v in sample.items()}
 
         # Given the sample, make the prediciton with the PyTorch Lightning Moduel
         with torch.no_grad():
