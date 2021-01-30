@@ -3,6 +3,7 @@ import warnings
 import datetime
 import argparse
 import pathlib
+from pprint import pprint
 
 import pdb
 
@@ -17,6 +18,7 @@ os.environ['CUDA_VISIBLE_DEVICES'] = '0,1,2,3'
 #os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
 
 import torch
+import torch.optim
 import torch.nn.functional as F
 
 import pytorch_lightning as pl
@@ -124,8 +126,7 @@ class PoseRegresssionTask(pl.LightningModule):
         # Calculate the loss
         multi_task_losses, multi_task_metrics = self.shared_step('valid', batch, batch_idx)
         
-        # Log the batch loss inside the pl.TrainResult to visualize in the
-        # progress bar
+        # Log the batch loss inside the pl.TrainResult to visualize in the progress bar
         result = pl.core.step_result.EvalResult(checkpoint_on=multi_task_losses['pose']['total_loss'])
 
         # Logging the val loss for each task
@@ -179,7 +180,10 @@ class PoseRegresssionTask(pl.LightningModule):
             )
 
             # Storing the task losses
-            multi_task_losses[task_name] = losses
+            if task_name not in multi_task_losses.keys():
+                multi_task_losses[task_name] = losses
+            else:
+                multi_task_losses[task_name].update(losses)
 
             # Summing all task total losses (if it is not nan)
             if torch.isnan(losses['task_total_loss']) != True:
@@ -235,10 +239,10 @@ class PoseRegresssionTask(pl.LightningModule):
         if true_losses:
 
             # Calculate total loss
-            total_loss = torch.sum(torch.stack(true_losses))
+            #total_loss = torch.sum(torch.stack(true_losses))
 
             # Calculate the loss multiplied by its corresponded weight
-            weighted_losses = [losses[key] * self.criterion[task_name][key]['weight'] for key in losses.keys()]
+            weighted_losses = [losses[key] * self.criterion[task_name][key]['weight'] for key in losses.keys() if torch.isnan(losses[key]) == False]
             
             # Now calculate the weighted sum
             weighted_sum = torch.sum(torch.stack(weighted_losses))
@@ -247,7 +251,7 @@ class PoseRegresssionTask(pl.LightningModule):
             losses['loss'] = weighted_sum
 
             # Saving the total loss (for customized Tensorboard logger)
-            losses['task_total_loss'] = total_loss
+            losses['task_total_loss'] = weighted_sum #total_loss
 
         else: # otherwise, just pass losses as nan
 
@@ -258,9 +262,11 @@ class PoseRegresssionTask(pl.LightningModule):
             losses['task_total_loss'] = torch.tensor(float('nan')).to(self.device).float()
 
         # Looking for the invalid tensor in the cpu
+        """
         for k,v in losses.items():
             if v.device != self.device:
                 raise RuntimeError(f'Invalid tensor for not being in the same device as the pl module: {k}')
+        """
 
         return losses
 
@@ -293,7 +299,10 @@ class PoseRegresssionTask(pl.LightningModule):
     def configure_optimizers(self):
 
         # Catalyst has new SOTA optimizers out of box
-        base_optimizer = catalyst.contrib.nn.RAdam(self.model.parameters(), lr=HPARAM.LEARNING_RATE, weight_decay=0.0003)
+        base_optimizer = catalyst.contrib.nn.RAdam(self.model.parameters(), lr=HPARAM.LEARNING_RATE, weight_decay=HPARAM.WEIGHT_DECAY)
+        #base_optimizer = torch.optim.SGD(self.model.parameters(), lr=HPARAM.LEARNING_RATE, weight_decay=HPARAM.WEIGHT_DECAY)
+        #base_optimizer = torch.optim.Adagrad(self.model.parameters(), lr=HPARAM.LEARNING_RATE, weight_decay=HPARAM.WEIGHT_DECAY)
+        #base_optimizer = torch.optim.Adam(self.model.parameters(), lr=HPARAM.LEARNING_RATE, weight_decay=HPARAM.WEIGHT_DECAY)
         optimizer = catalyst.contrib.nn.Lookahead(base_optimizer)
 
         # Solution from here:
@@ -448,8 +457,7 @@ if __name__ == '__main__':
             'loss_focal': {'D': 'pixel-wise', 'F': lib.loss.Focal(), 'weight': 1.0}
         },
         'quaternion': {
-            #'loss_qloss': {'D': 'matched', 'F': lib.loss.AggregatedQLoss(key='quaternion'), 'weight': 1.0},
-            'loss_mse': {'D': 'pixel-wise', 'F': lib.loss.MaskedMSELoss(key='quaternion'), 'weight': 1.0},
+            'loss_mse': {'D': 'pixel-wise', 'F': lib.loss.MaskedMSELoss(key='quaternion'), 'weight': 0.2},
             #'loss_pw_qloss': {'D': 'pixel-wise', 'F': lib.loss.PixelWiseQLoss(key='quaternion'), 'weight': 1.0}
         },
         'xy': {
@@ -459,7 +467,18 @@ if __name__ == '__main__':
             'loss_mse': {'D': 'pixel-wise', 'F': lib.loss.MaskedMSELoss(key='z'), 'weight': 1.0}
         },
         'scales': {
-            'loss_mse': {'D': 'pixel-wise', 'F': lib.loss.MaskedMSELoss(key='scales'), 'weight': 1.0}
+            'loss_mse': {'D': 'pixel-wise', 'F': lib.loss.MaskedMSELoss(key='scales'), 'weight': 1.0},
+        },
+        'aggregated': {
+            #'loss_quat': {'D': 'matched', 'F': lib.loss.AggregatedLoss(key='quaternion'), 'weight': 1.0},
+            #'loss_xy': {'D': 'matched', 'F': lib.loss.AggregatedLoss(key='xy'), 'weight': 1.0},
+            #'loss_z': {'D': 'matched', 'F': lib.loss.AggregatedLoss(key='z'), 'weight': 1.0},
+            #'loss_scales': {'D': 'matched', 'F': lib.loss.AggregatedLoss(key='scales'), 'weight': 1.0},
+            #'loss_R': {'D': 'matched', 'F': lib.loss.AggregatedLoss(key='R'), 'weight': 1.0},
+            #'loss_T': {'D': 'matched', 'F': lib.loss.AggregatedLoss(key='T'), 'weight': 1.0},
+            #'loss_RT': {'D': 'matched', 'F': lib.loss.AggregatedLoss(key='RT'), 'weight': 1.0}
+            'loss_iou3d': {'D': 'matched', 'F': lib.loss.Iou3dLoss(), 'weight': 1.0},
+            #'loss_offset': {'D': 'matched', 'F': lib.loss.OffsetLoss(), 'weight': 1.0}
         }
     }
 
@@ -485,8 +504,8 @@ if __name__ == '__main__':
         'pose': {
             'degree_error': {'D': 'matched', 'F': lib.metrics.DegreeError()},
             'degree_error_AP_5': {'D': 'matched', 'F': lib.metrics.DegreeErrorMeanAP(5)},
-            'iou_3d_mAP_5': {'D': 'matched', 'F': lib.metrics.Iou3dAP(5)},
-            'iou_3d_error': {'D': 'matched', 'F': lib.metrics.Iou3dError()},
+            'iou_3d_mAP_0.25': {'D': 'matched', 'F': lib.metrics.Iou3dAP(0.25)},
+            'iou_3d_accuracy': {'D': 'matched', 'F': lib.metrics.Iou3dAccuracy()},
             'offset_error_AP_5cm': {'D': 'matched', 'F': lib.metrics.OffsetAP(5)},
             'offset_error': {'D': 'matched', 'F': lib.metrics.OffsetError()},
         }
@@ -618,7 +637,8 @@ if __name__ == '__main__':
         num_processes=HPARAM.NUM_WORKERS,
         distributed_backend=HPARAM.DISTRIBUTED_BACKEND, # required to work
         logger=tb_logger,
-        callbacks=[custom_callback, loss_checkpoint_callback]
+        callbacks=[custom_callback, loss_checkpoint_callback],
+        gradient_clip_val=0.5
     )
 
     # Train

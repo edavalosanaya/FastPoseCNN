@@ -139,7 +139,7 @@ class Iou3dAP(pl.metrics.Metric):
             ious_3d = gtf.get_3d_ious(gt_RTs, pred_RTs, gt_scales, pred_scales)
 
             # Compare against threshold
-            thresh_iou_3d = (ious_3d < self.threshold)
+            thresh_iou_3d = (ious_3d > self.threshold)
 
             # Update complete and total
             self.correct = self.correct + torch.sum(thresh_iou_3d.int())
@@ -148,13 +148,13 @@ class Iou3dAP(pl.metrics.Metric):
     def compute(self):
         return (self.correct.float() / self.total.float()) * 100
 
-class Iou3dError(pl.metrics.Metric):
+class Iou3dAccuracy(pl.metrics.Metric):
 
     def __init__(self):
-        super().__init__(f'3D_iou_error')
+        super().__init__(f'3D_iou_accuracy')
 
         # Adding state data
-        self.add_state('error', default=torch.tensor(0), dist_reduce_fx='mean')
+        self.add_state('accuracy', default=torch.tensor(0), dist_reduce_fx='mean')
 
     def update(self, gt_pred_matches):
         """
@@ -183,25 +183,25 @@ class Iou3dError(pl.metrics.Metric):
             pred_scales = gt_pred_matches[class_id]['scales'][1]
 
             # Calculating the iou 3d for between the ground truth and predicted 
-            ious_3d = gtf.get_3d_ious(gt_RTs, pred_RTs, gt_scales, pred_scales)
+            ious_3d = gtf.get_3d_ious(gt_RTs, pred_RTs, gt_scales, pred_scales) * 100
 
             # Storing all the ious to later concat and take average
             all_ious_3d.append(ious_3d)
 
         # This rounds accuracy
-        this_round_error = torch.mean(torch.cat(all_ious_3d))
+        this_round_accuracy = torch.mean(torch.cat(all_ious_3d))
 
         # Update the mean accuracy
-        self.error = (self.error + this_round_error) / 2
+        self.accuracy = (self.accuracy + this_round_accuracy) / 2
 
     def compute(self):
-        return self.error
+        return self.accuracy
 
 class OffsetAP(pl.metrics.Metric):
 
-    def __init__(self, threshold_cm):
-        super().__init__(f'offset_error_mAP_{threshold_cm}cm')
-        self.threshold = threshold_cm / 100 # converting from cm to m
+    def __init__(self, threshold):
+        super().__init__(f'offset_error_mAP_{threshold}cm')
+        self.threshold = threshold
 
         # Adding state data
         self.add_state('correct', default=torch.tensor(0), dist_reduce_fx='sum')
@@ -282,9 +282,6 @@ class OffsetError(pl.metrics.Metric):
                 gt_RTs,
                 pred_RTs
             )
-
-            # Convert the offset (m) to (cm)
-            offset_errors *= 100
 
             # This rounds accuracy
             this_round_error = torch.mean(offset_errors)

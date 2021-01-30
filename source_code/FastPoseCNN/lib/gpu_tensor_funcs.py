@@ -358,9 +358,9 @@ def batchwise_find_matches(preds, gts):
     pred_gt_matches = []
     keys_to_stack = [
         'instance_masks', # Class
-        'quaternion', # Rotation
+        'quaternion', 'R', # Rotation
         'scales', # Size
-        'xy', 'z', # Translation
+        'xy', 'z', 'T', # Translation
         'RT', # Transformation
         'xy_mask', 'hypothesis', 'pruned_hypothesis' # Hough Voting
     ]
@@ -410,16 +410,18 @@ def batchwise_find_matches(preds, gts):
         class_data['sample_ids'] = gts[class_id]['sample_ids'][max_gt_id]
 
         # Select the match data and combined them together!
-        for data_key in keys_to_stack:
-            stacked_data = torch.stack(
-                (
-                    gts[class_id][data_key][max_gt_id],
-                    preds[class_id][data_key][max_pred_id]
+        for data_key in gts[class_id].keys():
+            if data_key in keys_to_stack:
+                # Stack data
+                stacked_data = torch.stack(
+                    (
+                        gts[class_id][data_key][max_gt_id],
+                        preds[class_id][data_key][max_pred_id]
+                    )
                 )
-            )
 
-            # Store stacked data
-            class_data[data_key] = stacked_data
+                # Store stacked data
+                class_data[data_key] = stacked_data
 
         # Store the class-specific data into the multi-class data container
         pred_gt_matches.append(class_data)
@@ -600,7 +602,7 @@ def batchwise_get_RT(q, xys, exp_zs, inv_intrinsics):
     # Inversing it to get the actual RT
     RT = torch.inverse(inv_RT)
 
-    return RT
+    return R, T.t(), RT
 
 def samplewise_get_RT(agg_data, inv_intrinsics):
 
@@ -608,7 +610,7 @@ def samplewise_get_RT(agg_data, inv_intrinsics):
 
         # Once all the raw data has been aggregated, we need to calculate the 
         # rotation matrix of each instance.
-        RT_data = batchwise_get_RT(
+        R_data, T_data, RT_data = batchwise_get_RT(
             agg_data[class_id]['quaternion'],
             agg_data[class_id]['xy'],
             agg_data[class_id]['z'],
@@ -616,6 +618,8 @@ def samplewise_get_RT(agg_data, inv_intrinsics):
         )
 
         # Storing generated RT
+        agg_data[class_id]['R'] = R_data
+        agg_data[class_id]['T'] = T_data
         agg_data[class_id]['RT'] = RT_data
 
     return agg_data

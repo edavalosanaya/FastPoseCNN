@@ -185,6 +185,10 @@ class HoughVotingLayer(nn.Module):
             chunked_valid_Y = torch.chunk(valid_Y, len(valid_samples))
             valid_samples = {k:v for k,v in zip(valid_samples, chunked_valid_Y)}
 
+        else:
+            # Simply to be consistant in data type for latter part of the algorithm.
+            valid_samples = {}
+
         # Splitting the total_Y based on the number of instances
         total_Y = torch.zeros(
             (uv_img.shape[0], self.HPARAM.HV_NUM_OF_HYPOTHESES, 2),
@@ -243,7 +247,7 @@ class HoughVotingLayer(nn.Module):
             weights = factor * weights
 
             # Normalizing weight
-            weights = weights / torch.sum(weights)
+            weights = weights / max(torch.sum(weights), 1)
 
             # Store weights
             all_weights.append(weights)

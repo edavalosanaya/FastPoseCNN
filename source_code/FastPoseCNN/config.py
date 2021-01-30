@@ -27,6 +27,7 @@ class DEFAULT_POSE_HPARAM(argparse.Namespace):
     # Training Specifications
     FREEZE_ENCODER = False
     FREEZE_MASK_DECODER = False
+    WEIGHT_DECAY = 0.0003
     LEARNING_RATE = 0.0001
     ENCODER_LEARNING_RATE = 0.0005
     NUM_EPOCHS = 2

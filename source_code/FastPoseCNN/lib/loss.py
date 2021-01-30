@@ -82,7 +82,7 @@ class Focal(_Loss):
         return loss(y_pred, y_true)
 
 #-------------------------------------------------------------------------------
-# Pose Losses
+# General pixel-wise loss function
 
 class MaskedMSELoss(_Loss):
 
@@ -133,6 +133,9 @@ class MaskedMSELoss(_Loss):
 
         return masked_loss
 
+#-------------------------------------------------------------------------------
+# Quaternion specific loss function
+
 class PixelWiseQLoss(_Loss):
 
     def __init__(self, key, eps=0.001):
@@ -156,17 +159,8 @@ class PixelWiseQLoss(_Loss):
         gt_q = gt[self.key]
         pred_q = pred[self.key]
 
-        # Obtaining the magnitude of the quaternion to later normalize
-        norm_q = pred_q.norm(dim=1)
-        
-        # Avoid dividing by zero
-        norm_q[norm_q == 0] = 1
-
-        # Expanding the shape of norm_q to match with m_pred_q
-        norm_q = torch.unsqueeze(norm_q, dim=1)
-
         # Normalizing the masked predicted quaternions
-        q = torch.div(pred_q, norm_q)
+        q = torch.div(pred_q, pred_q)
 
         # Apply the QLoss Function
         # log(\epsilon + 1 - |gt_q dot pred_q|)
@@ -181,23 +175,23 @@ class PixelWiseQLoss(_Loss):
         """
         dot_product = gt_q[:,0] * q[:,0] + gt_q[:,1] * q[:,1] + gt_q[:,2] * q[:,2] + gt_q[:,3] * q[:,3]
         mag_dot_product = torch.pow(dot_product, 2)
-        difference = self.eps + 1 - mag_dot_product
+        error = self.eps + 1 - mag_dot_product
+        loss = torch.log(error + self.eps) - torch.log(torch.tensor(self.eps, device=error.device))
 
-        # Mask the difference based on the union mask
-        difference[mask_union == False] = 0
-        masked_loss = torch.sum(difference) / torch.sum(mask_union)
+        # Mask the loss based on the union mask
+        loss[mask_union == False] = 0
+        masked_loss = torch.sum(loss) / torch.sum(mask_union)
 
         return masked_loss
 
-class AggregatedQLoss(_Loss):
-    """AggregatedQLoss
+class AggregatedLoss(_Loss):
+    """AggregatedLoss
+    Generic loss function for aggregated data
 
-    References:
+    Quaternion References:
     https://math.stackexchange.com/questions/90081/quaternion-distance
     http://kieranwynn.github.io/pyquaternion/#normalisation
     https://github.com/KieranWynn/pyquaternion/blob/99025c17bab1c55265d61add13375433b35251af/pyquaternion/quaternion.py#L800
-    
-
 
     Args:
         _Loss ([type]): [description]
@@ -206,85 +200,191 @@ class AggregatedQLoss(_Loss):
         [type]: [description]
     """
 
-    def __init__(self, key, eps=0.001):
-        super(AggregatedQLoss, self).__init__()
+    def __init__(self, key, eps=0.1):
+        super(AggregatedLoss, self).__init__()
         self.key = key
         self.eps = eps
 
-    def forward(self, matches) -> Tensor:
+    def forward(self, gt_pred_matches) -> Tensor:
         """AggregatedQLoss Foward
 
         Args:
             matches [list]: 
                 match ([dict]):
                     class_id: torch.Tensor
-                    quaternion: torch.Tensor
 
         Returns:
             Tensor: [description]
         """
 
-        # Create matches that are only true
-        true_gt_pred_matches = []
-
-        # Remove false matches (meaning 'iou_2d_mask')
-        for match in matches:
-
-            # Keeping the match if the iou_2d_mask > 0
-            if match['iou_2d_mask'] > 0:
-                true_gt_pred_matches.append(match)
-
-        # If there is no true matches, simply end update function
-        if true_gt_pred_matches == []:
-            return torch.tensor(float('nan')).float().cuda()
-
-        # Stack the matches based on class for all quaternion
-        stacked_class_quaternion = gtf.stack_class_matches(true_gt_pred_matches, 'quaternion')
-
         # Container for per class collective loss
-        per_class_loss = {}
+        per_class_loss = []
 
         # Apply the QLoss Function 
         # log(\epsilon + 1 - |gt_q dot pred_q|)
-        for class_number in stacked_class_quaternion.keys():
+        for class_id in range(len(gt_pred_matches)):
 
-            # Selecting the ground truth quaternion
-            gt_q = stacked_class_quaternion[class_number][:,0,:]
+            # Catching no-instance scenario
+            if self.key not in gt_pred_matches[class_id].keys():
+                continue
 
-            # Selecting the predicted quaternion
-            pred_q = stacked_class_quaternion[class_number][:,1,:]
+            # Selecting the ground truth data
+            gt = gt_pred_matches[class_id][self.key][0]
 
-            # Normalize the predicted quaternion
-            norm_q = torch.div(pred_q.T, pred_q.norm(dim=1).T).T
+            # Selecting the predicted data
+            pred = gt_pred_matches[class_id][self.key][1]
 
             # Calculating the loss
-            """
-            dot_product = torch.diag(torch.mm(gt_q, norm_q.T))
-            mag_dot_product = torch.abs(dot_product)
-            difference = self.eps + 1 - mag_dot_product
-            log_difference = -torch.log(difference)
-            per_class_loss[class_number] = log_difference
-            """
-            dot_product = torch.diag(torch.mm(gt_q, norm_q.T))
-            mag_dot_product = torch.pow(dot_product, 2)
-            difference = self.eps + 1 - mag_dot_product
-            per_class_loss[class_number] = difference
+            if self.key == 'quaternion':
+                dot_product = torch.diag(torch.mm(gt, pred.T))
+                mag_dot_product = torch.pow(dot_product, 2)
+                error = 1 - mag_dot_product
+                loss = torch.log(error + self.eps) - torch.log(torch.tensor(self.eps, device=error.device))
+            
+            elif self.key == 'xy':
+                loss = (gt-pred).norm(dim=1) / 10
+            
+            elif self.key == 'z':
+                loss = (torch.log(gt)-torch.log(pred)).norm(dim=1)
+            
+            elif self.key in ['scales', 'T']:
+                loss = (gt-pred).norm(dim=1)
+            
+            elif self.key == 'R':
+                loss = torch.acos((torch.einsum('bii->b', torch.bmm(gt, pred)) - 1) / 2)
+            
+            elif self.key == 'RT':
+                loss = (torch.inverse(gt) * pred).norm(dim=1)
 
-        # Place all the class losses into a single list
-        losses = [v for v in per_class_loss.values()]
+            else:
+                raise NotImplementedError("Invalid entered key.")
 
-        # Stack the losses to later sum the loss
+            # Storing the loss per class
+            per_class_loss.append(loss)
+
+        # Concatenate the losses to later sum the loss
         # If not empty
-        if losses:
-            stacked_losses = torch.cat(losses)
+        if per_class_loss:
+            cat_losses = torch.cat(per_class_loss)
         else:
-            return torch.tensor(float('nan')).cuda().float()
+            try:
+                return torch.tensor(float('nan'), device=gt_pred_matches[0]['instance_masks'].device).float()   
+            except:
+                return torch.tensor(float('nan')).cuda().float()   
+
+        # Remove any nans in the data
+        cat_losses = cat_losses[torch.isnan(cat_losses) == False]
 
         # Return the some of all the losses
-        return torch.mean(stacked_losses)
-        
+        return torch.mean(cat_losses)
 
-            
+#-------------------------------------------------------------------------------
+# Pose loss functions
+
+class Iou3dLoss(_Loss):  
+
+    def __init__(self, eps=0.1):
+        super(Iou3dLoss, self).__init__()
+        self.eps = eps
+
+    def forward(self, gt_pred_matches) -> Tensor:
+
+        # Container for per class collective loss
+        per_class_loss = []
+
+        for class_id in range(len(gt_pred_matches)):
+
+            # Catching no-instance scenario
+            if 'RT' not in gt_pred_matches[class_id].keys():
+                continue
+
+            # Grabbing the gt and pred (RT and scales)
+            gt_RTs = gt_pred_matches[class_id]['RT'][0]
+            gt_scales = gt_pred_matches[class_id]['scales'][0]
+            pred_RTs = gt_pred_matches[class_id]['RT'][1]
+            pred_scales = gt_pred_matches[class_id]['scales'][1]
+
+            # Calculating the iou 3d for between the ground truth and predicted 
+            ious_3d = gtf.get_3d_ious(gt_RTs, pred_RTs, gt_scales, pred_scales)
+
+            # Calculating the error
+            error = 1 - ious_3d
+
+            # Calculating the loss
+            loss = error
+            #loss = torch.log(error + self.eps) - torch.log(torch.tensor(self.eps, device=error.device))
+
+            # Storing the loss per class
+            print(loss)
+            per_class_loss.append(loss)
+
+        # Concatenate the losses to later sum the loss
+        # If not empty
+        if per_class_loss:
+            cat_losses = torch.cat(per_class_loss)
+        else:
+            try:
+                return torch.tensor(float('nan'), device=gt_pred_matches[0]['instance_masks'].device).float()   
+            except:
+                return torch.tensor(float('nan')).cuda().float()   
+
+        # Remove any nans in the data
+        cat_losses = cat_losses[torch.isnan(cat_losses) == False]
+
+        # Return the some of all the losses
+        return torch.mean(cat_losses)
+
+class OffsetLoss(_Loss):  
+
+    def __init__(self, eps=0.1):
+        super(OffsetLoss, self).__init__()
+        self.eps = eps
+
+    def forward(self, gt_pred_matches) -> Tensor:
+
+        # Container for per class collective loss
+        per_class_loss = []
+
+        for class_id in range(len(gt_pred_matches)):
+
+            # Catching no-instance scenario
+            if 'scales' not in gt_pred_matches[class_id].keys():
+                continue
+
+            # Grabbing the gt and pred (RT and scales)
+            gt_RTs = gt_pred_matches[class_id]['RT'][0]
+            pred_RTs = gt_pred_matches[class_id]['RT'][1]
+
+            # Determing the offset errors
+            offset_errors = gtf.from_RTs_get_T_offset_errors(
+                gt_RTs,
+                pred_RTs
+            )
+
+            # Calculating the loss
+            #loss = torch.log(offset_errors + self.eps) - torch.log(torch.tensor(self.eps, device=offset_errors.device))
+            loss = offset_errors / 100
+
+            # Storing the loss per class
+            per_class_loss.append(loss)
+
+        # Concatenate the losses to later sum the loss
+        # If not empty
+        if per_class_loss:
+            cat_losses = torch.cat(per_class_loss)
+        else:
+            try:
+                return torch.tensor(float('nan'), device=gt_pred_matches[0]['instance_masks'].device).float()   
+            except:
+                return torch.tensor(float('nan')).cuda().float()   
+
+        # Remove any nans in the data
+        cat_losses = cat_losses[torch.isnan(cat_losses) == False]
+
+        # Return the some of all the losses
+        return torch.mean(cat_losses)
+
+
 
 
 
