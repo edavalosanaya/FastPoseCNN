@@ -24,6 +24,14 @@ except ImportError:
 import hough_voting as hv
 
 #-------------------------------------------------------------------------------
+# Helper Functions
+
+def freeze(dict_of_params):
+    
+    for param in dict_of_params.parameters():
+            param.requires_grad = False
+
+#-------------------------------------------------------------------------------
 # Native PyTorch Functions
 
 def normalize(data, dim):
@@ -83,6 +91,44 @@ def class_compress(num_of_classes, cat_mask, data):
         compressed_data = torch.sum(torch.stack(class_datas, dim=0), dim=0)
 
     return compressed_data
+
+def class_compress2(num_of_classes, cat_mask, logits):
+    
+    class_compress_logits = {}
+    class_chunks_logits = {k:torch.chunk(v, num_of_classes-1, dim=1) for k,v in logits.items()}
+
+    # Per class
+    for class_id in range(num_of_classes):
+
+        # Skipping the background
+        if class_id == 0:
+            continue
+
+        # Selecting the class mask
+        class_mask = (cat_mask == class_id) *  torch.Tensor([1]).float().to(cat_mask.device)
+
+        # Perform class compression on the logits for pixel-wise regression
+        for logit_key in logits.keys():
+
+            # Applying the class mask on the logits class chunk
+            masked_class_chunk = class_chunks_logits[logit_key][class_id-1] * torch.unsqueeze(class_mask, dim=1)
+            
+            # Need to squeeze when logit_key == z in dim = 1 to match 
+            # categorical ground truth data
+            if logit_key == 'z':
+                masked_class_chunk = torch.squeeze(masked_class_chunk, dim=1)
+            
+            # Normalize quaternion and xy
+            elif logit_key == 'quaternion' or logit_key == 'xy':
+                masked_class_chunk = normalize(masked_class_chunk, dim=1)
+
+            # Store data
+            if logit_key in class_compress_logits.keys():
+                class_compress_logits[logit_key] += masked_class_chunk
+            else:
+                class_compress_logits[logit_key] = masked_class_chunk
+
+    return class_compress_logits
 
 def mask_gradients(to_be_masked, mask):
 

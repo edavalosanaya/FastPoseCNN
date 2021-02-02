@@ -180,12 +180,14 @@ class PoseRegressor(torch.nn.Module):
         # Create categorical mask
         cat_mask = torch.argmax(torch.nn.LogSoftmax(dim=1)(mask_logits), dim=1)
 
+        # Class compression of the data
+        cc_logits = gtf.class_compress2(self.classes, cat_mask, logits)
+
         # Perform aggregation, hough voting, and generate RT matrix given the 
         # results of previous operations.
-        agg_pred, cc_logits = self.agg_hough_and_generate_RT(
+        agg_pred = self.agg_hough_and_generate_RT(
             cat_mask,
-            logits,
-            compress_data=True
+            cc_logits
         )
 
         # Generating complete output
@@ -200,30 +202,24 @@ class PoseRegressor(torch.nn.Module):
 
         return output
 
-    def agg_hough_and_generate_RT(self, cat_mask, data, compress_data=False):
+    def agg_hough_and_generate_RT(self, cat_mask, data):
 
-        # Aggregating the results
-        if compress_data:
-            agg_data, cc_logits = self.aggregation_layer.forward(
-                cat_mask, 
-                logits=data
-            )
-        else:
-            agg_data = self.aggregation_layer.forward(
-                cat_mask, 
-                categos=data
-            )
+        # If aggregation is wanted, perform it
+        if self.HPARAM.PERFORM_AGGREGATION:
+            # Aggregating the results
+            agg_data = self.aggregation_layer.forward(cat_mask, data)
 
-        # Perform hough voting
-        agg_data = self.hough_voting_layer(agg_data)
+            # If hough voting is wanted, perform it
+            if self.HPARAM.PERFORM_HOUGH_VOTING:
+                # Perform hough voting
+                agg_data = self.hough_voting_layer(agg_data)
 
-        # Calculate RT
-        agg_data = gtf.samplewise_get_RT(agg_data, self.inv_intrinsics)
+                # If RT calculation is wanted, perform it
+                if self.HPARAM.PERFORM_RT_CALCULATION:
+                    # Calculate RT
+                    agg_data = gtf.samplewise_get_RT(agg_data, self.inv_intrinsics)
 
-        if compress_data:
-            return agg_data, cc_logits
-        else:
-            return agg_data
+        return agg_data
 
 #-------------------------------------------------------------------------------
 # File Main

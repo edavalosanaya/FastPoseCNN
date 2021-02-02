@@ -54,20 +54,11 @@ class AggregationLayer(nn.Module):
     def forward(
         self, 
         cat_mask: torch.Tensor, 
-        logits: Union[dict, None] = None, # logical data
-        categos: Union[dict, None] = None, # categorical data
+        data: Union[dict], # categorical data
         ):
-
-        # Can only use either logits or categorical data
-        assert (logits == None) ^ (categos == None), "XOR: logits or categos"
 
         # Outputs
         agg_pred = []
-
-        # Splitting all the logits into class chunks
-        if logits:
-            class_compress_logits = {}
-            class_chunks_logits = {k:torch.chunk(v, self.classes-1, dim=1) for k,v in logits.items()}
 
         # Obtain the height and width of the masks
         b,h,w = cat_mask.shape
@@ -84,29 +75,6 @@ class AggregationLayer(nn.Module):
 
             # Selecting the class mask
             class_mask = (cat_mask == class_id) *  torch.Tensor([1]).float().to(cat_mask.device)
-            
-            # If logits used, then perform class compression on logits
-            if logits:
-                # Perform class compression on the logits for pixel-wise regression
-                for logit_key in logits.keys():
-
-                    # Applying the class mask on the logits class chunk
-                    masked_class_chunk = class_chunks_logits[logit_key][class_id-1] * torch.unsqueeze(class_mask, dim=1)
-                    
-                    # Need to squeeze when logit_key == z in dim = 1 to match 
-                    # categorical ground truth data
-                    if logit_key == 'z':
-                        masked_class_chunk = torch.squeeze(masked_class_chunk, dim=1)
-                    
-                    # Normalize quaternion and xy
-                    elif logit_key == 'quaternion' or logit_key == 'xy':
-                        masked_class_chunk = gtf.normalize(masked_class_chunk, dim=1)
-
-                    # Store data
-                    if logit_key in class_compress_logits.keys():
-                        class_compress_logits[logit_key] += masked_class_chunk
-                    else:
-                        class_compress_logits[logit_key] = masked_class_chunk
 
             # Breaking the class mask into instances (number from 1 to num_of_instances)
             instance_masks, total_num_of_instances = self.batchwise_break_segmentation_mask(class_mask)
@@ -142,62 +110,44 @@ class AggregationLayer(nn.Module):
             class_data['instance_masks'] = pure_instance_masks
 
             # Obtain the instance's values (quaternion, z, scales)
-            for logit_key in ['quaternion', 'scales', 'xy', 'z']:
+            for data_key in ['quaternion', 'scales', 'xy', 'z']:
 
-                if logits:
-                    # Indexing the class logits
-                    class_logits = class_chunks_logits[logit_key][class_id-1]
+                # Matching the categorical data to the instance's quantity and order
+                instance_data = data[data_key][sample_id_for_instances]
 
-                    # Matching the class logits to the instances' quantity and order
-                    instance_logits = class_logits[sample_id_for_instances]
+                # Need to expand the instance_data when data_key == z
+                if data_key == 'z':
+                    instance_data = torch.unsqueeze(instance_data, dim=1)
 
-                    # Applying the mask to the instance logits
-                    masked_data = torch.unsqueeze(pure_instance_masks, dim=1) * instance_logits
-                
-                elif categos:
-
-                    # Matching the categorical data to the instance's quantity and order
-                    instance_categos = categos[logit_key][sample_id_for_instances]
-
-                    # Need to expand the instance_categos when logit_key == z
-                    if logit_key == 'z':
-                        instance_categos = torch.unsqueeze(instance_categos, dim=1)
-
-                    # Obtaining the data for the instance
-                    masked_data = torch.unsqueeze(pure_instance_masks, dim=1) * instance_categos
-
-                else:
-                    raise RuntimeError(f"Invalid input data for {logit_key}")
+                # Obtaining the data for the instance
+                masked_data = torch.unsqueeze(pure_instance_masks, dim=1) * instance_data
 
                 # Take the average of quaternions, scales and z's logit value
-                if logit_key in ['quaternion', 'scales', 'z']:
+                if data_key in ['quaternion', 'scales', 'z']:
                     total_val = torch.sum(masked_data, dim=(-2, -1))
                     mask_size = torch.sum(pure_instance_masks, dim=(-2, -1))
                     agg_data = torch.div(total_val, torch.unsqueeze(mask_size.T, dim=1))
 
                     # Undoing the torch.log in data embedding
-                    if logit_key == 'z':
+                    if data_key == 'z':
                         agg_data = torch.exp(agg_data)
 
                     # Normalizing data
-                    elif logit_key == 'quaternion':
+                    elif data_key == 'quaternion':
                         agg_data = gtf.normalize(agg_data, dim=1)
 
-                elif logit_key == 'xy':
+                # Saving the masked unit vector mask since we need to perform hough
+                # voting for this section.
+                elif data_key == 'xy':
                     agg_data = masked_data
 
                 # Storing the mean of the instances to agg_pred
-                class_data[logit_key] = agg_data
+                class_data[data_key] = agg_data
 
             # Storing the finished data of one class into the multi-class container
             agg_pred.append(class_data) 
-
-        if logits:
-            return agg_pred, class_compress_logits
-        elif categos:
-            return agg_pred
-        else:
-            raise RuntimeError("Invalid data: needs to be logits/categos")
+ 
+        return agg_pred
 
     def batchwise_break_segmentation_mask(self, class_mask):
 

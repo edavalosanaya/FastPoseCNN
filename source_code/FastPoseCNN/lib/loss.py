@@ -315,7 +315,6 @@ class Iou3dLoss(_Loss):
             #loss = torch.log(error + self.eps) - torch.log(torch.tensor(self.eps, device=error.device))
 
             # Storing the loss per class
-            print(loss)
             per_class_loss.append(loss)
 
         # Concatenate the losses to later sum the loss
@@ -363,7 +362,7 @@ class OffsetLoss(_Loss):
 
             # Calculating the loss
             #loss = torch.log(offset_errors + self.eps) - torch.log(torch.tensor(self.eps, device=offset_errors.device))
-            loss = offset_errors / 100
+            loss = offset_errors / 10
 
             # Storing the loss per class
             per_class_loss.append(loss)

@@ -4,6 +4,7 @@ import os
 import operator
 
 import numpy as np
+from numpy.core.numeric import False_
 
 import torch
 import torch.nn
@@ -23,10 +24,11 @@ import lib
 class MyCallback(pl.callbacks.Callback):
 
     @rank_zero_only
-    def __init__(self, tasks, hparams, checkpoint_monitor=None):
+    def __init__(self, HPARAM, tasks, hparams, checkpoint_monitor=None):
         super().__init__()
 
         # Saving parameters
+        self.HPARAM = HPARAM
         self.tasks = tasks
         self.hparams = hparams
 
@@ -373,6 +375,12 @@ class MyCallback(pl.callbacks.Callback):
     @rank_zero_only
     def log_epoch_hough_voting(self, mode, trainer, pl_module):
 
+        # This visualization is only possible if matching occurs
+        if self.HPARAM.PERFORM_AGGREGATION == False or \
+            self.HPARAM.PERFORM_MATCHING == False or \
+            self.HPARAM.PERFORM_HOUGH_VOTING == False:
+            return
+
         # Obtaining the LightningDataModule
         datamodule = trainer.datamodule
 
@@ -416,6 +424,10 @@ class MyCallback(pl.callbacks.Callback):
     # POSE
     @rank_zero_only
     def log_epoch_pose(self, mode, trainer, pl_module):
+
+        # This visualization is only possible if matching occurs
+        if self.HPARAM.PERFORM_AGGREGATION == False or self.HPARAM.PERFORM_MATCHING == False:
+            return
 
         # Obtaining the LightningDataModule
         datamodule = trainer.datamodule

@@ -14,7 +14,7 @@ import base64
 os.environ["TF_CPP_MIN_LOG_LEVEL"]="3"
 warnings.filterwarnings('ignore')
 
-os.environ['CUDA_VISIBLE_DEVICES'] = '0,1,2,3'
+os.environ['CUDA_VISIBLE_DEVICES'] = '' # '0,1,2,3'
 #os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
 
 import torch
@@ -76,7 +76,7 @@ HPARAM = cfg.DEFAULT_POSE_HPARAM()
 
 class PoseRegresssionTask(pl.LightningModule):
 
-    def __init__(self, conf, model, criterion, metrics):
+    def __init__(self, conf, model, criterion, metrics, HPARAM):
         super().__init__()
 
         # Saving parameters
@@ -84,6 +84,7 @@ class PoseRegresssionTask(pl.LightningModule):
 
         # Saving the configuration (additional hyperparameters)
         self.save_hyperparameters(conf)
+        self.HPARAM = HPARAM
 
         # Saving the criterion
         self.criterion = criterion
@@ -158,11 +159,14 @@ class PoseRegresssionTask(pl.LightningModule):
             data=batch
         )
 
-        # Determine matches between the aggreated ground truth and preds
-        gt_pred_matches = lib.gtf.batchwise_find_matches(
-            outputs['auxilary']['agg_pred'],
-            agg_gt
-        )
+        if self.HPARAM.PERFORM_AGGREGATION and self.HPARAM.PERFORM_MATCHING:
+            # Determine matches between the aggreated ground truth and preds
+            gt_pred_matches = lib.gtf.batchwise_find_matches(
+                outputs['auxilary']['agg_pred'],
+                agg_gt
+            )
+        else:
+            gt_pred_matches = None
         
         # Storage for losses and metrics depending on the task
         multi_task_losses = {'pose': {'total_loss': torch.tensor(0).float().to(self.device)}}
@@ -229,7 +233,7 @@ class PoseRegresssionTask(pl.LightningModule):
             # Determing what type of input data
             if loss_attrs['D'] == 'pixel-wise':
                 losses[loss_name] = loss_attrs['F'](outputs, inputs)
-            elif loss_attrs['D'] == 'matched':
+            elif loss_attrs['D'] == 'matched' and self.HPARAM.PERFORM_MATCHING and self.PERFORM_AGGREGATION:
                 losses[loss_name] = loss_attrs['F'](gt_pred_matches)
         
         # Remove losses that have nan
@@ -291,7 +295,7 @@ class PoseRegresssionTask(pl.LightningModule):
 
                     metrics[metric_name] = metric_attrs['F'](pred, gt)
 
-                elif metric_attrs['D'] == 'matched':
+                elif metric_attrs['D'] == 'matched' and self.HPARAM.PERFORM_MATCHING and self.PERFORM_AGGREGATION:
                     metrics[metric_name] = metric_attrs['F'](gt_pred_matches)
 
         return metrics
@@ -299,10 +303,10 @@ class PoseRegresssionTask(pl.LightningModule):
     def configure_optimizers(self):
 
         # Catalyst has new SOTA optimizers out of box
-        base_optimizer = catalyst.contrib.nn.RAdam(self.model.parameters(), lr=HPARAM.LEARNING_RATE, weight_decay=HPARAM.WEIGHT_DECAY)
-        #base_optimizer = torch.optim.SGD(self.model.parameters(), lr=HPARAM.LEARNING_RATE, weight_decay=HPARAM.WEIGHT_DECAY)
-        #base_optimizer = torch.optim.Adagrad(self.model.parameters(), lr=HPARAM.LEARNING_RATE, weight_decay=HPARAM.WEIGHT_DECAY)
-        #base_optimizer = torch.optim.Adam(self.model.parameters(), lr=HPARAM.LEARNING_RATE, weight_decay=HPARAM.WEIGHT_DECAY)
+        base_optimizer = catalyst.contrib.nn.RAdam(self.model.parameters(), lr=self.HPARAM.LEARNING_RATE, weight_decay=self.HPARAM.WEIGHT_DECAY)
+        #base_optimizer = torch.optim.SGD(self.model.parameters(), lr=self.HPARAM.LEARNING_RATE, weight_decay=self.HPARAM.WEIGHT_DECAY)
+        #base_optimizer = torch.optim.Adagrad(self.model.parameters(), lr=self.HPARAM.LEARNING_RATE, weight_decay=self.HPARAM.WEIGHT_DECAY)
+        #base_optimizer = torch.optim.Adam(self.model.parameters(), lr=self.HPARAM.LEARNING_RATE, weight_decay=self.HPARAM.WEIGHT_DECAY)
         optimizer = catalyst.contrib.nn.Lookahead(base_optimizer)
 
         # Solution from here:
@@ -459,27 +463,27 @@ if __name__ == '__main__':
         'quaternion': {
             'loss_mse': {'D': 'pixel-wise', 'F': lib.loss.MaskedMSELoss(key='quaternion'), 'weight': 0.2},
             #'loss_pw_qloss': {'D': 'pixel-wise', 'F': lib.loss.PixelWiseQLoss(key='quaternion'), 'weight': 1.0}
+            'loss_quat': {'D': 'matched', 'F': lib.loss.AggregatedLoss(key='quaternion'), 'weight': 1.0},
         },
         'xy': {
-            'loss_mse': {'D': 'pixel-wise', 'F': lib.loss.MaskedMSELoss(key='xy'), 'weight': 1.0}
+            'loss_mse': {'D': 'pixel-wise', 'F': lib.loss.MaskedMSELoss(key='xy'), 'weight': 1.0},
+            'loss_xy': {'D': 'matched', 'F': lib.loss.AggregatedLoss(key='xy'), 'weight': 1.0},
         },
         'z': {
-            'loss_mse': {'D': 'pixel-wise', 'F': lib.loss.MaskedMSELoss(key='z'), 'weight': 1.0}
+            'loss_mse': {'D': 'pixel-wise', 'F': lib.loss.MaskedMSELoss(key='z'), 'weight': 1.0},
+            'loss_z': {'D': 'matched', 'F': lib.loss.AggregatedLoss(key='z'), 'weight': 1.0},
         },
         'scales': {
             'loss_mse': {'D': 'pixel-wise', 'F': lib.loss.MaskedMSELoss(key='scales'), 'weight': 1.0},
+            'loss_scales': {'D': 'matched', 'F': lib.loss.AggregatedLoss(key='scales'), 'weight': 1.0},
         },
-        'aggregated': {
-            #'loss_quat': {'D': 'matched', 'F': lib.loss.AggregatedLoss(key='quaternion'), 'weight': 1.0},
-            #'loss_xy': {'D': 'matched', 'F': lib.loss.AggregatedLoss(key='xy'), 'weight': 1.0},
-            #'loss_z': {'D': 'matched', 'F': lib.loss.AggregatedLoss(key='z'), 'weight': 1.0},
-            #'loss_scales': {'D': 'matched', 'F': lib.loss.AggregatedLoss(key='scales'), 'weight': 1.0},
-            #'loss_R': {'D': 'matched', 'F': lib.loss.AggregatedLoss(key='R'), 'weight': 1.0},
-            #'loss_T': {'D': 'matched', 'F': lib.loss.AggregatedLoss(key='T'), 'weight': 1.0},
-            #'loss_RT': {'D': 'matched', 'F': lib.loss.AggregatedLoss(key='RT'), 'weight': 1.0}
-            'loss_iou3d': {'D': 'matched', 'F': lib.loss.Iou3dLoss(), 'weight': 1.0},
-            #'loss_offset': {'D': 'matched', 'F': lib.loss.OffsetLoss(), 'weight': 1.0}
-        }
+        #'RT_and_metrics': {
+        #    'loss_R': {'D': 'matched', 'F': lib.loss.AggregatedLoss(key='R'), 'weight': 1.0},
+        #    'loss_T': {'D': 'matched', 'F': lib.loss.AggregatedLoss(key='T'), 'weight': 1.0},
+        #    'loss_RT': {'D': 'matched', 'F': lib.loss.AggregatedLoss(key='RT'), 'weight': 1.0}
+        #    'loss_iou3d': {'D': 'matched', 'F': lib.loss.Iou3dLoss(), 'weight': 1.0},
+        #    'loss_offset': {'D': 'matched', 'F': lib.loss.OffsetLoss(), 'weight': 1.0}
+        #}
     }
 
     # Selecting metrics
@@ -543,7 +547,8 @@ if __name__ == '__main__':
             str(HPARAM.CHECKPOINT),
             model=base_model,
             criterion=criterion,
-            metrics=metrics
+            metrics=metrics,
+            HPARAM=HPARAM
         )
 
     else: # no checkpoint
@@ -559,15 +564,23 @@ if __name__ == '__main__':
         )
 
         # Attaching PyTorch Lightning logic to base model
-        model = PoseRegresssionTask(HPARAM, base_model, criterion, metrics)
+        model = PoseRegresssionTask(base_model, criterion, metrics, HPARAM)
 
     # Freeze any components of the model
     if HPARAM.FREEZE_ENCODER:
-        for param in model.model.encoder.parameters():
-            param.requires_grad = False
-    elif HPARAM.FREEZE_MASK_DECODER:
-        for param in model.model.mask_decoder.parameters():
-            param.requires_grad = False
+        lib.gtf.freeze(model.model.encoder)
+    if HPARAM.FREEZE_MASK_TRAINING:
+        lib.gtf.freeze(model.model.mask_decoder)
+        lib.gtf.freeze(model.model.segmentation_head)
+    if HPARAM.FREEZE_ROTATION_TRAINING:
+        lib.gtf.freeze(model.model.rotation_decoder)
+        lib.gtf.freeze(model.model.rotation_head)
+    if HPARAM.FREEZE_TRANSLATION_TRAINING:
+        lib.gtf.freeze(model.model.translation_decoder)
+        lib.gtf.freeze(model.model.translation_head)
+    if HPARAM.FREEZE_SCALES_TRAINING:
+        lib.gtf.freeze(model.model.scales_decoder)
+        lib.gtf.freeze(model.model.scales_head)
 
     # If no runs this day, create a runs-of-the-day folder
     date = datetime.datetime.now().strftime('%y-%m-%d')
@@ -604,6 +617,7 @@ if __name__ == '__main__':
 
     # Creating my own callback
     custom_callback = plc.MyCallback(
+        HPARAM=HPARAM,
         tasks=['mask', 'quaternion', 'xy', 'z', 'scales', 'hough voting', 'pose'],
         hparams=runs_hparams,
         #checkpoint_monitor={

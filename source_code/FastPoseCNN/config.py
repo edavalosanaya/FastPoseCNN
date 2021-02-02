@@ -18,20 +18,31 @@ class DEFAULT_POSE_HPARAM(argparse.Namespace):
     SELECTED_CLASSES = ['bg','camera','laptop'] #tools.pj.constants.NUM_CLASSES[DATASET_NAME] 
 
     # Run Specifications
-    BATCH_SIZE = 6
-    NUM_WORKERS = 18 # 18 # 18 # 36 total CPUs
-    NUM_GPUS = 1 # 4 total GPUs
-    TRAIN_SIZE= 100#5000
-    VALID_SIZE= 20#200
+    BATCH_SIZE = 4
+    NUM_WORKERS = 0#9 # 18 # 18 # 36 total CPUs
+    NUM_GPUS = 0# 1 # 4 total GPUs
+    TRAIN_SIZE= 100#5000#100
+    VALID_SIZE= 20#300#20
 
     # Training Specifications
-    FREEZE_ENCODER = False
-    FREEZE_MASK_DECODER = False
     WEIGHT_DECAY = 0.0003
     LEARNING_RATE = 0.0001
     ENCODER_LEARNING_RATE = 0.0005
-    NUM_EPOCHS = 2
+    NUM_EPOCHS = 2#50
     DISTRIBUTED_BACKEND = None if NUM_GPUS <= 1 else 'ddp'
+
+    # Freezing Training Specifications
+    FREEZE_ENCODER = False
+    FREEZE_MASK_TRAINING = False
+    FREEZE_ROTATION_TRAINING = False
+    FREEZE_TRANSLATION_TRAINING = False
+    FREEZE_SCALES_TRAINING = False
+
+    # Algorithmic Training Specifications
+    PERFORM_AGGREGATION = True
+    PERFORM_HOUGH_VOTING = False
+    PERFORM_RT_CALCULATION = False
+    PERFORM_MATCHING = False
 
     # Architecture Parameters
     BACKBONE_ARCH = 'FPN'
