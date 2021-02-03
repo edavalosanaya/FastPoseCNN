@@ -27,16 +27,16 @@ from config import DEFAULT_POSE_HPARAM
 #-------------------------------------------------------------------------------
 # Constants
 
-PATH = pathlib.Path(os.getenv("LOGS")) / 'good_saved_runs' / '09-23-LONG_RUN_N51_GPU4_IQR_PRUN-NOCS-resnet18-imagenet' / '_' / 'checkpoints' / 'last.ckpt'
+PATH = pathlib.Path(os.getenv("LOGS")) / 'good_saved_runs' / '07-43-MSE+AGG-NOCS-resnet18-imagenet' / '_' / 'checkpoints' / 'last.ckpt'
 
 HPARAM = DEFAULT_POSE_HPARAM()
-HPARAM.VALID_SIZE = 1000
+HPARAM.VALID_SIZE = 2000
 HPARAM.HV_NUM_OF_HYPOTHESES = 501
 
-COLLECT_DATA = False
+COLLECT_DATA = True
 DRAW = True
 TOTAL_DRAW_IMAGES = 50
-APS_NUM_OF_POINTS = 30
+APS_NUM_OF_POINTS = 50
 
 #-------------------------------------------------------------------------------
 # File Main
@@ -79,7 +79,8 @@ if __name__ == '__main__':
             str(PATH),
             model=base_model,
             criterion=None,
-            metrics=None
+            metrics=None,
+            HPARAM=HPARAM
         )
 
         # Freezing weights to avoid updating the weights
@@ -151,15 +152,18 @@ if __name__ == '__main__':
 
                 # Saving figure
                 gt_fig.savefig(
-                    str(images_path / f'{image_counter}_gt.png')
+                    str(images_path / f'{image_counter}_gt.png'), 
+                    dpi=600
                 )
                 pred_fig.savefig(
-                    str(images_path / f'{image_counter}_pred.png')
+                    str(images_path / f'{image_counter}_pred.png'), 
+                    dpi=600
                 )
                 poses_fig.savefig(
-                    str(images_path / f'{image_counter}_poses.png')
+                    str(images_path / f'{image_counter}_poses.png'), 
+                    dpi=600
                 )
-                
+
 
             # Saving the matched data
             all_matches.append(gt_pred_matches)

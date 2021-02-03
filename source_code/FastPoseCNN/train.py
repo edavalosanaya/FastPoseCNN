@@ -14,7 +14,7 @@ import base64
 os.environ["TF_CPP_MIN_LOG_LEVEL"]="3"
 warnings.filterwarnings('ignore')
 
-os.environ['CUDA_VISIBLE_DEVICES'] = '' # '0,1,2,3'
+os.environ['CUDA_VISIBLE_DEVICES'] = '2' # '0,1,2,3'
 #os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
 
 import torch
@@ -233,7 +233,7 @@ class PoseRegresssionTask(pl.LightningModule):
             # Determing what type of input data
             if loss_attrs['D'] == 'pixel-wise':
                 losses[loss_name] = loss_attrs['F'](outputs, inputs)
-            elif loss_attrs['D'] == 'matched' and self.HPARAM.PERFORM_MATCHING and self.PERFORM_AGGREGATION:
+            elif loss_attrs['D'] == 'matched' and self.HPARAM.PERFORM_MATCHING and self.HPARAM.PERFORM_AGGREGATION:
                 losses[loss_name] = loss_attrs['F'](gt_pred_matches)
         
         # Remove losses that have nan
@@ -295,7 +295,7 @@ class PoseRegresssionTask(pl.LightningModule):
 
                     metrics[metric_name] = metric_attrs['F'](pred, gt)
 
-                elif metric_attrs['D'] == 'matched' and self.HPARAM.PERFORM_MATCHING and self.PERFORM_AGGREGATION:
+                elif metric_attrs['D'] == 'matched' and self.HPARAM.PERFORM_MATCHING and self.HPARAM.PERFORM_AGGREGATION:
                     metrics[metric_name] = metric_attrs['F'](gt_pred_matches)
 
         return metrics
@@ -463,27 +463,27 @@ if __name__ == '__main__':
         'quaternion': {
             'loss_mse': {'D': 'pixel-wise', 'F': lib.loss.MaskedMSELoss(key='quaternion'), 'weight': 0.2},
             #'loss_pw_qloss': {'D': 'pixel-wise', 'F': lib.loss.PixelWiseQLoss(key='quaternion'), 'weight': 1.0}
-            'loss_quat': {'D': 'matched', 'F': lib.loss.AggregatedLoss(key='quaternion'), 'weight': 1.0},
+            'loss_quat': {'D': 'matched', 'F': lib.loss.AggregatedLoss(key='quaternion'), 'weight': 0.4},
         },
         'xy': {
-            'loss_mse': {'D': 'pixel-wise', 'F': lib.loss.MaskedMSELoss(key='xy'), 'weight': 1.0},
-            'loss_xy': {'D': 'matched', 'F': lib.loss.AggregatedLoss(key='xy'), 'weight': 1.0},
+            'loss_mse': {'D': 'pixel-wise', 'F': lib.loss.MaskedMSELoss(key='xy'), 'weight': 0.2},
+            'loss_xy': {'D': 'matched', 'F': lib.loss.AggregatedLoss(key='xy'), 'weight': 0.4},
         },
         'z': {
-            'loss_mse': {'D': 'pixel-wise', 'F': lib.loss.MaskedMSELoss(key='z'), 'weight': 1.0},
-            'loss_z': {'D': 'matched', 'F': lib.loss.AggregatedLoss(key='z'), 'weight': 1.0},
+            'loss_mse': {'D': 'pixel-wise', 'F': lib.loss.MaskedMSELoss(key='z'), 'weight': 0.2},
+            'loss_z': {'D': 'matched', 'F': lib.loss.AggregatedLoss(key='z'), 'weight': 0.4},
         },
         'scales': {
-            'loss_mse': {'D': 'pixel-wise', 'F': lib.loss.MaskedMSELoss(key='scales'), 'weight': 1.0},
-            'loss_scales': {'D': 'matched', 'F': lib.loss.AggregatedLoss(key='scales'), 'weight': 1.0},
+            'loss_mse': {'D': 'pixel-wise', 'F': lib.loss.MaskedMSELoss(key='scales'), 'weight': 0.2},
+            'loss_scales': {'D': 'matched', 'F': lib.loss.AggregatedLoss(key='scales'), 'weight': 0.4},
         },
-        #'RT_and_metrics': {
+        'RT_and_metrics': {
         #    'loss_R': {'D': 'matched', 'F': lib.loss.AggregatedLoss(key='R'), 'weight': 1.0},
         #    'loss_T': {'D': 'matched', 'F': lib.loss.AggregatedLoss(key='T'), 'weight': 1.0},
         #    'loss_RT': {'D': 'matched', 'F': lib.loss.AggregatedLoss(key='RT'), 'weight': 1.0}
-        #    'loss_iou3d': {'D': 'matched', 'F': lib.loss.Iou3dLoss(), 'weight': 1.0},
-        #    'loss_offset': {'D': 'matched', 'F': lib.loss.OffsetLoss(), 'weight': 1.0}
-        #}
+            'loss_iou3d': {'D': 'matched', 'F': lib.loss.Iou3dLoss(), 'weight': 0.4},
+            'loss_offset': {'D': 'matched', 'F': lib.loss.OffsetLoss(), 'weight': 0.4}
+        }
     }
 
     # Selecting metrics

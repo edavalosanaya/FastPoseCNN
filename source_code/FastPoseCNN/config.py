@@ -19,16 +19,16 @@ class DEFAULT_POSE_HPARAM(argparse.Namespace):
 
     # Run Specifications
     BATCH_SIZE = 4
-    NUM_WORKERS = 0#9 # 18 # 18 # 36 total CPUs
-    NUM_GPUS = 0# 1 # 4 total GPUs
-    TRAIN_SIZE= 100#5000#100
-    VALID_SIZE= 20#300#20
+    NUM_WORKERS = 9 # 18 # 18 # 36 total CPUs
+    NUM_GPUS = 1# 1 # 4 total GPUs
+    TRAIN_SIZE= 5000#100
+    VALID_SIZE= 300#20
 
     # Training Specifications
     WEIGHT_DECAY = 0.0003
     LEARNING_RATE = 0.0001
     ENCODER_LEARNING_RATE = 0.0005
-    NUM_EPOCHS = 2#50
+    NUM_EPOCHS = 50#2#50
     DISTRIBUTED_BACKEND = None if NUM_GPUS <= 1 else 'ddp'
 
     # Freezing Training Specifications
@@ -40,9 +40,9 @@ class DEFAULT_POSE_HPARAM(argparse.Namespace):
 
     # Algorithmic Training Specifications
     PERFORM_AGGREGATION = True
-    PERFORM_HOUGH_VOTING = False
-    PERFORM_RT_CALCULATION = False
-    PERFORM_MATCHING = False
+    PERFORM_HOUGH_VOTING = True
+    PERFORM_RT_CALCULATION = True
+    PERFORM_MATCHING = True
 
     # Architecture Parameters
     BACKBONE_ARCH = 'FPN'
