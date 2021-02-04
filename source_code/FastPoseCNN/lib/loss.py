@@ -251,7 +251,9 @@ class AggregatedLoss(_Loss):
                 loss = (gt-pred).norm(dim=1)
             
             elif self.key == 'R':
-                loss = torch.acos((torch.einsum('bii->b', torch.bmm(gt, pred)) - 1) / 2)
+                similarity = torch.bmm(torch.transpose(gt, 1, 2), pred)
+                traced_value = torch.einsum('bii->b', similarity) # batched trace
+                loss = torch.acos((traced_value - 1) / 2)
             
             elif self.key == 'RT':
                 loss = (torch.inverse(gt) * pred).norm(dim=1)

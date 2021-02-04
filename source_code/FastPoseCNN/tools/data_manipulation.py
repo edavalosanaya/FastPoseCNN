@@ -24,8 +24,6 @@ import torch
 
 # Local Imports
 
-import project
-
 #-------------------------------------------------------------------------------
 # Classes   
 
@@ -306,7 +304,7 @@ def create_dense_3d_centers(mask, json_data, intrinsics):
 
     return xys, zs
 
-def create_simple_dense_3d_centers(mask, json_data):
+def create_simple_dense_3d_centers(mask, json_data, intrinsics):
 
     # Ultimately the output
     xys = np.zeros((mask.shape[0], mask.shape[1], 2))
@@ -337,7 +335,7 @@ def create_simple_dense_3d_centers(mask, json_data):
         center_2d = transform_3d_camera_coords_to_2d_quantized_projections(
             center,
             selected_RT,
-            project.constants.CAMERA_INTRINSICS
+            intrinsics
         )[0]
 
         # Constructing the unit vectors pointing to the center

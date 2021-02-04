@@ -72,29 +72,56 @@ constants.NUM_CLASSES = {}
 constants.INTRINSICS = {}
 
 #-------------------------------------------------------------------------------
-# NOCS Dataset Constants
+# CAMERA Dataset Constants
 
-constants.INTRINSICS['NOCS'] = np.array([[577.5, 0, 319.5], [0., 577.5, 239.5], [0., 0., 1.]]) # CAMERA intrinsics
+constants.INTRINSICS['CAMERA'] = np.array([[577.5, 0, 319.5], [0., 577.5, 239.5], [0., 0., 1.]]) # CAMERA intrinsics
 
-constants.NOCS_CLASSES = ['bg', #0
-                          'bottle', #1
-                          'bowl', #2
-                          'camera', #3
-                          'can',  #4
-                          'laptop',#5
-                          'mug'#6
-                          ]
+constants.CAMERA_CLASSES = [
+    'bg', #0
+    'bottle', #1
+    'bowl', #2
+    'camera', #3
+    'can',  #4
+    'laptop',#5
+    'mug'#6
+]
 
-constants.NOCS_COLORMAP = generate_colormap(len(constants.NOCS_CLASSES))
+constants.CAMERA_COLORMAP = generate_colormap(len(constants.CAMERA_CLASSES))
 
-constants.CLASS_MAP = {
+constants.CAMERA_CLASS_MAP = {
     'bottle': 'bottle',
     'bowl':'bowl',
     'cup':'mug',
     'laptop': 'laptop',
 }
 
-constants.NUM_CLASSES['NOCS'] = len(constants.NOCS_CLASSES)
+constants.NUM_CLASSES['CAMERA'] = len(constants.CAMERA_CLASSES)
+
+#-------------------------------------------------------------------------------
+# REAL (NOCS) Dataset Constants
+
+constants.INTRINSICS['REAL'] = np.array([[591.0125, 0, 322.525], [0, 590.16775, 244.11084], [0, 0, 1]]) # REAL intrinsics
+
+constants.REAL_CLASSES = [
+    'bg', #0
+    'bottle', #1
+    'bowl', #2
+    'camera', #3
+    'can',  #4
+    'laptop',#5
+    'mug'#6
+]
+
+constants.REAL_COLORMAP = generate_colormap(len(constants.REAL_CLASSES))
+
+constants.REAL_CLASS_MAP = {
+    'bottle': 'bottle',
+    'bowl':'bowl',
+    'cup':'mug',
+    'laptop': 'laptop',
+}
+
+constants.NUM_CLASSES['REAL'] = len(constants.REAL_CLASSES)
 
 #-------------------------------------------------------------------------------
 # PASCAL VOC Dataset Constants

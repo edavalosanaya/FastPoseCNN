@@ -14,11 +14,11 @@ class DEFAULT_POSE_HPARAM(argparse.Namespace):
     # Experiment Identification 
     EXPERIMENT_NAME = "TESTING" # string
     CHECKPOINT = pathlib.Path(os.getenv("LOGS")) / 'good_saved_runs' / '12-49-SMALL_RUN-NOCS-resnet18-imagenet' / '_' / 'checkpoints' / 'last.ckpt' # pathlib
-    DATASET_NAME = 'NOCS' # string
+    DATASET_NAME = 'CAMERA' # string
     SELECTED_CLASSES = ['bg','camera','laptop'] #tools.pj.constants.NUM_CLASSES[DATASET_NAME] 
 
     # Run Specifications
-    BATCH_SIZE = 4
+    BATCH_SIZE = 2
     NUM_WORKERS = 9 # 18 # 18 # 36 total CPUs
     NUM_GPUS = 1# 1 # 4 total GPUs
     TRAIN_SIZE= 5000#100

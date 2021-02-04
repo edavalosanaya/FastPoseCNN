@@ -14,7 +14,7 @@ import base64
 os.environ["TF_CPP_MIN_LOG_LEVEL"]="3"
 warnings.filterwarnings('ignore')
 
-os.environ['CUDA_VISIBLE_DEVICES'] = '2' # '0,1,2,3'
+os.environ['CUDA_VISIBLE_DEVICES'] = '0' # '0,1,2,3'
 #os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
 
 import torch
@@ -358,14 +358,10 @@ class PoseRegressionDataModule(pl.LightningDataModule):
         else:
             preprocessing_fn = None
 
-        # NOCS
-        if self.dataset_name == 'NOCS':
+        # CAMERA / NOCS
+        if self.dataset_name == 'CAMERA':
 
-            # If no specific classes are used, use all the classes from NOCS
-            if self.selected_classes is None:
-                self.selected_classes = tools.pj.constants.NOCS_CLASSES
-
-            train_dataset = tools.ds.NOCSPoseRegDataset(
+            train_dataset = tools.ds.CAMERADataset(
                 dataset_dir=pathlib.Path(os.getenv("NOCS_CAMERA_TRAIN_DATASET")),
                 max_size=self.train_size,
                 classes=self.selected_classes,
@@ -373,8 +369,32 @@ class PoseRegressionDataModule(pl.LightningDataModule):
                 preprocessing=tools.transforms.pose.get_preprocessing(preprocessing_fn)
             )
 
-            valid_dataset = tools.ds.NOCSPoseRegDataset(
+            valid_dataset = tools.ds.CAMERADataset(
                 dataset_dir=pathlib.Path(os.getenv("NOCS_CAMERA_VALID_DATASET")), 
+                max_size=self.valid_size,
+                classes=self.selected_classes,
+                augmentation=tools.transforms.pose.get_validation_augmentation(),
+                preprocessing=tools.transforms.pose.get_preprocessing(preprocessing_fn)
+            )
+
+            self.datasets = {
+                'train': train_dataset,
+                'valid': valid_dataset
+            }
+
+        # REAL / NOCS
+        elif self.dataset_name == 'REAL':
+
+            train_dataset = tools.ds.REALDataset(
+                dataset_dir=pathlib.Path(os.getenv("NOCS_REAL_TRAIN_DATASET")),
+                max_size=self.train_size,
+                classes=self.selected_classes,
+                augmentation=tools.transforms.pose.get_training_augmentation(),
+                preprocessing=tools.transforms.pose.get_preprocessing(preprocessing_fn)
+            )
+
+            valid_dataset = tools.ds.REALDataset(
+                dataset_dir=pathlib.Path(os.getenv("NOCS_REAL_TEST_DATASET")), 
                 max_size=self.valid_size,
                 classes=self.selected_classes,
                 augmentation=tools.transforms.pose.get_validation_augmentation(),
@@ -463,26 +483,26 @@ if __name__ == '__main__':
         'quaternion': {
             'loss_mse': {'D': 'pixel-wise', 'F': lib.loss.MaskedMSELoss(key='quaternion'), 'weight': 0.2},
             #'loss_pw_qloss': {'D': 'pixel-wise', 'F': lib.loss.PixelWiseQLoss(key='quaternion'), 'weight': 1.0}
-            'loss_quat': {'D': 'matched', 'F': lib.loss.AggregatedLoss(key='quaternion'), 'weight': 0.4},
+        #    'loss_quat': {'D': 'matched', 'F': lib.loss.AggregatedLoss(key='quaternion'), 'weight': 0.4},
         },
         'xy': {
             'loss_mse': {'D': 'pixel-wise', 'F': lib.loss.MaskedMSELoss(key='xy'), 'weight': 0.2},
-            'loss_xy': {'D': 'matched', 'F': lib.loss.AggregatedLoss(key='xy'), 'weight': 0.4},
+        #    'loss_xy': {'D': 'matched', 'F': lib.loss.AggregatedLoss(key='xy'), 'weight': 0.4},
         },
         'z': {
             'loss_mse': {'D': 'pixel-wise', 'F': lib.loss.MaskedMSELoss(key='z'), 'weight': 0.2},
-            'loss_z': {'D': 'matched', 'F': lib.loss.AggregatedLoss(key='z'), 'weight': 0.4},
+        #    'loss_z': {'D': 'matched', 'F': lib.loss.AggregatedLoss(key='z'), 'weight': 0.4},
         },
         'scales': {
             'loss_mse': {'D': 'pixel-wise', 'F': lib.loss.MaskedMSELoss(key='scales'), 'weight': 0.2},
-            'loss_scales': {'D': 'matched', 'F': lib.loss.AggregatedLoss(key='scales'), 'weight': 0.4},
+        #    'loss_scales': {'D': 'matched', 'F': lib.loss.AggregatedLoss(key='scales'), 'weight': 0.4},
         },
         'RT_and_metrics': {
         #    'loss_R': {'D': 'matched', 'F': lib.loss.AggregatedLoss(key='R'), 'weight': 1.0},
         #    'loss_T': {'D': 'matched', 'F': lib.loss.AggregatedLoss(key='T'), 'weight': 1.0},
         #    'loss_RT': {'D': 'matched', 'F': lib.loss.AggregatedLoss(key='RT'), 'weight': 1.0}
-            'loss_iou3d': {'D': 'matched', 'F': lib.loss.Iou3dLoss(), 'weight': 0.4},
-            'loss_offset': {'D': 'matched', 'F': lib.loss.OffsetLoss(), 'weight': 0.4}
+            'loss_iou3d': {'D': 'matched', 'F': lib.loss.Iou3dLoss(), 'weight': 1.0},
+            'loss_offset': {'D': 'matched', 'F': lib.loss.OffsetLoss(), 'weight': 1.0}
         }
     }
 
