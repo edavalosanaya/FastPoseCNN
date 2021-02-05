@@ -648,58 +648,55 @@ def compare_hough_voting_performance(image, gt_pred_matches, return_as_figure=Tr
     drawn_gt_hv = torch.zeros_like(image, device=image.device)
     drawn_pred_hv = torch.zeros_like(image, device=image.device)
 
-    # Per class visualization
-    for class_id in range(len(gt_pred_matches)):
+    # Obtaining the sample ids
+    try:
+        sample_ids = gt_pred_matches['sample_ids']
+    except KeyError:
+        # No instances for this class, skip it
+        return None
 
-        # Obtaining the sample ids
-        try:
-            sample_ids = gt_pred_matches[class_id]['sample_ids']
-        except KeyError:
-            # No instances for this class, skip it
-            continue
+    for sequence_id, sample_id in enumerate(sample_ids):
 
-        for sequence_id, sample_id in enumerate(sample_ids):
+        # Visualize the gt uv
+        gt_vis_uv_img = torch.from_numpy(get_visualized_u_vector_xy(
+            gt_pred_matches['instance_masks'][0][sequence_id].cpu().numpy(),
+            gt_pred_matches['xy_mask'][0][sequence_id].cpu().numpy()
+        )).to(image.device)
 
-            # Visualize the gt uv
-            gt_vis_uv_img = torch.from_numpy(get_visualized_u_vector_xy(
-                gt_pred_matches[class_id]['instance_masks'][0][sequence_id].cpu().numpy(),
-                gt_pred_matches[class_id]['xy_mask'][0][sequence_id].cpu().numpy()
-            )).to(image.device)
+        # Visualize the pred uv
+        pred_vis_uv_img = torch.from_numpy(get_visualized_u_vector_xy(
+            gt_pred_matches['instance_masks'][1][sequence_id].cpu().numpy(),
+            gt_pred_matches['xy_mask'][1][sequence_id].cpu().numpy()
+        )).to(image.device)
 
-            # Visualize the pred uv
-            pred_vis_uv_img = torch.from_numpy(get_visualized_u_vector_xy(
-                gt_pred_matches[class_id]['instance_masks'][1][sequence_id].cpu().numpy(),
-                gt_pred_matches[class_id]['xy_mask'][1][sequence_id].cpu().numpy()
-            )).to(image.device)
+        # Visualize gt hypothesis (casting from float to uint8)
+        gt_vis_hypo_img = (get_visualized_hough_voting(
+            gt_pred_matches['hypothesis'][0][sequence_id],
+            gt_pred_matches['pruned_hypothesis'][0][sequence_id],
+            gt_pred_matches['xy'][0][sequence_id],
+            gt_pred_matches['instance_masks'][0][sequence_id],
+        )*255).type(torch.uint8)
 
-            # Visualize gt hypothesis (casting from float to uint8)
-            gt_vis_hypo_img = (get_visualized_hough_voting(
-                gt_pred_matches[class_id]['hypothesis'][0][sequence_id],
-                gt_pred_matches[class_id]['pruned_hypothesis'][0][sequence_id],
-                gt_pred_matches[class_id]['xy'][0][sequence_id],
-                gt_pred_matches[class_id]['instance_masks'][0][sequence_id],
-            )*255).type(torch.uint8)
+        # Visualize gt hypothesis (casting from float to uint8)
+        pred_vis_hypo_img = (get_visualized_hough_voting(
+            gt_pred_matches['hypothesis'][1][sequence_id],
+            gt_pred_matches['pruned_hypothesis'][1][sequence_id],
+            gt_pred_matches['xy'][1][sequence_id],
+            gt_pred_matches['instance_masks'][1][sequence_id],
+        )*255).type(torch.uint8)
 
-            # Visualize gt hypothesis (casting from float to uint8)
-            pred_vis_hypo_img = (get_visualized_hough_voting(
-                gt_pred_matches[class_id]['hypothesis'][1][sequence_id],
-                gt_pred_matches[class_id]['pruned_hypothesis'][1][sequence_id],
-                gt_pred_matches[class_id]['xy'][1][sequence_id],
-                gt_pred_matches[class_id]['instance_masks'][1][sequence_id],
-            )*255).type(torch.uint8)
-
-            drawn_gt_uv[sample_id] = torch.where(
-                drawn_gt_uv[sample_id] == 0, gt_vis_uv_img, drawn_gt_uv[sample_id]
-            )
-            drawn_pred_uv[sample_id] = torch.where(
-                drawn_pred_uv[sample_id] == 0, pred_vis_uv_img, drawn_pred_uv[sample_id]
-            )
-            drawn_gt_hv[sample_id] = torch.where(
-                drawn_gt_hv[sample_id] == 0, gt_vis_hypo_img, drawn_gt_hv[sample_id]
-            )
-            drawn_pred_hv[sample_id] = torch.where(
-                drawn_pred_hv[sample_id] == 0, pred_vis_hypo_img, drawn_pred_hv[sample_id]
-            )
+        drawn_gt_uv[sample_id] = torch.where(
+            drawn_gt_uv[sample_id] == 0, gt_vis_uv_img, drawn_gt_uv[sample_id]
+        )
+        drawn_pred_uv[sample_id] = torch.where(
+            drawn_pred_uv[sample_id] == 0, pred_vis_uv_img, drawn_pred_uv[sample_id]
+        )
+        drawn_gt_hv[sample_id] = torch.where(
+            drawn_gt_hv[sample_id] == 0, gt_vis_hypo_img, drawn_gt_hv[sample_id]
+        )
+        drawn_pred_hv[sample_id] = torch.where(
+            drawn_pred_hv[sample_id] == 0, pred_vis_hypo_img, drawn_pred_hv[sample_id]
+        )
 
     images = {
         'gt_uv': drawn_gt_uv.cpu().numpy(),
@@ -1014,39 +1011,37 @@ def compare_pose_performance_v5(
     # Create colorized mask
     pred_mask_vis = get_visualized_masks(pred_cat_mask, mask_colormap)
 
-    # Per class visualization
-    for class_id in range(len(gt_pred_matches)):
 
-        # Obtaining the sample ids
-        try:
-            sample_ids = gt_pred_matches[class_id]['sample_ids']
-        except KeyError:
-            # No instances for this class, skip it
-            continue
+    # Obtaining the sample ids
+    try:
+        sample_ids = gt_pred_matches['sample_ids']
+    except KeyError:
+        # No instances for this class, skip it
+        return None
 
-        # Drawing per sample
-        for sequence_id, sample_id in enumerate(sample_ids):
+    # Drawing per sample
+    for sequence_id, sample_id in enumerate(sample_ids):
 
-            # Draw the ground truth pose
-            gt_pose = dr.draw_RT(
-                image=draw_image[sample_id],
-                intrinsics=intrinsics,
-                RT = gt_pred_matches[class_id]['RT'][0][sequence_id].cpu().numpy(),
-                scale = gt_pred_matches[class_id]['scales'][0][sequence_id].cpu().numpy(),
-                color=(0,255,255)
-            )
+        # Draw the ground truth pose
+        gt_pose = dr.draw_RT(
+            image=draw_image[sample_id],
+            intrinsics=intrinsics,
+            RT = gt_pred_matches['RT'][0][sequence_id].cpu().numpy(),
+            scale = gt_pred_matches['scales'][0][sequence_id].cpu().numpy(),
+            color=(0,255,255)
+        )
 
-            # Draw the pred pose 
-            gt_pred_pose = dr.draw_RT(
-                image=gt_pose,
-                intrinsics=intrinsics,
-                RT = gt_pred_matches[class_id]['RT'][1][sequence_id].cpu().numpy(),
-                scale = gt_pred_matches[class_id]['scales'][1][sequence_id].cpu().numpy(),
-                color=(255,0,255)
-            )
+        # Draw the pred pose 
+        gt_pred_pose = dr.draw_RT(
+            image=gt_pose,
+            intrinsics=intrinsics,
+            RT = gt_pred_matches['RT'][1][sequence_id].cpu().numpy(),
+            scale = gt_pred_matches['scales'][1][sequence_id].cpu().numpy(),
+            color=(255,0,255)
+        )
 
-            # Overwrite the older draw image
-            draw_image[sample_id] = gt_pred_pose
+        # Overwrite the older draw image
+        draw_image[sample_id] = gt_pred_pose
 
     images = {
         'poses': draw_image,
@@ -1084,44 +1079,67 @@ def compare_all_performance(sample, outputs, pred_gt_matches, intrinsics, mask_c
     gt_quat_vis = get_visualized_quaternions(sample['quaternion'].cpu().numpy())
     pred_quat_vis = get_visualized_quaternions(outputs['quaternion'].cpu().numpy())
 
-    # unit vectors and hough voting
-    hv_images = compare_hough_voting_performance(
-        sample['clean_image'],
-        pred_gt_matches,
-        return_as_figure=False
-    )
+    # If only matches are found
+    if pred_gt_matches:
+        # unit vectors and hough voting
+        hv_images = compare_hough_voting_performance(
+            sample['clean_image'],
+            pred_gt_matches,
+            return_as_figure=False
+        )
 
-    # Pose
-    pose_images = compare_pose_performance_v5(
-        sample['clean_image'],
-        pred_gt_matches,
-        outputs['auxilary']['cat_mask'],
-        mask_colormap,
-        intrinsics,
-        return_as_figure=False
-    )
+        # Pose
+        pose_images = compare_pose_performance_v5(
+            sample['clean_image'],
+            pred_gt_matches,
+            outputs['auxilary']['cat_mask'],
+            mask_colormap,
+            intrinsics,
+            return_as_figure=False
+        )
 
-    gt_images = {
-        'gt_mask': np.moveaxis(gt_mask_vis, 1,-1),
-        'gt_z': gt_z_vis,
-        'gt_scales': gt_scales_vis,
-        'gt_quat': gt_quat_vis,
-        'gt_xy': hv_images['gt_uv'],
-        'gt_hv': hv_images['gt_hv'],
-    }
+        gt_images = {
+            'gt_mask': np.moveaxis(gt_mask_vis, 1,-1),
+            'gt_z': gt_z_vis,
+            'gt_scales': gt_scales_vis,
+            'gt_quat': gt_quat_vis,
+            'gt_xy': hv_images['gt_uv'],
+            'gt_hv': hv_images['gt_hv'],
+        }
 
-    pred_images = {
-        'pred_mask': np.moveaxis(pred_mask_vis, 1,-1),
-        'pred_z': pred_z_vis,
-        'pred_scales': pred_scales_vis,
-        'pred_quat': pred_quat_vis,
-        'pred_xy': hv_images['pred_uv'],
-        'pred_hv': hv_images['pred_hv'],
-    }
+        pred_images = {
+            'pred_mask': np.moveaxis(pred_mask_vis, 1,-1),
+            'pred_z': pred_z_vis,
+            'pred_scales': pred_scales_vis,
+            'pred_quat': pred_quat_vis,
+            'pred_xy': hv_images['pred_uv'],
+            'pred_hv': hv_images['pred_hv'],
+        }
 
-    pose_images = {
-        'poses': pose_images['poses'],
-    }
+        pose_images = {
+            'poses': pose_images['poses'],
+        }
+
+    else:
+
+        gt_images = {
+            'gt_mask': np.moveaxis(gt_mask_vis, 1,-1),
+            'gt_z': gt_z_vis,
+            'gt_scales': gt_scales_vis,
+            'gt_quat': gt_quat_vis
+        }
+
+        pred_images = {
+            'pred_mask': np.moveaxis(pred_mask_vis, 1,-1),
+            'pred_z': pred_z_vis,
+            'pred_scales': pred_scales_vis,
+            'pred_quat': pred_quat_vis
+        }
+
+        pose_images = {
+            'poses': image,
+        }
+
 
     # Creating a gigantic figure
     poses_fig = make_summary_figure(**pose_images)

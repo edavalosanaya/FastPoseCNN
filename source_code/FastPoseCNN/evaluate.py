@@ -7,6 +7,10 @@ from pprint import pprint
 import tqdm
 import pandas as pd
 
+# DEBUGGING
+import matplotlib
+matplotlib.use('Agg')
+
 import torch
 import torch.nn as nn
 import numpy as np
@@ -27,7 +31,8 @@ from config import DEFAULT_POSE_HPARAM
 #-------------------------------------------------------------------------------
 # Constants
 
-PATH = pathlib.Path(os.getenv("LOGS")) / 'good_saved_runs' / '07-43-MSE+AGG-NOCS-resnet18-imagenet' / '_' / 'checkpoints' / 'last.ckpt'
+PATH = pathlib.Path(os.getenv("LOGS")) / 'good_saved_runs' / '10-26-MSE+AGG+METRICS-NOCS-resnet18-imagenet' / '_' / 'checkpoints' / 'last.ckpt'
+#PATH = pathlib.Path(os.getenv("LOGS")) / 'good_saved_runs' / '12-49-SMALL_RUN-NOCS-resnet18-imagenet' / '_' / 'checkpoints' / 'last.ckpt'
 
 HPARAM = DEFAULT_POSE_HPARAM()
 HPARAM.VALID_SIZE = 2000
@@ -67,7 +72,7 @@ if __name__ == '__main__':
         # Create model
         base_model = lib.PoseRegressor(
             HPARAM,
-            intrinsics=torch.from_numpy(tools.pj.constants.INTRINSICS[HPARAM.DATASET_NAME]).float(),
+            intrinsics=torch.from_numpy(tools.pj.constants.INTRINSICS['CAMERA']).float(), #HPARAM.DATASET_NAME
             architecture=HPARAM.BACKBONE_ARCH,
             encoder_name=HPARAM.ENCODER,
             encoder_weights=HPARAM.ENCODER_WEIGHTS,
@@ -92,7 +97,7 @@ if __name__ == '__main__':
 
         # Load the PyTorch Lightning dataset
         datamodule = train.PoseRegressionDataModule(
-            dataset_name=HPARAM.DATASET_NAME,
+            dataset_name='CAMERA', #HPARAM.DATASET_NAME,
             selected_classes=HPARAM.SELECTED_CLASSES,
             batch_size=HPARAM.BATCH_SIZE,
             num_workers=HPARAM.NUM_WORKERS,
@@ -153,20 +158,21 @@ if __name__ == '__main__':
                 # Saving figure
                 gt_fig.savefig(
                     str(images_path / f'{image_counter}_gt.png'), 
-                    dpi=600
+                    dpi=400
                 )
                 pred_fig.savefig(
                     str(images_path / f'{image_counter}_pred.png'), 
-                    dpi=600
+                    dpi=400
                 )
                 poses_fig.savefig(
                     str(images_path / f'{image_counter}_poses.png'), 
-                    dpi=600
+                    dpi=400
                 )
 
 
-            # Saving the matched data
-            all_matches.append(gt_pred_matches)
+            # Saving the matched data (if not None )
+            if gt_pred_matches:
+                all_matches.append(gt_pred_matches)
 
         # Store the simple data into a json file
         torch.save(all_matches, pth_path)
@@ -204,22 +210,32 @@ if __name__ == '__main__':
         # Load the .pth file with the tensors
         all_matches = torch.load(pth_path)
 
+        if all_matches != []:
+            print("All matches made were empty!")
+            sys.exit(0)
+
         # For each match calculate the 3D IoU, degree error, and offset error 
         for match in tqdm.tqdm(all_matches):
 
-            for class_id in range(len(match)):
+            # Catching no-instance scenario
+            if type(match) == type(None) or 'quaternion' not in match.keys():
+                continue
 
-                # Catching no-instance scenario
-                if 'quaternion' not in match[class_id].keys():
-                    continue 
+            # Identify all the classes present in the match
+            classes = match['class_ids']
+
+            for class_id in classes:
+
+                # Identify the instances of this class
+                class_instances = torch.where(classes == class_id)[0]
 
                 # Obtaining essential data
-                gt_q = match[class_id]['quaternion'][0]
-                pred_q = match[class_id]['quaternion'][1]
-                gt_RTs = match[class_id]['RT'][0]
-                gt_scales = match[class_id]['scales'][0]
-                pred_RTs = match[class_id]['RT'][1]
-                pred_scales = match[class_id]['scales'][1]
+                gt_q = match['quaternion'][0][class_instances]
+                pred_q = match['quaternion'][1][class_instances]
+                gt_RTs = match['RT'][0][class_instances]
+                gt_scales = match['scales'][0][class_instances]
+                pred_RTs = match['RT'][1][class_instances]
+                pred_scales = match['scales'][1][class_instances]
 
                 # Calculating the distance between the quaternions
                 degree_distance = lib.gtf.torch_quat_distance(gt_q, pred_q)
@@ -235,16 +251,16 @@ if __name__ == '__main__':
 
                 # Store data
                 if class_id not in raw_data['degree_error'].keys():
-                    raw_data['degree_error'][class_id] = [degree_distance]
-                    raw_data['3d_iou'][class_id] = [ious_3d]
-                    raw_data['offset_error'][class_id] = [offset_errors]
+                    raw_data['degree_error'][int(class_id)] = [degree_distance]
+                    raw_data['3d_iou'][int(class_id)] = [ious_3d]
+                    raw_data['offset_error'][int(class_id)] = [offset_errors]
                 else:
-                    raw_data['degree_error'][class_id].append(degree_distance)
-                    raw_data['3d_iou'][class_id].append(ious_3d)
-                    raw_data['offset_error'][class_id].append(offset_errors)
+                    raw_data['degree_error'][int(class_id)].append(degree_distance)
+                    raw_data['3d_iou'][int(class_id)].append(ious_3d)
+                    raw_data['offset_error'][int(class_id)].append(offset_errors)
 
         # After the loop of the matches
-        for class_id in range(len(HPARAM.SELECTED_CLASSES)-1): # -1 to remove bg
+        for class_id in range(1, len(HPARAM.SELECTED_CLASSES)): # -1 to remove bg
             raw_data['degree_error'][class_id] = torch.cat(raw_data['degree_error'][class_id])
             raw_data['3d_iou'][class_id] = torch.cat(raw_data['3d_iou'][class_id])
             raw_data['offset_error'][class_id] = torch.cat(raw_data['offset_error'][class_id])

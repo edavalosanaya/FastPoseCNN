@@ -31,18 +31,15 @@ class HoughVotingLayer(nn.Module):
 
     def forward(self, agg_data):
 
-        # Performing this per class
-        for class_id in range(len(agg_data)):
+        # Obtain data needed for hough voting
+        uv_img = agg_data['xy']
+        mask = agg_data['instance_masks']
+        
+        # Performing hough voting
+        output = self.batchwise_hough_voting(uv_img, mask)
 
-            # Obtain data needed for hough voting
-            uv_img = agg_data[class_id]['xy']
-            mask = agg_data[class_id]['instance_masks']
-            
-            # Performing hough voting
-            output = self.batchwise_hough_voting(uv_img, mask)
-
-            # Store data
-            agg_data[class_id].update(output)
+        # Store data
+        agg_data.update(output)
 
         return agg_data
 

@@ -5,7 +5,10 @@ import argparse
 import pathlib
 from pprint import pprint
 
+# DEBUGGING
 import pdb
+import matplotlib
+matplotlib.use('Agg')
 
 import numpy as np
 import base64
@@ -483,24 +486,23 @@ if __name__ == '__main__':
         'quaternion': {
             'loss_mse': {'D': 'pixel-wise', 'F': lib.loss.MaskedMSELoss(key='quaternion'), 'weight': 0.2},
             #'loss_pw_qloss': {'D': 'pixel-wise', 'F': lib.loss.PixelWiseQLoss(key='quaternion'), 'weight': 1.0}
-        #    'loss_quat': {'D': 'matched', 'F': lib.loss.AggregatedLoss(key='quaternion'), 'weight': 0.4},
+            'loss_quat': {'D': 'matched', 'F': lib.loss.AggregatedLoss(key='quaternion'), 'weight': 0.4},
         },
         'xy': {
             'loss_mse': {'D': 'pixel-wise', 'F': lib.loss.MaskedMSELoss(key='xy'), 'weight': 0.2},
-        #    'loss_xy': {'D': 'matched', 'F': lib.loss.AggregatedLoss(key='xy'), 'weight': 0.4},
+            'loss_xy': {'D': 'matched', 'F': lib.loss.AggregatedLoss(key='xy'), 'weight': 0.4},
         },
         'z': {
             'loss_mse': {'D': 'pixel-wise', 'F': lib.loss.MaskedMSELoss(key='z'), 'weight': 0.2},
-        #    'loss_z': {'D': 'matched', 'F': lib.loss.AggregatedLoss(key='z'), 'weight': 0.4},
+            'loss_z': {'D': 'matched', 'F': lib.loss.AggregatedLoss(key='z'), 'weight': 0.4},
         },
         'scales': {
             'loss_mse': {'D': 'pixel-wise', 'F': lib.loss.MaskedMSELoss(key='scales'), 'weight': 0.2},
-        #    'loss_scales': {'D': 'matched', 'F': lib.loss.AggregatedLoss(key='scales'), 'weight': 0.4},
+            'loss_scales': {'D': 'matched', 'F': lib.loss.AggregatedLoss(key='scales'), 'weight': 0.4},
         },
         'RT_and_metrics': {
         #    'loss_R': {'D': 'matched', 'F': lib.loss.AggregatedLoss(key='R'), 'weight': 1.0},
         #    'loss_T': {'D': 'matched', 'F': lib.loss.AggregatedLoss(key='T'), 'weight': 1.0},
-        #    'loss_RT': {'D': 'matched', 'F': lib.loss.AggregatedLoss(key='RT'), 'weight': 1.0}
             'loss_iou3d': {'D': 'matched', 'F': lib.loss.Iou3dLoss(), 'weight': 1.0},
             'loss_offset': {'D': 'matched', 'F': lib.loss.OffsetLoss(), 'weight': 1.0}
         }

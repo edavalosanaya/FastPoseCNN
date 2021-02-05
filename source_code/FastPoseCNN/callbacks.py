@@ -412,14 +412,17 @@ class MyCallback(pl.callbacks.Callback):
             agg_gt
         )
 
-        # Create summary for the pose
-        summary_fig = tools.vz.compare_hough_voting_performance(
-            batch['clean_image'],
-            gt_pred_matches
-        )
+        # If gt_pred_matches is not None, then create visualization
+        if gt_pred_matches:
 
-        # Log the figure to tensorboard
-        pl_module.logger.writers[mode].add_figure(f'hough_voting_gen/{mode}', summary_fig, trainer.global_step)
+            # Create summary for the pose
+            summary_fig = tools.vz.compare_hough_voting_performance(
+                batch['clean_image'],
+                gt_pred_matches
+            )
+
+            # Log the figure to tensorboard
+            pl_module.logger.writers[mode].add_figure(f'hough_voting_gen/{mode}', summary_fig, trainer.global_step)
 
     # POSE
     @rank_zero_only
@@ -460,21 +463,24 @@ class MyCallback(pl.callbacks.Callback):
             agg_gt
         )
 
-        # Create summary for the pose
-        try:
-            summary_fig = tools.vz.compare_pose_performance_v5(
-                batch['clean_image'],
-                gt_pred_matches,
-                pred_cat_mask,
-                mask_colormap=dataset.COLORMAP,
-                intrinsics=dataset.INTRINSICS
-            )
+        # If matches are not empty, then perform visualization
+        if gt_pred_matches:
 
-            # Log the figure to tensorboard
-            pl_module.logger.writers[mode].add_figure(f'pose_gen/{mode}', summary_fig, trainer.global_step)      
+            # Create summary for the pose
+            try:
+                summary_fig = tools.vz.compare_pose_performance_v5(
+                    batch['clean_image'],
+                    gt_pred_matches,
+                    pred_cat_mask,
+                    mask_colormap=dataset.COLORMAP,
+                    intrinsics=dataset.INTRINSICS
+                )
 
-        except Exception as e:
-            print('pose visualization error: ', e)
+                # Log the figure to tensorboard
+                pl_module.logger.writers[mode].add_figure(f'pose_gen/{mode}', summary_fig, trainer.global_step)      
+
+            except Exception as e:
+                print('pose visualization error: ', e)
         
     #---------------------------------------------------------------------------
     # End of Training

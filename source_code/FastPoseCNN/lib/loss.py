@@ -217,22 +217,14 @@ class AggregatedLoss(_Loss):
             Tensor: [description]
         """
 
-        # Container for per class collective loss
-        per_class_loss = []
-
-        # Apply the QLoss Function 
-        # log(\epsilon + 1 - |gt_q dot pred_q|)
-        for class_id in range(len(gt_pred_matches)):
-
-            # Catching no-instance scenario
-            if self.key not in gt_pred_matches[class_id].keys():
-                continue
+        # Catching no-instance scenario
+        if self.key in gt_pred_matches.keys():
 
             # Selecting the ground truth data
-            gt = gt_pred_matches[class_id][self.key][0]
+            gt = gt_pred_matches[self.key][0]
 
             # Selecting the predicted data
-            pred = gt_pred_matches[class_id][self.key][1]
+            pred = gt_pred_matches[self.key][1]
 
             # Calculating the loss
             if self.key == 'quaternion':
@@ -260,25 +252,17 @@ class AggregatedLoss(_Loss):
 
             else:
                 raise NotImplementedError("Invalid entered key.")
-
-            # Storing the loss per class
-            per_class_loss.append(loss)
-
-        # Concatenate the losses to later sum the loss
-        # If not empty
-        if per_class_loss:
-            cat_losses = torch.cat(per_class_loss)
         else:
             try:
-                return torch.tensor(float('nan'), device=gt_pred_matches[0]['instance_masks'].device).float()   
+                return torch.tensor(float('nan'), device=gt_pred_matches['instance_masks'].device).float()   
             except:
                 return torch.tensor(float('nan')).cuda().float()   
 
         # Remove any nans in the data
-        cat_losses = cat_losses[torch.isnan(cat_losses) == False]
+        clean_loss = loss[torch.isnan(loss) == False]
 
         # Return the some of all the losses
-        return torch.mean(cat_losses)
+        return torch.mean(clean_loss)
 
 #-------------------------------------------------------------------------------
 # Pose loss functions
@@ -291,20 +275,14 @@ class Iou3dLoss(_Loss):
 
     def forward(self, gt_pred_matches) -> Tensor:
 
-        # Container for per class collective loss
-        per_class_loss = []
-
-        for class_id in range(len(gt_pred_matches)):
-
-            # Catching no-instance scenario
-            if 'RT' not in gt_pred_matches[class_id].keys():
-                continue
+        # Catching no-instance scenario
+        if 'RT' in gt_pred_matches.keys():
 
             # Grabbing the gt and pred (RT and scales)
-            gt_RTs = gt_pred_matches[class_id]['RT'][0]
-            gt_scales = gt_pred_matches[class_id]['scales'][0]
-            pred_RTs = gt_pred_matches[class_id]['RT'][1]
-            pred_scales = gt_pred_matches[class_id]['scales'][1]
+            gt_RTs = gt_pred_matches['RT'][0]
+            gt_scales = gt_pred_matches['scales'][0]
+            pred_RTs = gt_pred_matches['RT'][1]
+            pred_scales = gt_pred_matches['scales'][1]
 
             # Calculating the iou 3d for between the ground truth and predicted 
             ious_3d = gtf.get_3d_ious(gt_RTs, pred_RTs, gt_scales, pred_scales)
@@ -316,13 +294,6 @@ class Iou3dLoss(_Loss):
             loss = error
             #loss = torch.log(error + self.eps) - torch.log(torch.tensor(self.eps, device=error.device))
 
-            # Storing the loss per class
-            per_class_loss.append(loss)
-
-        # Concatenate the losses to later sum the loss
-        # If not empty
-        if per_class_loss:
-            cat_losses = torch.cat(per_class_loss)
         else:
             try:
                 return torch.tensor(float('nan'), device=gt_pred_matches[0]['instance_masks'].device).float()   
@@ -330,10 +301,10 @@ class Iou3dLoss(_Loss):
                 return torch.tensor(float('nan')).cuda().float()   
 
         # Remove any nans in the data
-        cat_losses = cat_losses[torch.isnan(cat_losses) == False]
+        clean_loss = loss[torch.isnan(loss) == False]
 
         # Return the some of all the losses
-        return torch.mean(cat_losses)
+        return torch.mean(clean_loss)
 
 class OffsetLoss(_Loss):  
 
@@ -343,18 +314,12 @@ class OffsetLoss(_Loss):
 
     def forward(self, gt_pred_matches) -> Tensor:
 
-        # Container for per class collective loss
-        per_class_loss = []
-
-        for class_id in range(len(gt_pred_matches)):
-
-            # Catching no-instance scenario
-            if 'scales' not in gt_pred_matches[class_id].keys():
-                continue
+        # Catching no-instance scenario
+        if 'scales' in gt_pred_matches.keys():
 
             # Grabbing the gt and pred (RT and scales)
-            gt_RTs = gt_pred_matches[class_id]['RT'][0]
-            pred_RTs = gt_pred_matches[class_id]['RT'][1]
+            gt_RTs = gt_pred_matches['RT'][0]
+            pred_RTs = gt_pred_matches['RT'][1]
 
             # Determing the offset errors
             offset_errors = gtf.from_RTs_get_T_offset_errors(
@@ -366,13 +331,6 @@ class OffsetLoss(_Loss):
             #loss = torch.log(offset_errors + self.eps) - torch.log(torch.tensor(self.eps, device=offset_errors.device))
             loss = offset_errors / 10
 
-            # Storing the loss per class
-            per_class_loss.append(loss)
-
-        # Concatenate the losses to later sum the loss
-        # If not empty
-        if per_class_loss:
-            cat_losses = torch.cat(per_class_loss)
         else:
             try:
                 return torch.tensor(float('nan'), device=gt_pred_matches[0]['instance_masks'].device).float()   
@@ -380,10 +338,10 @@ class OffsetLoss(_Loss):
                 return torch.tensor(float('nan')).cuda().float()   
 
         # Remove any nans in the data
-        cat_losses = cat_losses[torch.isnan(cat_losses) == False]
+        clean_loss = loss[torch.isnan(loss) == False]
 
         # Return the some of all the losses
-        return torch.mean(cat_losses)
+        return torch.mean(clean_loss)
 
 
 

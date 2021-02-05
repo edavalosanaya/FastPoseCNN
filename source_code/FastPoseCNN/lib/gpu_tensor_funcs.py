@@ -401,7 +401,11 @@ def find_matches_batched(preds, gts):
 
 def batchwise_find_matches(preds, gts):
 
-    pred_gt_matches = []
+    pred_gt_matches = {
+        'sample_ids': [],
+        'class_ids': []
+    }
+
     keys_to_stack = [
         'instance_masks', # Class
         'quaternion', 'R', # Rotation
@@ -411,24 +415,50 @@ def batchwise_find_matches(preds, gts):
         'xy_mask', 'hypothesis', 'pruned_hypothesis' # Hough Voting
     ]
 
-    # For each class
-    for class_id in range(len(preds)):
+    # If there is no classes in the predicted, then return None
+    if preds['class_ids'].shape[0] == 0:
+        return None
 
-        class_data = {'class_id': class_id}
+    # Determine all the types of classes present
+    preds_classes = torch.unique(preds['class_ids'])
+    gts_classes = torch.unique(gts['class_ids'])
+    
+    # Expanding data to allow for fast comparison
+    e_preds_classes = torch.unsqueeze(preds_classes, dim=-1).expand(preds_classes.shape[0], gts_classes.shape[0])
+    e_gts_classes = gts_classes.expand(gts_classes.shape[0], preds_classes.shape[0])
+    
+    # Finding shared values
+    shared = (e_preds_classes == e_gts_classes)
+    
+    # Compressing results to use as index
+    index = torch.where(torch.sum(shared, dim=1) == 1)[0]
+    
+    # Shared classes
+    shared_classes = gts_classes[index]
+
+    # If there is no shared classes, then return None
+    if shared_classes.shape[0] == 0:
+        return None
+
+    # For each class
+    for class_id in shared_classes:
+
+        # Finding the specific indexes for the class
+        gts_class_instances = torch.where(gts['class_ids'] == class_id)[0]
+        preds_class_instances = torch.where(preds['class_ids'] == class_id)[0]
 
         # Check the number of instances in pred and gts dicts
-        n_of_m1 = gts[class_id]['instance_masks'].shape[0]
-        n_of_m2 = preds[class_id]['instance_masks'].shape[0]
+        n_of_m1 = gts_class_instances.shape[0]
+        n_of_m2 = preds_class_instances.shape[0]
 
         # If there is no instances of this class to begin with
         if n_of_m1 == 0 or n_of_m2 == 0:
-            pred_gt_matches.append(class_data)
             continue
 
         # Find the 2D Iou between the pred and gt instance masks
         iou_2ds = batchwise_get_2d_iou(
-            gts[class_id]['instance_masks'],
-            preds[class_id]['instance_masks']
+            gts['instance_masks'][gts_class_instances],
+            preds['instance_masks'][preds_class_instances]
         )
 
         #iou_2ds = torch.zeros((n_of_m1, n_of_m2))
@@ -444,7 +474,6 @@ def batchwise_find_matches(preds, gts):
 
         # Check that there is true matches to begin
         if (valid_max_id == False).all():
-            pred_gt_matches.append(class_data)
             continue            
 
         # Keep only good matches
@@ -453,24 +482,37 @@ def batchwise_find_matches(preds, gts):
         max_gt_id = max_gt_id[valid_max_id]
 
         # Storing shared data
-        class_data['sample_ids'] = gts[class_id]['sample_ids'][max_gt_id]
+        class_instance_identifiers = torch.tensor(
+            [class_id], device=gts_class_instances.device
+        ).repeat(max_gt_id.shape[0])
+
+        pred_gt_matches['sample_ids'].append(gts['sample_ids'][gts_class_instances][max_gt_id])
+        pred_gt_matches['class_ids'].append(class_instance_identifiers)
 
         # Select the match data and combined them together!
-        for data_key in gts[class_id].keys():
+        for data_key in gts.keys():
             if data_key in keys_to_stack:
                 # Stack data
                 stacked_data = torch.stack(
                     (
-                        gts[class_id][data_key][max_gt_id],
-                        preds[class_id][data_key][max_pred_id]
+                        gts[data_key][gts_class_instances][max_gt_id],
+                        preds[data_key][preds_class_instances][max_pred_id]
                     )
                 )
 
                 # Store stacked data
-                class_data[data_key] = stacked_data
+                if data_key in pred_gt_matches.keys():
+                    pred_gt_matches[data_key].append(stacked_data)
+                else:
+                    pred_gt_matches[data_key] = [stacked_data]
 
-        # Store the class-specific data into the multi-class data container
-        pred_gt_matches.append(class_data)
+    # Concatinating the results
+    for key in pred_gt_matches.keys():
+        if key in ['sample_ids', 'class_ids']:
+            axis = 0
+        else:
+            axis = 1
+        pred_gt_matches[key] = torch.cat(pred_gt_matches[key], dim=axis)
 
     return pred_gt_matches        
 
@@ -652,21 +694,19 @@ def batchwise_get_RT(q, xys, exp_zs, inv_intrinsics):
 
 def samplewise_get_RT(agg_data, inv_intrinsics):
 
-    for class_id in range(len(agg_data)):
+    # Once all the raw data has been aggregated, we need to calculate the 
+    # rotation matrix of each instance.
+    R_data, T_data, RT_data = batchwise_get_RT(
+        agg_data['quaternion'],
+        agg_data['xy'],
+        agg_data['z'],
+        inv_intrinsics
+    )
 
-        # Once all the raw data has been aggregated, we need to calculate the 
-        # rotation matrix of each instance.
-        R_data, T_data, RT_data = batchwise_get_RT(
-            agg_data[class_id]['quaternion'],
-            agg_data[class_id]['xy'],
-            agg_data[class_id]['z'],
-            inv_intrinsics
-        )
-
-        # Storing generated RT
-        agg_data[class_id]['R'] = R_data
-        agg_data[class_id]['T'] = T_data
-        agg_data[class_id]['RT'] = RT_data
+    # Storing generated RT
+    agg_data['R'] = R_data
+    agg_data['T'] = T_data
+    agg_data['RT'] = RT_data
 
     return agg_data
 

@@ -27,18 +27,14 @@ class DegreeErrorMeanAP(pl.metrics.Metric):
                 class_id: torch.Tensor
                 quaternion: torch.Tensor
         """
-        
-        # Performing task per class
-        for class_id in range(len(gt_pred_matches)):
 
-            # Catching no-instance scenario
-            if 'quaternion' not in gt_pred_matches[class_id].keys():
-                continue
+        # Catching no-instance scenario
+        if 'quaternion' in gt_pred_matches.keys():
 
             # Determing the degree per error (absolute distance)
             # https://github.com/KieranWynn/pyquaternion/blob/99025c17bab1c55265d61add13375433b35251af/pyquaternion/quaternion.py#L772
-            q0 = gt_pred_matches[class_id]['quaternion'][0]
-            q1 = gt_pred_matches[class_id]['quaternion'][1]
+            q0 = gt_pred_matches['quaternion'][0]
+            q1 = gt_pred_matches['quaternion'][1]
 
             # Calculating the distance between the quaternions
             degree_distance = gtf.torch_quat_distance(q0, q1)
@@ -71,31 +67,23 @@ class DegreeError(pl.metrics.Metric):
                 class_id: torch.Tensor
                 quaternion: torch.Tensor
         """
-        all_degree_distances = []
-        
-        # Performing task per class
-        for class_id in range(len(gt_pred_matches)):
 
-            # Catching no-instance scenario
-            if 'quaternion' not in gt_pred_matches[class_id].keys():
-                continue
+        # Catching no-instance scenario
+        if 'quaternion' in gt_pred_matches.keys():
 
             # Determing the degree per error (absolute distance)
             # https://github.com/KieranWynn/pyquaternion/blob/99025c17bab1c55265d61add13375433b35251af/pyquaternion/quaternion.py#L772
-            q0 = gt_pred_matches[class_id]['quaternion'][0]
-            q1 = gt_pred_matches[class_id]['quaternion'][1]
+            q0 = gt_pred_matches['quaternion'][0]
+            q1 = gt_pred_matches['quaternion'][1]
 
             # Calculating the distance between the quaternions
             degree_distance = gtf.torch_quat_distance(q0, q1)
 
-            # Storing all the degree_distances to later concat and take average
-            all_degree_distances.append(degree_distance)
+            # This rounds accuracy
+            this_round_error = torch.mean(degree_distance)
 
-        # This rounds accuracy
-        this_round_error = torch.mean(torch.cat(all_degree_distances))
-
-        # Update the mean accuracy
-        self.error = (self.error + this_round_error) / 2
+            # Update the mean accuracy
+            self.error = (self.error + this_round_error) / 2
 
     def compute(self):
         return self.error
@@ -122,18 +110,14 @@ class Iou3dAP(pl.metrics.Metric):
                 scales: torch.Tensor
         """
 
-        # Performing task per class
-        for class_id in range(len(gt_pred_matches)):
-
-            # Catching no-instance scenario
-            if 'RT' not in gt_pred_matches[class_id].keys():
-                continue
+        # Catching no-instance scenario
+        if 'RT' in gt_pred_matches.keys():
 
             # Grabbing the gt and pred (RT and scales)
-            gt_RTs = gt_pred_matches[class_id]['RT'][0]
-            gt_scales = gt_pred_matches[class_id]['scales'][0]
-            pred_RTs = gt_pred_matches[class_id]['RT'][1]
-            pred_scales = gt_pred_matches[class_id]['scales'][1]
+            gt_RTs = gt_pred_matches['RT'][0]
+            gt_scales = gt_pred_matches['scales'][0]
+            pred_RTs = gt_pred_matches['RT'][1]
+            pred_scales = gt_pred_matches['scales'][1]
 
             # Calculating the iou 3d for between the ground truth and predicted 
             ious_3d = gtf.get_3d_ious(gt_RTs, pred_RTs, gt_scales, pred_scales)
@@ -167,32 +151,24 @@ class Iou3dAccuracy(pl.metrics.Metric):
                 z: torch.Tensor
                 scales: torch.Tensor
         """
-        all_ious_3d = []
 
-        # Performing task per class
-        for class_id in range(len(gt_pred_matches)):
-
-            # Catching no-instance scenario
-            if 'RT' not in gt_pred_matches[class_id].keys():
-                continue
+        # Catching no-instance scenario
+        if 'RT' in gt_pred_matches.keys():
 
             # Grabbing the gt and pred (RT and scales)
-            gt_RTs = gt_pred_matches[class_id]['RT'][0]
-            gt_scales = gt_pred_matches[class_id]['scales'][0]
-            pred_RTs = gt_pred_matches[class_id]['RT'][1]
-            pred_scales = gt_pred_matches[class_id]['scales'][1]
+            gt_RTs = gt_pred_matches['RT'][0]
+            gt_scales = gt_pred_matches['scales'][0]
+            pred_RTs = gt_pred_matches['RT'][1]
+            pred_scales = gt_pred_matches['scales'][1]
 
             # Calculating the iou 3d for between the ground truth and predicted 
             ious_3d = gtf.get_3d_ious(gt_RTs, pred_RTs, gt_scales, pred_scales) * 100
 
-            # Storing all the ious to later concat and take average
-            all_ious_3d.append(ious_3d)
+            # This rounds accuracy
+            this_round_accuracy = torch.mean(ious_3d)
 
-        # This rounds accuracy
-        this_round_accuracy = torch.mean(torch.cat(all_ious_3d))
-
-        # Update the mean accuracy
-        self.accuracy = (self.accuracy + this_round_accuracy) / 2
+            # Update the mean accuracy
+            self.accuracy = (self.accuracy + this_round_accuracy) / 2
 
     def compute(self):
         return self.accuracy
@@ -218,17 +194,13 @@ class OffsetAP(pl.metrics.Metric):
                 z: torch.Tensor
                 scales: torch.Tensor
         """
-        
-        # Performing task per class
-        for class_id in range(len(gt_pred_matches)):
 
-            # Catching no-instance scenario
-            if 'RT' not in gt_pred_matches[class_id].keys():
-                continue
+        # Catching no-instance scenario
+        if 'RT' in gt_pred_matches.keys():
 
             # Grabbing the gt and pred RT
-            gt_RTs = gt_pred_matches[class_id]['RT'][0]
-            pred_RTs = gt_pred_matches[class_id]['RT'][1]
+            gt_RTs = gt_pred_matches['RT'][0]
+            pred_RTs = gt_pred_matches['RT'][1]
 
             # Determing the offset errors
             offset_errors = gtf.from_RTs_get_T_offset_errors(
@@ -266,16 +238,12 @@ class OffsetError(pl.metrics.Metric):
                 scales: torch.Tensor
         """
 
-        # Performing task per class
-        for class_id in range(len(gt_pred_matches)):
-
-            # Catching no-instance scenario
-            if 'RT' not in gt_pred_matches[class_id].keys():
-                continue
+        # Catching no-instance scenario
+        if 'RT' in gt_pred_matches.keys():
 
             # Grabbing the gt and pred RT
-            gt_RTs = gt_pred_matches[class_id]['RT'][0]
-            pred_RTs = gt_pred_matches[class_id]['RT'][1]
+            gt_RTs = gt_pred_matches['RT'][0]
+            pred_RTs = gt_pred_matches['RT'][1]
 
             # Determing the offset errors
             offset_errors = gtf.from_RTs_get_T_offset_errors(

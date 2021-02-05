@@ -58,16 +58,17 @@ class AggregationLayer(nn.Module):
         ):
 
         # Outputs
-        agg_pred = []
+        complete_agg_data = {
+            'class_ids': [],
+            'instance_masks': [],
+            'sample_ids': []
+        }
 
         # Obtain the height and width of the masks
         b,h,w = cat_mask.shape
 
         # Per class
         for class_id in range(self.classes):
-
-            # Container for all the instances within the class
-            class_data = {}
 
             # Skipping the background
             if class_id == 0:
@@ -79,8 +80,13 @@ class AggregationLayer(nn.Module):
             # Breaking the class mask into instances (number from 1 to num_of_instances)
             instance_masks, total_num_of_instances = self.batchwise_break_segmentation_mask(class_mask)
 
+            # Creating class identifies
+            class_instance_identifiers = torch.tensor(
+                [class_id], device=cat_mask.device
+            ).repeat(total_num_of_instances)
+
             # Storing the number of instances to keep record
-            class_data['total_num_of_instances'] = total_num_of_instances
+            complete_agg_data['class_ids'].append(class_instance_identifiers)
 
             # Construct pure instance masks
             sample_id_for_instances = torch.zeros(
@@ -106,48 +112,49 @@ class AggregationLayer(nn.Module):
                 sample_id_for_instances[i-1] = element_id
 
             # Storing the instances masks and their sample ids
-            class_data['sample_ids'] = sample_id_for_instances
-            class_data['instance_masks'] = pure_instance_masks
+            complete_agg_data['sample_ids'].append(sample_id_for_instances)
+            complete_agg_data['instance_masks'].append(pure_instance_masks)
 
-            # Obtain the instance's values (quaternion, z, scales)
-            for data_key in ['quaternion', 'scales', 'xy', 'z']:
+        # Concatenate all of the classes data into a single batch container
+        for key in complete_agg_data.keys():
+            complete_agg_data[key] = torch.cat(complete_agg_data[key], dim=0)
 
-                # Matching the categorical data to the instance's quantity and order
-                instance_data = data[data_key][sample_id_for_instances]
+        # Obtain the instance's values (quaternion, z, scales)
+        for data_key in ['quaternion', 'scales', 'xy', 'z']:
 
-                # Need to expand the instance_data when data_key == z
+            # Matching the categorical data to the instance's quantity and order
+            instance_data = data[data_key][complete_agg_data['sample_ids']]
+
+            # Need to expand the instance_data when data_key == z
+            if data_key == 'z':
+                instance_data = torch.unsqueeze(instance_data, dim=1)
+
+            # Obtaining the data for the instance
+            masked_data = torch.unsqueeze(complete_agg_data['instance_masks'], dim=1) * instance_data
+
+            # Take the average of quaternions, scales and z's logit value
+            if data_key in ['quaternion', 'scales', 'z']:
+                total_val = torch.sum(masked_data, dim=(-2, -1))
+                mask_size = torch.sum(complete_agg_data['instance_masks'], dim=(-2, -1))
+                agg_data = torch.div(total_val, torch.unsqueeze(mask_size.T, dim=1))
+
+                # Undoing the torch.log in data embedding
                 if data_key == 'z':
-                    instance_data = torch.unsqueeze(instance_data, dim=1)
+                    agg_data = torch.exp(agg_data)
 
-                # Obtaining the data for the instance
-                masked_data = torch.unsqueeze(pure_instance_masks, dim=1) * instance_data
+                # Normalizing data
+                elif data_key == 'quaternion':
+                    agg_data = gtf.normalize(agg_data, dim=1)
 
-                # Take the average of quaternions, scales and z's logit value
-                if data_key in ['quaternion', 'scales', 'z']:
-                    total_val = torch.sum(masked_data, dim=(-2, -1))
-                    mask_size = torch.sum(pure_instance_masks, dim=(-2, -1))
-                    agg_data = torch.div(total_val, torch.unsqueeze(mask_size.T, dim=1))
+            # Saving the masked unit vector mask since we need to perform hough
+            # voting for this section.
+            elif data_key == 'xy':
+                agg_data = masked_data
 
-                    # Undoing the torch.log in data embedding
-                    if data_key == 'z':
-                        agg_data = torch.exp(agg_data)
-
-                    # Normalizing data
-                    elif data_key == 'quaternion':
-                        agg_data = gtf.normalize(agg_data, dim=1)
-
-                # Saving the masked unit vector mask since we need to perform hough
-                # voting for this section.
-                elif data_key == 'xy':
-                    agg_data = masked_data
-
-                # Storing the mean of the instances to agg_pred
-                class_data[data_key] = agg_data
-
-            # Storing the finished data of one class into the multi-class container
-            agg_pred.append(class_data) 
+            # Storing the mean of the instances to complete_agg_data
+            complete_agg_data[data_key] = agg_data
  
-        return agg_pred
+        return complete_agg_data
 
     def batchwise_break_segmentation_mask(self, class_mask):
 
@@ -173,13 +180,3 @@ class AggregationLayer(nn.Module):
             instance_masks = torch.from_numpy(numpy_instance_masks)
 
         return instance_masks, num_of_instances
-
-    def batchwise_hough_voting(self, uv_imgs, masks):
-
-        pixel_xys = torch.zeros((masks.shape[0], 2), device=masks.device).float()
-
-        for instance_id in range(masks.shape[0]):
-            pixel_xy = self.hough_voting_layer.forward(uv_imgs[instance_id], masks[instance_id])
-            pixel_xys[instance_id] = pixel_xy
-
-        return pixel_xys
