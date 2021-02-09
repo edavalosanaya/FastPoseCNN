@@ -425,13 +425,13 @@ def batchwise_find_matches(preds, gts):
     
     # Expanding data to allow for fast comparison
     e_preds_classes = torch.unsqueeze(preds_classes, dim=-1).expand(preds_classes.shape[0], gts_classes.shape[0])
-    e_gts_classes = gts_classes.expand(gts_classes.shape[0], preds_classes.shape[0])
+    e_gts_classes = gts_classes.expand(preds_classes.shape[0], gts_classes.shape[0])
     
     # Finding shared values
     shared = (e_preds_classes == e_gts_classes)
     
     # Compressing results to use as index
-    index = torch.where(torch.sum(shared, dim=1) == 1)[0]
+    index = torch.where(torch.sum(shared, dim=0) == 1)[0]
     
     # Shared classes
     shared_classes = gts_classes[index]

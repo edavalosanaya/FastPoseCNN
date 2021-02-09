@@ -1011,7 +1011,6 @@ def compare_pose_performance_v5(
     # Create colorized mask
     pred_mask_vis = get_visualized_masks(pred_cat_mask, mask_colormap)
 
-
     # Obtaining the sample ids
     try:
         sample_ids = gt_pred_matches['sample_ids']

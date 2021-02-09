@@ -219,6 +219,9 @@ class PoseRegressor(torch.nn.Module):
                     # Calculate RT
                     agg_data = gtf.samplewise_get_RT(agg_data, self.inv_intrinsics)
 
+        else:
+            return None 
+
         return agg_data
 
 #-------------------------------------------------------------------------------

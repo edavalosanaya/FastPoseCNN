@@ -7,8 +7,8 @@ from pprint import pprint
 
 # DEBUGGING
 import pdb
-import matplotlib
-matplotlib.use('Agg')
+#import matplotlib
+#matplotlib.use('Agg')
 
 import numpy as np
 import base64
@@ -16,8 +16,6 @@ import base64
 # Ignore annoying warnings
 os.environ["TF_CPP_MIN_LOG_LEVEL"]="3"
 warnings.filterwarnings('ignore')
-
-os.environ['CUDA_VISIBLE_DEVICES'] = '0' # '0,1,2,3'
 #os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
 
 import torch
@@ -409,8 +407,12 @@ class PoseRegressionDataModule(pl.LightningDataModule):
                 'valid': valid_dataset
             }
         
+        # INVALID DATASET
         else:
             raise RuntimeError('Dataset needs to be selected')
+
+        print(f"Training datset size: {len(self.datasets['train'])}")
+        print(f"Validation dataset size: {len(self.datasets['valid'])}")
 
     def get_loader(self, dataset_key):
 
@@ -458,8 +460,11 @@ if __name__ == '__main__':
     # Updating the HPARAMs
     parser.parse_args(namespace=HPARAM)
 
+    # Applying environmental HPARAMS
+    os.environ['CUDA_VISIBLE_DEVICES'] = HPARAM.CUDA_VISIBLE_DEVICES
+
     # Modification of hyperparameters
-    HPARAM.SELECTED_CLASSES = ['bg','camera','laptop']
+    #HPARAM.SELECTED_CLASSES = ['bg','camera','laptop']
 
     # Ensuring that DISTRIBUTED_BACKEND doesn't cause problems
     HPARAM.DISTRIBUTED_BACKEND = None if HPARAM.NUM_GPUS <= 1 else HPARAM.DISTRIBUTED_BACKEND
@@ -586,7 +591,7 @@ if __name__ == '__main__':
         )
 
         # Attaching PyTorch Lightning logic to base model
-        model = PoseRegresssionTask(base_model, criterion, metrics, HPARAM)
+        model = PoseRegresssionTask(HPARAM, base_model, criterion, metrics, HPARAM)
 
     # Freeze any components of the model
     if HPARAM.FREEZE_ENCODER:

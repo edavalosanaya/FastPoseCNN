@@ -69,7 +69,7 @@ class DegreeError(pl.metrics.Metric):
         """
 
         # Catching no-instance scenario
-        if 'quaternion' in gt_pred_matches.keys():
+        if type(gt_pred_matches) != type(None) and 'quaternion' in gt_pred_matches.keys():
 
             # Determing the degree per error (absolute distance)
             # https://github.com/KieranWynn/pyquaternion/blob/99025c17bab1c55265d61add13375433b35251af/pyquaternion/quaternion.py#L772
@@ -111,7 +111,7 @@ class Iou3dAP(pl.metrics.Metric):
         """
 
         # Catching no-instance scenario
-        if 'RT' in gt_pred_matches.keys():
+        if type(gt_pred_matches) != type(None) and 'RT' in gt_pred_matches.keys():
 
             # Grabbing the gt and pred (RT and scales)
             gt_RTs = gt_pred_matches['RT'][0]
@@ -153,7 +153,7 @@ class Iou3dAccuracy(pl.metrics.Metric):
         """
 
         # Catching no-instance scenario
-        if 'RT' in gt_pred_matches.keys():
+        if type(gt_pred_matches) != type(None) and 'RT' in gt_pred_matches.keys():
 
             # Grabbing the gt and pred (RT and scales)
             gt_RTs = gt_pred_matches['RT'][0]
@@ -196,7 +196,7 @@ class OffsetAP(pl.metrics.Metric):
         """
 
         # Catching no-instance scenario
-        if 'RT' in gt_pred_matches.keys():
+        if type(gt_pred_matches) != type(None) and 'RT' in gt_pred_matches.keys():
 
             # Grabbing the gt and pred RT
             gt_RTs = gt_pred_matches['RT'][0]
@@ -239,7 +239,7 @@ class OffsetError(pl.metrics.Metric):
         """
 
         # Catching no-instance scenario
-        if 'RT' in gt_pred_matches.keys():
+        if type(gt_pred_matches) != type(None) and 'RT' in gt_pred_matches.keys():
 
             # Grabbing the gt and pred RT
             gt_RTs = gt_pred_matches['RT'][0]

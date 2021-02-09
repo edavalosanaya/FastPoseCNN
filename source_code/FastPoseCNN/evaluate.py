@@ -8,8 +8,8 @@ import tqdm
 import pandas as pd
 
 # DEBUGGING
-import matplotlib
-matplotlib.use('Agg')
+#import matplotlib
+#matplotlib.use('Agg')
 
 import torch
 import torch.nn as nn
@@ -63,7 +63,8 @@ if __name__ == '__main__':
     # Merge the NameSpaces between the model's hyperparameters and 
     # the evaluation hyperparameters
     for attr in OLD_HPARAM.keys():
-        setattr(HPARAM, attr, OLD_HPARAM[attr])
+        if attr in ['BACKBONE_ARCH', 'ENCODER', 'ENCODER_WEIGHTS', 'SELECTED_CLASSES']:
+            setattr(HPARAM, attr, OLD_HPARAM[attr])
 
     # Determining if collect model's performance data
     # or visualizing the results of the model's performance

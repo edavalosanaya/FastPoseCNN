@@ -218,7 +218,7 @@ class AggregatedLoss(_Loss):
         """
 
         # Catching no-instance scenario
-        if self.key in gt_pred_matches.keys():
+        if type(gt_pred_matches) != type(None) and self.key in gt_pred_matches.keys():
 
             # Selecting the ground truth data
             gt = gt_pred_matches[self.key][0]
@@ -276,7 +276,7 @@ class Iou3dLoss(_Loss):
     def forward(self, gt_pred_matches) -> Tensor:
 
         # Catching no-instance scenario
-        if 'RT' in gt_pred_matches.keys():
+        if type(gt_pred_matches) != type(None) and 'RT' in gt_pred_matches.keys():
 
             # Grabbing the gt and pred (RT and scales)
             gt_RTs = gt_pred_matches['RT'][0]
@@ -315,7 +315,7 @@ class OffsetLoss(_Loss):
     def forward(self, gt_pred_matches) -> Tensor:
 
         # Catching no-instance scenario
-        if 'scales' in gt_pred_matches.keys():
+        if type(gt_pred_matches) != type(None) and 'RT' in gt_pred_matches.keys():
 
             # Grabbing the gt and pred (RT and scales)
             gt_RTs = gt_pred_matches['RT'][0]
