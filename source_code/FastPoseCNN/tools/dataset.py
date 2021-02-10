@@ -12,6 +12,7 @@ import random
 import numpy as np
 import cv2
 import imutils
+from numpy.lib.arraysetops import isin
 import skimage
 import skimage.io
 import skimage.transform
@@ -26,8 +27,8 @@ import torchvision.transforms.functional
 import segmentation_models_pytorch as smp
 
 import matplotlib
-if os.environ.get('DISPLAY', '') == '':
-    matplotlib.use('Agg')
+#if os.environ.get('DISPLAY', '') == '':
+#    matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.cm
 
@@ -115,6 +116,11 @@ class NOCSDataset(Dataset, torch.utils.data.Dataset):
 
     def __getitem__(self, i):
 
+        # DEBUGGING
+        # self.images_fps[i] = pathlib.Path(
+        #     '/home/students/edavalos/GitHub/FastPoseCNN/datasets/NOCS/camera/val/01916/0009_color.png'
+        # )
+
         # Reading data
         # Image
         image = skimage.io.imread(str(self.images_fps[i]))
@@ -129,6 +135,7 @@ class NOCSDataset(Dataset, torch.utils.data.Dataset):
         else:
             raise NotImplementedError("Invalid dataset type")
         
+        # Change the background from 255 to 0
         mask[mask == 255] = 0
 
         # Depth
@@ -142,35 +149,55 @@ class NOCSDataset(Dataset, torch.utils.data.Dataset):
         json_fp = str(self.images_fps[i]).replace('_color.png', '_meta+.json')
         json_data = jt.load_from_json(json_fp)
 
-        # Removing destraction objects
-        new_mask = np.zeros_like(mask)
+        # Removing distraction objects
+        instances_mask = np.zeros_like(mask)
         for instance_id in json_data['instance_dict'].keys():
-            new_mask[mask == int(instance_id)] = int(instance_id)
-        mask = new_mask
+            instances_mask[mask == int(instance_id)] = int(instance_id)
 
-        # Removing the unwanted classes
-        new_instance_dict, mask = self.keep_only_wanted_classes(json_data['instance_dict'], mask)
+        # Removing unwanted classes
+        good_json_data = {'instance_dict': {}}
+        good_instances_mask = np.zeros_like(instances_mask)
 
-        # Create dense representation of the data
-        quaternions = dm.create_dense_quaternion(mask, json_data)
-        scales = dm.create_dense_scales(mask, json_data)
-        xy, z = dm.create_dense_3d_centers(mask, json_data, self.INTRINSICS)
+        # Iterating through all json data and keeping only data that is the selected class
+        for enumerate_id, (id_value, class_id) in enumerate(json_data['instance_dict'].items()):
+
+            # If the class is in the wanted class values, then keep it
+            if class_id in self.class_values_map.keys():
+                good_instances_mask[instances_mask == int(id_value)] = int(id_value)
+
+                good_json_data['instance_dict'][int(id_value)] = self.class_values_map[class_id]
+
+                for key in json_data.keys():
+                    if key != 'instance_dict':
+                        if key in good_json_data.keys():
+                            good_json_data[key].append(json_data[key][enumerate_id])
+                        else:
+                            good_json_data[key] = [json_data[key][enumerate_id]]
+
+        # Stacking data
+        for key in good_json_data.keys():
+            if key != 'instance_dict':
+                good_json_data[key] = np.stack(good_json_data[key])
+
+        # Generate the aggregated data (instance-lead data)
+        agg_data = self.generate_agg_data(good_instances_mask, good_json_data)
+
+        # Create dense representation of the data (class type is instances)
+        quaternions = dm.create_dense_quaternion(good_instances_mask, good_json_data)
+        scales = dm.create_dense_scales(good_instances_mask, good_json_data)
+        xy, z = dm.create_dense_3d_centers(good_instances_mask, good_json_data, self.INTRINSICS)
         #xy, z = dm.create_simple_dense_3d_centers(mask, json_data)
 
-        # After creating the dense data, replace the json_data['instance_dict']
-        json_data['instance_dict'] = new_instance_dict
-
-        # Converting instances mask to classes mask
-        new_mask = np.zeros_like(mask)
-        for instance_id, class_id in json_data['instance_dict'].items():
-            new_mask[mask == int(instance_id)] = class_id
-        mask = new_mask
+        # Generating class mask with the desired object class
+        class_mask = np.zeros_like(good_instances_mask)
+        for instance_id, class_id in good_json_data['instance_dict'].items():
+            class_mask[good_instances_mask == int(instance_id)] = class_id
 
         # Storing mask and image into sample
         sample = {
             'clean_image': image,
             'image': image, 
-            'mask': mask, 
+            'mask': class_mask, 
             'quaternion': quaternions,
             'scales': scales,
             'xy': xy,
@@ -201,7 +228,8 @@ class NOCSDataset(Dataset, torch.utils.data.Dataset):
             'quaternion': skimage.img_as_float32(sample['quaternion']),
             'scales': skimage.img_as_float32(sample['scales']),
             'xy': skimage.img_as_float32(sample['xy']),
-            'z': skimage.img_as_float32(sample['z'])
+            'z': skimage.img_as_float32(sample['z']),
+            'agg_data': agg_data
         })
 
         return sample
@@ -278,7 +306,12 @@ class NOCSDataset(Dataset, torch.utils.data.Dataset):
             instance_dict = json_data['instance_dict']
 
             # Trim the classes that are not wanted
-            good_instance_dict = self.keep_only_wanted_classes(instance_dict)
+            good_instance_dict = {}
+            for id_value, class_value in json_data['instance_dict'].items():
+
+                # If the class is in the wanted class values, then keep it
+                if class_value in self.class_values_map.keys():
+                    good_instance_dict[int(id_value)] = self.class_values_map[class_value]
 
             # If instances, save them as good samples
             if good_instance_dict:
@@ -286,44 +319,73 @@ class NOCSDataset(Dataset, torch.utils.data.Dataset):
 
         return good_samples_fps
 
-    def keep_only_wanted_classes(self, instance_dict, instances_mask=None):
+    def get_random_batched_sample(self, batch_size=1, device=None):
 
-        good_instance_dict = {}
-        
-        if instances_mask is not None:
-            good_instances_mask = np.zeros_like(instances_mask)
+        all_samples = []
 
-        for id_value, class_value in instance_dict.items():
-
-            # If the class is in the wanted class values, then keep it
-            if class_value in self.class_values_map.keys():
-                good_instance_dict[int(id_value)] = self.class_values_map[class_value]
-
-                if instances_mask is not None:
-                    good_instances_mask[instances_mask == int(id_value)] = int(id_value)
-
-        if instances_mask is not None:
-            return good_instance_dict, good_instances_mask       
-        else:
-            return good_instance_dict
-
-    def get_random_batched_sample(self, batch_size=1):
-
-        batched_sample = {}
-
+        # Obtain all the sample needed
         for sample_id in np.random.choice(np.arange(self.__len__()), size=batch_size, replace=False):
-
             sample = self.__getitem__(sample_id)
+            all_samples.append(sample)
 
-            for key in sample.keys():
+        # Collate the samples
+        batch = my_collate_fn(all_samples, device)
 
-                if key in batched_sample.keys():
-                    batched_sample[key] = np.concatenate([batched_sample[key], np.expand_dims(sample[key], axis=0)], axis=0)
+        return batch        
 
+    def generate_agg_data(self, instances_mask, json_data):
+
+        # Obtaing the size of the images
+        h, w = instances_mask.shape
+
+        # Determining the number of instances
+        num_of_instances = np.unique(instances_mask).shape[0] - 1
+
+        # Creating a pure instances image
+        agg_data = {
+            'class_ids': np.zeros((num_of_instances,)),
+            'instance_masks': np.zeros((num_of_instances, h, w)),
+            'quaternion': np.zeros((num_of_instances, 4)),
+            'scales': np.zeros((num_of_instances, 3)),
+            'xy': np.zeros((num_of_instances, 2)),
+            'z': np.zeros((num_of_instances, 1)),
+            'T': np.zeros((num_of_instances, 3)),
+            'R': np.zeros((num_of_instances, 3, 3)),
+            'RT': np.zeros((num_of_instances, 4, 4))
+        }
+
+        # Modify the json data to work well (missing xy, z, R, and T, and 
+        # renaming quaternions to quaternion)
+        json_data['quaternion'] = json_data['quaternions']
+        json_data['RT'] = json_data['RTs']
+        xyz_R_T = dm.extract_xyz_R_T_from_RTs(json_data['RTs'], self.INTRINSICS)
+        json_data.update(xyz_R_T)
+
+        # Filling in the data for each instance
+        for enumerate_id, (instance_id, class_id) in enumerate(json_data['instance_dict'].items()):
+            for data_name in agg_data.keys():
+                
+                # Different to account for datatype mismatch
+                if data_name == 'class_ids': 
+                    agg_data[data_name][enumerate_id] = json_data['instance_dict'][instance_id]
+                
+                # Use the mask instead of json_data
+                elif data_name == 'instance_masks': 
+                    agg_data[data_name][enumerate_id] = np.where(instances_mask == instance_id, 1, 0)
+                
                 else:
-                    batched_sample[key] = np.expand_dims(sample[key], axis=0)
+                    # Grabbing the data to test data type
+                    insert_data = json_data[data_name]
+                    # Ensuring that the data is an numpy array
+                    if isinstance(instance_id, np.ndarray) is False:
+                        insert_data = np.array(insert_data)
+                    # Storing data into larger numpy array (instances)
+                    agg_data[data_name][enumerate_id] = insert_data[enumerate_id]
 
-        return batched_sample
+        # Reducing the size of the object
+        agg_data['scales'] /= np.expand_dims(json_data['norm_factors'], axis=1)
+
+        return agg_data
 
 class CAMERADataset(NOCSDataset):
 
@@ -336,6 +398,74 @@ class REALDataset(NOCSDataset):
     CLASSES = pj.constants.CAMERA_CLASSES
     COLORMAP = pj.constants.CAMERA_COLORMAP
     INTRINSICS = pj.constants.INTRINSICS['REAL']
+
+#-------------------------------------------------------------------------------
+# Dataloader
+
+def my_collate_fn(batch, device=None):
+
+    collate_batch = {}
+    agg_data = {
+        'sample_ids': []
+    }
+
+    # Iterating overall the data input data
+    for sample_id, single_sample in enumerate(batch):
+        for key in single_sample.keys():
+            
+            # Instance-based data
+            if key == 'agg_data':
+                continue
+            
+            # Placing all the same type of data into their containers
+            if key in collate_batch.keys():
+                collate_batch[key].append(single_sample[key])
+            else:
+                collate_batch[key] = [single_sample[key]]
+
+        # If there is agg_data, the np.concat it
+        if 'agg_data' in single_sample.keys():
+
+            # Get subkey from the agg_data dictionary
+            for subkey in single_sample['agg_data'].keys():
+
+                # Placing all the same type of data into their containers
+                if subkey in agg_data.keys():
+                    agg_data[subkey].append(single_sample['agg_data'][subkey])
+                else:
+                    agg_data[subkey] = [single_sample['agg_data'][subkey]]
+
+            # Appending sample_ids key to this to mark the sample to instances
+            agg_data['sample_ids'].append(np.repeat(np.array(sample_id), single_sample['agg_data']['class_ids'].shape[0]))
+
+    # Containers for stacked and concatinated data
+    stacked_collate_batch = {}
+    concated_agg_data = {}
+
+    # If device is specified, 
+    if device:
+        # Now stacking all the uniform data
+        for key in collate_batch.keys():
+            stacked_collate_batch[key] = torch.from_numpy(np.stack(collate_batch[key])).to(device)
+
+        # Now concatinating all non-uniform data
+        for subkey in agg_data.keys():
+            concated_agg_data[subkey] = torch.from_numpy(np.concatenate(agg_data[subkey], axis=0)).to(device)
+    
+    # If no device is specified
+    else:
+        # Now stacking all the uniform data
+        for key in collate_batch.keys():
+            stacked_collate_batch[key] = torch.from_numpy(np.stack(collate_batch[key])).to(device)
+
+        # Now concatinating all non-uniform data
+        for subkey in agg_data.keys():
+            concated_agg_data[subkey] = torch.from_numpy(np.concatenate(agg_data[subkey], axis=0)).to(device)
+
+    # Now storing agg data into the collate batch
+    stacked_collate_batch['agg_data'] = concated_agg_data
+
+    return stacked_collate_batch
 
 #-------------------------------------------------------------------------------
 # Functions

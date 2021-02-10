@@ -216,17 +216,19 @@ class MyCallback(pl.callbacks.Callback):
         colormap = dataset.COLORMAP
 
         # Get random sample
-        sample = dataset.get_random_batched_sample(batch_size=3)
+        batch = dataset.get_random_batched_sample(batch_size=3, device=pl_module.device)
 
         # Given the sample, make the prediction with the PyTorch Lightning Module
         with torch.no_grad():
-            outputs = pl_module(torch.from_numpy(sample['image']).float().to(pl_module.device))
-        
-        # Obtaining the categorical predicted mask
-        pred_cat_mask = outputs['auxilary']['cat_mask'].cpu().numpy()
+            outputs = pl_module(batch['image'])        
 
         # Create the summary figure
-        summary_fig = tools.vz.compare_mask_performance(sample, pred_cat_mask, colormap)
+        summary_fig = tools.vz.compare_mask_performance(
+            batch['clean_image'], 
+            batch['mask'],
+            outputs['auxilary']['cat_mask'], 
+            colormap
+        )
 
         # Log the figure to tensorboard
         pl_module.logger.writers[mode].add_figure(f'mask_gen/{mode}', summary_fig, trainer.global_step)
@@ -242,24 +244,18 @@ class MyCallback(pl.callbacks.Callback):
         dataset = datamodule.datasets[mode]
 
         # Get random sample
-        sample = dataset.get_random_batched_sample(batch_size=3)
+        batch = dataset.get_random_batched_sample(batch_size=3, device=pl_module.device)
 
         # Given the sample, make the prediciton with the PyTorch Lightning Moduel
         with torch.no_grad():
-            outputs = pl_module(torch.from_numpy(sample['image']).float().to(pl_module.device))
-        
-        # Applying activation function to the mask
-        pred_cat_mask = outputs['auxilary']['cat_mask'].cpu().numpy()
-
-        # Selecting the quaternion from the output
-        # https://pytorch.org/docs/stable/nn.functional.html?highlight=activation%20functions
-        pred_quaternion = outputs['quaternion'].cpu().numpy()
+            outputs = pl_module(batch['image'])
 
         # Create the pose figure
         summary_fig = tools.vz.compare_quat_performance(
-            sample, 
-            pred_quaternion, 
-            pred_cat_mask=pred_cat_mask, 
+            batch['clean_image'],
+            batch['quaternion'], 
+            outputs['quaternion'], 
+            outputs['auxilary']['cat_mask'], 
             mask_colormap=dataset.COLORMAP
         )
 
@@ -277,24 +273,19 @@ class MyCallback(pl.callbacks.Callback):
         dataset = datamodule.datasets[mode]
 
         # Get random sample
-        sample = dataset.get_random_batched_sample(batch_size=3)
+        batch = dataset.get_random_batched_sample(batch_size=3, device=pl_module.device)
 
         # Given the sample, make the prediciton with the PyTorch Lightning Moduel
         with torch.no_grad():
-            outputs = pl_module(torch.from_numpy(sample['image']).float().to(pl_module.device))
-        
-        # Applying activation function to the mask
-        pred_cat_mask = outputs['auxilary']['cat_mask'].cpu().numpy()
-
-        # Selecting the quaternion from the output
-        # https://pytorch.org/docs/stable/nn.functional.html?highlight=activation%20functions
-        pred_xy = outputs['xy'].cpu().numpy()
+            outputs = pl_module(batch['image'])
 
         # Create the pose figure
         summary_fig = tools.vz.compare_xy_performance(
-            sample, 
-            pred_xy, 
-            pred_cat_mask=pred_cat_mask, 
+            batch['clean_image'], 
+            batch['mask'],
+            batch['xy'],
+            outputs['auxilary']['cat_mask'],
+            outputs['xy'],
             mask_colormap=dataset.COLORMAP
         )
 
@@ -312,24 +303,18 @@ class MyCallback(pl.callbacks.Callback):
         dataset = datamodule.datasets[mode]
 
         # Get random sample
-        sample = dataset.get_random_batched_sample(batch_size=3)
+        batch = dataset.get_random_batched_sample(batch_size=3, device=pl_module.device)
 
         # Given the sample, make the prediciton with the PyTorch Lightning Moduel
         with torch.no_grad():
-            outputs = pl_module(torch.from_numpy(sample['image']).float().to(pl_module.device))
-        
-        # Applying activation function to the mask
-        pred_cat_mask = outputs['auxilary']['cat_mask'].cpu().numpy()
-
-        # Selecting the quaternion from the output
-        # https://pytorch.org/docs/stable/nn.functional.html?highlight=activation%20functions
-        pred_z = outputs['z'].cpu().numpy()
+            outputs = pl_module(batch['image'])
 
         # Create the pose figure
         summary_fig = tools.vz.compare_z_performance(
-            sample, 
-            pred_z, 
-            pred_cat_mask=pred_cat_mask, 
+            batch['clean_image'], 
+            batch['z'],
+            outputs['z'], 
+            outputs['auxilary']['cat_mask'],
             mask_colormap=dataset.COLORMAP
         )
 
@@ -347,24 +332,18 @@ class MyCallback(pl.callbacks.Callback):
         dataset = datamodule.datasets[mode]
 
         # Get random sample
-        sample = dataset.get_random_batched_sample(batch_size=3)
+        batch = dataset.get_random_batched_sample(batch_size=3, device=pl_module.device)
 
         # Given the sample, make the prediciton with the PyTorch Lightning Moduel
         with torch.no_grad():
-            outputs = pl_module(torch.from_numpy(sample['image']).float().to(pl_module.device))
-        
-        # Applying activation function to the mask
-        pred_cat_mask = outputs['auxilary']['cat_mask'].cpu().numpy()
-
-        # Selecting the quaternion from the output
-        # https://pytorch.org/docs/stable/nn.functional.html?highlight=activation%20functions
-        pred_scales = outputs['scales'].cpu().numpy()
+            outputs = pl_module(batch['image'])
 
         # Create the pose figure
         summary_fig = tools.vz.compare_scales_performance(
-            sample, 
-            pred_scales, 
-            pred_cat_mask=pred_cat_mask, 
+            batch['clean_image'],
+            batch['scales'], 
+            outputs['scales'],
+            outputs['auxilary']['cat_mask'],
             mask_colormap=dataset.COLORMAP
         )
 
@@ -388,41 +367,20 @@ class MyCallback(pl.callbacks.Callback):
         dataset = datamodule.datasets[mode]
 
         # Get random sample
-        sample = dataset.get_random_batched_sample(batch_size=3)
-
-        # Trimming the batch, to make visualization easier to see
-        batch = {k:torch.from_numpy(v).to(pl_module.device) for k,v in sample.items()}
+        batch = dataset.get_random_batched_sample(batch_size=3, device=pl_module.device)
 
         # Given the sample, make the prediciton with the PyTorch Lightning Moduel
         with torch.no_grad():
             outputs = pl_module(batch['image'].float())
 
-        # Applying activation function to the mask
-        pred_cat_mask = outputs['auxilary']['cat_mask'].cpu().numpy()
-
-        # Obtain the matches between aggregated predictions and ground truth data
-        agg_gt = pl_module.model.agg_hough_and_generate_RT(
-            batch['mask'],
-            data=batch
+        # Create summary for the pose
+        summary_fig = tools.vz.compare_hough_voting_performance(
+            batch['clean_image'],
+            outputs['auxilary']['agg_pred']
         )
 
-        # Determine matches between the aggreated ground truth and preds
-        gt_pred_matches = lib.gtf.batchwise_find_matches(
-            outputs['auxilary']['agg_pred'],
-            agg_gt
-        )
-
-        # If gt_pred_matches is not None, then create visualization
-        if gt_pred_matches:
-
-            # Create summary for the pose
-            summary_fig = tools.vz.compare_hough_voting_performance(
-                batch['clean_image'],
-                gt_pred_matches
-            )
-
-            # Log the figure to tensorboard
-            pl_module.logger.writers[mode].add_figure(f'hough_voting_gen/{mode}', summary_fig, trainer.global_step)
+        # Log the figure to tensorboard
+        pl_module.logger.writers[mode].add_figure(f'hough_voting_gen/{mode}', summary_fig, trainer.global_step)
 
     # POSE
     @rank_zero_only
@@ -439,28 +397,16 @@ class MyCallback(pl.callbacks.Callback):
         dataset = datamodule.datasets[mode]
 
         # Get random sample
-        sample = dataset.get_random_batched_sample(batch_size=3)
-
-        # Trimming the batch, to make visualization easier to see
-        batch = {k:torch.from_numpy(v).to(pl_module.device) for k,v in sample.items()}
+        batch = dataset.get_random_batched_sample(batch_size=3, device=pl_module.device)
 
         # Given the sample, make the prediciton with the PyTorch Lightning Moduel
         with torch.no_grad():
             outputs = pl_module(batch['image'].float())
 
-        # Applying activation function to the mask
-        pred_cat_mask = outputs['auxilary']['cat_mask'].cpu().numpy()
-
-        # Obtain the matches between aggregated predictions and ground truth data
-        agg_gt = pl_module.model.agg_hough_and_generate_RT(
-            batch['mask'],
-            data=batch
-        )
-
         # Determine matches between the aggreated ground truth and preds
         gt_pred_matches = lib.gtf.batchwise_find_matches(
             outputs['auxilary']['agg_pred'],
-            agg_gt
+            batch['agg_data']
         )
 
         # If matches are not empty, then perform visualization
@@ -471,7 +417,7 @@ class MyCallback(pl.callbacks.Callback):
                 summary_fig = tools.vz.compare_pose_performance_v5(
                     batch['clean_image'],
                     gt_pred_matches,
-                    pred_cat_mask,
+                    outputs['auxilary']['cat_mask'].cpu().numpy(),
                     mask_colormap=dataset.COLORMAP,
                     intrinsics=dataset.INTRINSICS
                 )

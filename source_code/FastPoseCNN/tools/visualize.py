@@ -140,7 +140,7 @@ def get_visualized_simple_xys(xys):
 def get_visualized_z(z, colormap='viridis'):
 
     # Create norm function to shift data to [0:1]
-    norm = matplotlib.colors.Normalize(vmin=0, vmax=8)
+    norm = matplotlib.colors.Normalize(vmin=0, vmax=255)
 
     # Obtain the colormap of choice
     my_colormap = matplotlib.cm.get_cmap(colormap)
@@ -188,7 +188,7 @@ def get_visualized_quaternion(quaternion, bg='black'):
     empty_quaternion = np.zeros_like(quaternion)
 
     # creating norm function
-    norm = matplotlib.colors.Normalize(vmin=-1, vmax=1)
+    norm = matplotlib.colors.Normalize(vmin=-255, vmax=255)
 
     # Normalize data
     norm_quat = norm(quaternion)
@@ -521,39 +521,39 @@ def compare_all(preds, gts, mask_colormap):
 #-------------------------------------------------------------------------------
 # Visualization of Individual Task
 
-def compare_mask_performance(sample, pred_cat_mask, colormap):
-
-    # Selecting clean image and mask if available
-    image_key = 'clean_image' if 'clean_image' in sample.keys() else 'image'
-    mask_key = 'clean_mask' if 'clean_mask' in sample.keys() else 'mask'
+def compare_mask_performance(image, gt_mask, pred_mask, colormap):
     
     # Converting visual images into np.uint8 for matplotlib compatibility
-    image_vis = sample[image_key]#.astype(np.uint8)
-    gt_mask = sample[mask_key].astype(np.uint8)
+    image_vis = skimage.img_as_ubyte(image.cpu().numpy())
+    gt_mask = skimage.img_as_ubyte(gt_mask.cpu().numpy())
+    pred_mask = skimage.img_as_ubyte(pred_mask.cpu().numpy())
 
     # Colorized the binary masks
     gt_mask_vis = get_visualized_masks(gt_mask, colormap)
-    pred_mask_vis = get_visualized_masks(pred_cat_mask, colormap)
+    pred_mask_vis = get_visualized_masks(pred_mask, colormap)
 
     # Creating a matplotlib figure illustrating the inputs vs outputs
     summary_fig = make_summary_figure(
-        image=image_vis,
-        ground_truth_mask=gt_mask_vis,
-        predicted_mask=pred_mask_vis)
+        image = image_vis,
+        ground_truth_mask = gt_mask_vis,
+        predicted_mask = pred_mask_vis
+    )
 
     return summary_fig
 
-def compare_quat_performance(sample, pred_quaternion, pred_cat_mask, mask_colormap):
-
-    # Selecting clean image and mask if available
-    image_key = 'clean_image' if 'clean_image' in sample.keys() else 'image'
+def compare_quat_performance(image, gt_quad, pred_quaternion, pred_mask, mask_colormap):
 
     # Converting visual images into np.uint8 for matplotlib compatibility
-    image_vis = sample[image_key]#.astype(np.uint8)
-    pred_mask_vis = get_visualized_masks(pred_cat_mask, mask_colormap)
+    image_vis = skimage.img_as_ubyte(image.cpu().numpy())
+    gt_quad = skimage.img_as_ubyte(gt_quad.cpu().numpy())
+    pred_quaternion = skimage.img_as_ubyte(pred_quaternion.cpu().numpy())
+    pred_mask = skimage.img_as_ubyte(pred_mask.cpu().numpy())
+
+    # Colorizing the mask
+    pred_mask_vis = get_visualized_masks(pred_mask, mask_colormap)
 
     # Get colorized dense quaternion info
-    gt_quat_vis = get_visualized_quaternions(sample['quaternion'])
+    gt_quat_vis = get_visualized_quaternions(gt_quad)
     pred_quat_vis = get_visualized_quaternions(pred_quaternion)
 
     # Create a matplotlib figure illustrating the inputs vs outputs
@@ -566,20 +566,21 @@ def compare_quat_performance(sample, pred_quaternion, pred_cat_mask, mask_colorm
 
     return summary_fig
 
-def compare_xy_performance(sample, pred_xy, pred_cat_mask, mask_colormap):
-
-    # Selecting clean image and mask if available
-    image_key = 'clean_image' if 'clean_image' in sample.keys() else 'image'
+def compare_xy_performance(image, gt_mask, gt_xy, pred_mask, pred_xy, mask_colormap):
 
     # Converting visual images into np.uint8 for matplotlib compatibility
-    image_vis = sample[image_key]#.astype(np.uint8)
-    pred_mask_vis = get_visualized_masks(pred_cat_mask, mask_colormap)
+    image_vis = skimage.img_as_ubyte(image.cpu().numpy())
+    gt_mask = skimage.img_as_ubyte(gt_mask.cpu().numpy())
+    gt_xy = gt_xy.cpu().numpy()
+    pred_mask = skimage.img_as_ubyte(pred_mask.cpu().numpy())
+    pred_xy = pred_xy.cpu().numpy()
+
+    # Converting visual images into np.uint8 for matplotlib compatibility
+    pred_mask_vis = get_visualized_masks(pred_mask, mask_colormap)
 
     # Get colorized dense xy info
-    #gt_xy_vis = get_visualized_simple_xys(sample['xy'])
-    #pred_xy_vis = get_visualized_simple_xys(pred_xy)
-    gt_xy_vis = get_visualized_u_vector_xys(sample['mask'], sample['xy'])
-    pred_xy_vis = get_visualized_u_vector_xys(pred_cat_mask, pred_xy)
+    gt_xy_vis = get_visualized_u_vector_xys(gt_mask, gt_xy)
+    pred_xy_vis = get_visualized_u_vector_xys(pred_mask, pred_xy)
 
     # Create a matplotlib figure illustrating the inputs vs outputs
     summary_fig = make_summary_figure(
@@ -591,118 +592,98 @@ def compare_xy_performance(sample, pred_xy, pred_cat_mask, mask_colormap):
 
     return summary_fig
 
-def compare_z_performance(sample, pred_z, pred_cat_mask, mask_colormap):
-
-    # Selecting clean image and mask if available
-    image_key = 'clean_image' if 'clean_image' in sample.keys() else 'image'
+def compare_z_performance(image, gt_z, pred_z, pred_mask, mask_colormap):
 
     # Converting visual images into np.uint8 for matplotlib compatibility
-    image_vis = sample[image_key]#.astype(np.uint8)
-    pred_mask_vis = get_visualized_masks(pred_cat_mask, mask_colormap)
+    image_vis = skimage.img_as_ubyte(image.cpu().numpy())
+    gt_z = skimage.img_as_ubyte((gt_z/torch.max(gt_z)).cpu().numpy())
+    pred_z = skimage.img_as_ubyte((pred_z/torch.max(pred_z)).cpu().numpy())
+    pred_mask = skimage.img_as_ubyte(pred_mask.cpu().numpy())
+
+    # Converting visual images into np.uint8 for matplotlib compatibility
+    pred_mask_vis = get_visualized_masks(pred_mask, mask_colormap)
 
     # Get colorized dense z info
-    gt_z_vis = get_visualized_zs(sample['z'])
+    gt_z_vis = get_visualized_zs(gt_z)
     pred_z_vis = get_visualized_zs(pred_z)
 
     # Create a matplotlib figure illustrating the inputs vs outputs
     summary_fig = make_summary_figure(
         image = image_vis,
-        pred_mask=pred_mask_vis,
+        pred_mask = pred_mask_vis,
         gt_z = gt_z_vis,
         pred_z = pred_z_vis
     )
 
     return summary_fig
 
-def compare_scales_performance(sample, pred_scales, pred_cat_mask, mask_colormap):
-
-    # Selecting clean image and mask if available
-    image_key = 'clean_image' if 'clean_image' in sample.keys() else 'image'
+def compare_scales_performance(image, gt_scales, pred_scales, pred_mask, mask_colormap):
 
     # Converting visual images into np.uint8 for matplotlib compatibility
-    image_vis = sample[image_key]#.astype(np.uint8)
-    pred_mask_vis = get_visualized_masks(pred_cat_mask, mask_colormap)
+    image_vis = skimage.img_as_ubyte(image.cpu().numpy())
+    gt_scales = gt_scales.cpu().numpy()
+    pred_scales = pred_scales.cpu().numpy()
+    pred_mask = skimage.img_as_ubyte(pred_mask.cpu().numpy())
+
+    # Converting visual images into np.uint8 for matplotlib compatibility
+    pred_mask_vis = get_visualized_masks(pred_mask, mask_colormap)
 
     # Get colorized dense z info
-    gt_scales_vis = get_visualized_scales(sample['scales'])
+    gt_scales_vis = get_visualized_scales(gt_scales)
     pred_scales_vis = get_visualized_scales(pred_scales)
 
     # Create a matplotlib figure illustrating the inputs vs outputs
     summary_fig = make_summary_figure(
         image = image_vis,
-        pred_mask=pred_mask_vis,
+        pred_mask = pred_mask_vis,
         gt_scales = gt_scales_vis,
         pred_z = pred_scales_vis
     )
 
     return summary_fig
 
-def compare_hough_voting_performance(image, gt_pred_matches, return_as_figure=True):
+def compare_hough_voting_performance(image, preds_agg_data, return_as_figure=True):
 
     # Obtaining image shape information
     b, h, w, _ = image.shape
 
     # Container for all the drawn images 
-    drawn_gt_uv = torch.zeros_like(image, device=image.device)
-    drawn_pred_uv = torch.zeros_like(image, device=image.device)
-    drawn_gt_hv = torch.zeros_like(image, device=image.device)
-    drawn_pred_hv = torch.zeros_like(image, device=image.device)
+    drawn_pred_uv = torch.zeros_like(image).cpu()
+    drawn_pred_hv = torch.zeros_like(image).cpu()
 
     # Obtaining the sample ids
     try:
-        sample_ids = gt_pred_matches['sample_ids']
+        sample_ids = preds_agg_data['sample_ids']
     except KeyError:
         # No instances for this class, skip it
         return None
 
     for sequence_id, sample_id in enumerate(sample_ids):
 
-        # Visualize the gt uv
-        gt_vis_uv_img = torch.from_numpy(get_visualized_u_vector_xy(
-            gt_pred_matches['instance_masks'][0][sequence_id].cpu().numpy(),
-            gt_pred_matches['xy_mask'][0][sequence_id].cpu().numpy()
-        )).to(image.device)
-
         # Visualize the pred uv
         pred_vis_uv_img = torch.from_numpy(get_visualized_u_vector_xy(
-            gt_pred_matches['instance_masks'][1][sequence_id].cpu().numpy(),
-            gt_pred_matches['xy_mask'][1][sequence_id].cpu().numpy()
-        )).to(image.device)
-
-        # Visualize gt hypothesis (casting from float to uint8)
-        gt_vis_hypo_img = (get_visualized_hough_voting(
-            gt_pred_matches['hypothesis'][0][sequence_id],
-            gt_pred_matches['pruned_hypothesis'][0][sequence_id],
-            gt_pred_matches['xy'][0][sequence_id],
-            gt_pred_matches['instance_masks'][0][sequence_id],
-        )*255).type(torch.uint8)
+            preds_agg_data['instance_masks'][sequence_id].cpu().numpy(),
+            preds_agg_data['xy_mask'][sequence_id].cpu().numpy()
+        )).cpu()
 
         # Visualize gt hypothesis (casting from float to uint8)
         pred_vis_hypo_img = (get_visualized_hough_voting(
-            gt_pred_matches['hypothesis'][1][sequence_id],
-            gt_pred_matches['pruned_hypothesis'][1][sequence_id],
-            gt_pred_matches['xy'][1][sequence_id],
-            gt_pred_matches['instance_masks'][1][sequence_id],
-        )*255).type(torch.uint8)
+            preds_agg_data['hypothesis'][sequence_id],
+            preds_agg_data['pruned_hypothesis'][sequence_id],
+            preds_agg_data['xy'][sequence_id],
+            preds_agg_data['instance_masks'][sequence_id],
+        )*255).type(torch.uint8).cpu()
 
-        drawn_gt_uv[sample_id] = torch.where(
-            drawn_gt_uv[sample_id] == 0, gt_vis_uv_img, drawn_gt_uv[sample_id]
-        )
         drawn_pred_uv[sample_id] = torch.where(
             drawn_pred_uv[sample_id] == 0, pred_vis_uv_img, drawn_pred_uv[sample_id]
-        )
-        drawn_gt_hv[sample_id] = torch.where(
-            drawn_gt_hv[sample_id] == 0, gt_vis_hypo_img, drawn_gt_hv[sample_id]
         )
         drawn_pred_hv[sample_id] = torch.where(
             drawn_pred_hv[sample_id] == 0, pred_vis_hypo_img, drawn_pred_hv[sample_id]
         )
 
     images = {
-        'gt_uv': drawn_gt_uv.cpu().numpy(),
-        'gt_hv': drawn_gt_hv.cpu().numpy(),
-        'pred_uv': drawn_pred_uv.cpu().numpy(),
-        'pred_hv': drawn_pred_hv.cpu().numpy()
+        'pred_uv': skimage.img_as_ubyte(drawn_pred_uv.cpu().numpy()),
+        'pred_hv': skimage.img_as_ubyte(drawn_pred_hv.cpu().numpy())
     }
 
     if return_as_figure:
@@ -912,10 +893,10 @@ def compare_pose_performance_v3(preds, gts, intrinsics, pred_mask=None, mask_col
 
     return summary_fig
 
-def compare_pose_performance_v4(sample, pred_cat_mask, pred_gt_matches, intrinsics, mask_colormap):
+def compare_pose_performance_v4(sample, pred_mask, pred_gt_matches, intrinsics, mask_colormap):
     
     # Create colorized mask
-    pred_mask_vis = get_visualized_masks(pred_cat_mask, mask_colormap)
+    pred_mask_vis = get_visualized_masks(pred_mask, mask_colormap)
 
     # Spliting matches based on their sample id
     per_sample_matches = {}
@@ -999,8 +980,8 @@ def compare_pose_performance_v4(sample, pred_cat_mask, pred_gt_matches, intrinsi
 def compare_pose_performance_v5(
     image: torch.Tensor, 
     gt_pred_matches: dict, 
-    pred_cat_mask: torch.Tensor, 
-    mask_colormap,
+    pred_mask: torch.Tensor, 
+    mask_colormap: np.ndarray,
     intrinsics: np.ndarray,
     return_as_figure: bool = True,
     ):
@@ -1009,7 +990,7 @@ def compare_pose_performance_v5(
     draw_image = image.cpu().numpy()
 
     # Create colorized mask
-    pred_mask_vis = get_visualized_masks(pred_cat_mask, mask_colormap)
+    pred_mask_vis = get_visualized_masks(pred_mask, mask_colormap)
 
     # Obtaining the sample ids
     try:
@@ -1102,8 +1083,6 @@ def compare_all_performance(sample, outputs, pred_gt_matches, intrinsics, mask_c
             'gt_z': gt_z_vis,
             'gt_scales': gt_scales_vis,
             'gt_quat': gt_quat_vis,
-            'gt_xy': hv_images['gt_uv'],
-            'gt_hv': hv_images['gt_hv'],
         }
 
         pred_images = {

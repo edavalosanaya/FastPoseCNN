@@ -195,14 +195,8 @@ def create_dense_quaternion(mask, json_data):
     # Ultimately the output
     quaternions = np.zeros((mask.shape[0], mask.shape[1], 4))
 
-    # Given the data, modify any data necessary
-    instance_dict = json_data['instance_dict']
-
-    for instance_id in instance_dict.keys():
-
-        selected_class_id = instance_dict[instance_id]
-        location_id = list(instance_dict.keys()).index(instance_id)
-        selected_quaternion = np.asarray(json_data['quaternions'][location_id], dtype=np.float32)
+    for enumerate_id, instance_id in enumerate(json_data['instance_dict'].keys()):
+        selected_quaternion = np.asarray(json_data['quaternions'][enumerate_id], dtype=np.float32)
         
         instance_mask = np.equal(mask, int(instance_id)) * 1
         instance_mask = instance_mask.astype(np.uint8)
@@ -962,6 +956,43 @@ def transform_3d_camera_coords_to_3d_world_coords(cartesian_camera_coordinates_3
 
 #-------------------------------------------------------------------------------
 # Translation Vector Functions
+
+def extract_xyz_R_T_from_RTs(RTs, intrinsics):
+
+    # Determining the number of RTs
+    n_of_RTs = len(RTs)
+
+    xy = np.zeros((n_of_RTs, 2))
+    z = np.zeros((n_of_RTs, 1))
+    R = np.zeros((n_of_RTs, 3, 3))
+    T = np.zeros((n_of_RTs, 3))
+
+    for i in range(n_of_RTs):
+
+        xyz_axis = 0.3*np.array([[0, 0, 0], [0, 0, 1], [0, 1, 0], [1, 0, 0]]).transpose()
+        perfect_projected_axes = transform_3d_camera_coords_to_2d_quantized_projections(xyz_axis, RTs[i], intrinsics)
+    
+        # Obtaining the xyz
+        xy[i] = np.flip(perfect_projected_axes[0])
+        z[i] = extract_z_from_RT(RTs[i])
+
+        projected_origin = perfect_projected_axes[0,:].reshape((-1, 1))
+
+        # Obtaining the T
+        T[i] = create_translation_vector(projected_origin, z[i], intrinsics).T
+
+        # Obtaining the R
+        R[i] = np.array(RTs[i])[:3, :3]
+
+    # Putting all the outputs in a dictionary for convinience
+    output = {
+        'xy': xy,
+        'z': z,
+        'R': R,
+        'T': T
+    }
+
+    return output
 
 def extract_z_from_RT(RT):
 
