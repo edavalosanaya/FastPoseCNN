@@ -1051,6 +1051,9 @@ def compare_all_performance(sample, outputs, pred_gt_matches, intrinsics, mask_c
     gt_z_vis = get_visualized_zs(sample['z'])
     pred_z_vis = get_visualized_zs(outputs['z'])
 
+    # Ground truth xy
+    gt_uv = get_visualized_u_vector_xys(sample['mask'], sample['xy'].cpu().numpy())
+
     # scales
     gt_scales_vis = get_visualized_scales(sample['scales'].cpu().numpy())
     pred_scales_vis = get_visualized_scales(outputs['scales'].cpu().numpy())
@@ -1064,7 +1067,7 @@ def compare_all_performance(sample, outputs, pred_gt_matches, intrinsics, mask_c
         # unit vectors and hough voting
         hv_images = compare_hough_voting_performance(
             sample['clean_image'],
-            pred_gt_matches,
+            outputs['auxilary']['agg_pred'],
             return_as_figure=False
         )
 
@@ -1083,6 +1086,7 @@ def compare_all_performance(sample, outputs, pred_gt_matches, intrinsics, mask_c
             'gt_z': gt_z_vis,
             'gt_scales': gt_scales_vis,
             'gt_quat': gt_quat_vis,
+            'gt_uv': gt_uv
         }
 
         pred_images = {

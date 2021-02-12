@@ -56,7 +56,7 @@ class MyCallback(pl.callbacks.Callback):
     @rank_zero_only
     def on_train_epoch_end(self, trainer, pl_module, outputs):
 
-        # Performing the shared functions of logging after end of epoch
+        # Performing the shared funkctions of logging after end of epoch
         self.shared_epoch_end('train', trainer, pl_module)
 
     @rank_zero_only

@@ -31,11 +31,11 @@ from config import DEFAULT_POSE_HPARAM
 #-------------------------------------------------------------------------------
 # Constants
 
-PATH = pathlib.Path(os.getenv("LOGS")) / 'good_saved_runs' / '10-26-MSE+AGG+METRICS-NOCS-resnet18-imagenet' / '_' / 'checkpoints' / 'last.ckpt'
+PATH = pathlib.Path(os.getenv("LOGS")) / '21-02-11' / '18-15-DEBUG-CAMERA-resnet18-imagenet' / '_' / 'checkpoints' / 'last.ckpt'
 #PATH = pathlib.Path(os.getenv("LOGS")) / 'good_saved_runs' / '12-49-SMALL_RUN-NOCS-resnet18-imagenet' / '_' / 'checkpoints' / 'last.ckpt'
 
 HPARAM = DEFAULT_POSE_HPARAM()
-HPARAM.VALID_SIZE = 2000
+HPARAM.VALID_SIZE = 10
 HPARAM.HV_NUM_OF_HYPOTHESES = 501
 
 COLLECT_DATA = False
@@ -129,16 +129,10 @@ if __name__ == '__main__':
             with torch.no_grad():
                 outputs = model.forward(batch['image'])
 
-            # Obtaining the aggregated values for the both the ground truth
-            agg_gt = model.model.agg_hough_and_generate_RT(
-                batch['mask'],
-                data=batch
-            )
-
             # Determine matches between the aggreated ground truth and preds
             gt_pred_matches = lib.gtf.batchwise_find_matches(
                 outputs['auxilary']['agg_pred'],
-                agg_gt
+                batch['agg_data']
             )
 
             # Draw the output of the model
@@ -169,7 +163,6 @@ if __name__ == '__main__':
                     str(images_path / f'{image_counter}_poses.png'), 
                     dpi=400
                 )
-
 
             # Saving the matched data (if not None )
             if gt_pred_matches:
@@ -211,7 +204,7 @@ if __name__ == '__main__':
         # Load the .pth file with the tensors
         all_matches = torch.load(pth_path)
 
-        if all_matches != []:
+        if all_matches == []:
             print("All matches made were empty!")
             sys.exit(0)
 
@@ -239,7 +232,11 @@ if __name__ == '__main__':
                 pred_scales = match['scales'][1][class_instances]
 
                 # Calculating the distance between the quaternions
-                degree_distance = lib.gtf.torch_quat_distance(gt_q, pred_q)
+                degree_distance = lib.gtf.get_quat_distance(
+                    gt_q, 
+                    pred_q,
+                    match['symmetric_ids'][class_instances]
+                )
 
                 # Calculating the iou 3d for between the ground truth and predicted 
                 ious_3d = lib.gtf.get_3d_ious(gt_RTs, pred_RTs, gt_scales, pred_scales)

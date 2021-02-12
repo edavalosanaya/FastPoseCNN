@@ -86,6 +86,13 @@ constants.CAMERA_CLASSES = [
     'mug'#6
 ]
 
+constants.CAMERA_SYMMETRIC_CLASSES = [
+    'laptop', # TEST, not really symmetric
+    'bowl',
+    'can',
+    'bottle'
+]
+
 constants.CAMERA_COLORMAP = generate_colormap(len(constants.CAMERA_CLASSES))
 
 constants.CAMERA_CLASS_MAP = {
@@ -110,6 +117,12 @@ constants.REAL_CLASSES = [
     'can',  #4
     'laptop',#5
     'mug'#6
+]
+
+constants.REAL_SYMMETRIC_CLASSES = [
+    'bowl',
+    'can',
+    'bottle'
 ]
 
 constants.REAL_COLORMAP = generate_colormap(len(constants.REAL_CLASSES))

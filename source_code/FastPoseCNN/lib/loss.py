@@ -134,55 +134,7 @@ class MaskedMSELoss(_Loss):
         return masked_loss
 
 #-------------------------------------------------------------------------------
-# Quaternion specific loss function
-
-class PixelWiseQLoss(_Loss):
-
-    def __init__(self, key, eps=0.001):
-        super(PixelWiseQLoss, self).__init__()
-        self.key = key
-        self.eps = eps
-
-    def forward(self, pred: Tensor, gt: Tensor) -> Tensor:
-
-        # Selecting the categorical_mask
-        cat_mask = pred['auxilary']['cat_mask']
-
-        # Creating union mask between pred and gt
-        mask_union = torch.logical_and(cat_mask != 0, gt['mask'] != 0)
-
-        # Return 0.5 if no matching between masks
-        if torch.sum(mask_union) == 0:
-            return torch.tensor(float('nan'), device=cat_mask.device)
-
-        # Access the predictions to calculate the loss (NxAxHxW) A = [3,4]
-        gt_q = gt[self.key]
-        pred_q = pred[self.key]
-
-        # Normalizing the masked predicted quaternions
-        q = torch.div(pred_q, pred_q)
-
-        # Apply the QLoss Function
-        # log(\epsilon + 1 - |gt_q dot pred_q|)
-        # gt_q dot pred_q = a1*b1 + a2*b2 + a3*b3 + a4*b4
-        """
-        dot_product = gt_q[:,0] * q[:,0] + gt_q[:,1] * q[:,1] + gt_q[:,2] * q[:,2] + gt_q[:,3] * q[:,3]
-        mag_dot_product = torch.abs(dot_product)
-        difference = self.eps + 1 - mag_dot_product
-        log_difference = -torch.log(difference)
-
-        return torch.mean(log_difference)
-        """
-        dot_product = gt_q[:,0] * q[:,0] + gt_q[:,1] * q[:,1] + gt_q[:,2] * q[:,2] + gt_q[:,3] * q[:,3]
-        mag_dot_product = torch.pow(dot_product, 2)
-        error = self.eps + 1 - mag_dot_product
-        loss = torch.log(error + self.eps) - torch.log(torch.tensor(self.eps, device=error.device))
-
-        # Mask the loss based on the union mask
-        loss[mask_union == False] = 0
-        masked_loss = torch.sum(loss) / torch.sum(mask_union)
-
-        return masked_loss
+# General aggregated loss function
 
 class AggregatedLoss(_Loss):
     """AggregatedLoss
@@ -252,6 +204,301 @@ class AggregatedLoss(_Loss):
 
             else:
                 raise NotImplementedError("Invalid entered key.")
+        else:
+            try:
+                return torch.tensor(float('nan'), device=gt_pred_matches['instance_masks'].device).float()   
+            except:
+                return torch.tensor(float('nan')).cuda().float()   
+
+        # Remove any nans in the data
+        clean_loss = loss[torch.isnan(loss) == False]
+
+        # Return the some of all the losses
+        return torch.mean(clean_loss)
+
+#-------------------------------------------------------------------------------
+# Aggregated loss functions
+
+# Rotation
+class QLoss(_Loss): # Quaternion
+
+    def __init__(self, key = None, eps = 0.1):
+        super(QLoss, self).__init__()
+        self.eps = eps
+
+        if key:
+            self.key = key
+        else:
+            self.key = 'quaternion'
+
+    def forward(self, gt_pred_matches) -> Tensor:
+
+        # Catching no-instance scenario
+        if type(gt_pred_matches) != type(None) and self.key in gt_pred_matches.keys():
+
+            # Selecting the ground truth data
+            gt = gt_pred_matches[self.key][0]
+
+            # Selecting the predicted data
+            pred = gt_pred_matches[self.key][1]
+
+            # Handle symmetric and non-symmetric items differently
+            non_symmetric_instances = torch.where(gt_pred_matches['symmetric_ids'] == 0)[0]
+            symmetric_instances = torch.where(gt_pred_matches['symmetric_ids'] != 0)[0]
+
+            # Calculate the loss for non-symmetric items
+            non_symmetric_loss = self.get_loss(gt[non_symmetric_instances], pred[non_symmetric_instances])
+
+            # Calculate the loss for symmetric items
+            symmetric_loss = self.get_symmetric_loss(gt[symmetric_instances], pred[symmetric_instances])
+
+            # Sum the total loss
+            loss = torch.cat((non_symmetric_loss, symmetric_loss), dim=0)
+
+        else:
+            try:
+                return torch.tensor(float('nan'), device=gt_pred_matches['instance_masks'].device).float()   
+            except:
+                return torch.tensor(float('nan')).cuda().float()   
+
+        # Remove any nans in the data
+        clean_loss = loss[torch.isnan(loss) == False]
+
+        # Return the some of all the losses
+        return torch.mean(clean_loss)
+
+    def get_loss(self, gt, pred) -> Tensor:
+
+        # Calculating the loss
+        dot_product = torch.diag(torch.mm(gt, pred.T))
+        loss = self.dot_product_to_loss(dot_product)
+
+        return loss
+
+    def get_symmetric_loss(self, gt, pred) -> Tensor:
+
+        # HELPFUL RESOURCES ON HOW TO PERFORM THIS OPERATION
+        # Batch dot product
+        # https://pytorch.org/docs/stable/generated/torch.einsum.html
+
+        # How to perform quaternion multiplication and calculator
+        # https://www.euclideanspace.com/maths/algebra/realNormedAlgebra/quaternions/arithmetic/index.htm#:~:text=The%20multiplication%20rules%20for%20the,%3D%20k*k%20%3D%20-1
+
+        # Visualize quaternions
+        # https://quaternions.online
+
+        # Existing implementation of quaternion multiplication!
+        # https://pytorch3d.readthedocs.io/en/latest/modules/transforms.html#pytorch3d.transforms.quaternion_multiply
+
+        # Checking if the gt or pred are empty
+        if gt.shape[0] == 0:
+            return torch.tensor([float('nan')], device=gt.device)
+
+        # ! For DEBUGGING/TESTING 
+        pred = torch.tensor([[0.7071, 0, 0, 0.7071]], device=pred.device)
+        gt = torch.tensor([[0,0,0,1]], device=gt.device)
+
+        # Expanding the pred to account for 0-360 degrees of rotation to account 
+        # for z-axis symmetric and expanding the gt to match its size for later 
+        # comparison
+        rot_e_pred, e_gt = gtf.quat_symmetric_tf(pred, gt)
+
+        # Performing dot product on the transformed e_pred and e_gt
+        dot_product = torch.einsum('bij,bij->bi', rot_e_pred.double(), e_gt.double())
+
+        # Determine the maximum along the first dimension (rotated dimension)
+        best_alignment = torch.max(dot_product, dim=1).values
+
+        # Calculating the loss
+        loss = self.dot_product_to_loss(best_alignment)
+
+        return loss
+
+    def dot_product_to_loss(self, dot_product):
+
+        mag_dot_product = torch.pow(dot_product, 2)
+        error = 1 - mag_dot_product
+        loss = torch.log(error + self.eps) - torch.log(torch.tensor(self.eps, device=error.device))
+
+        return loss
+
+class RLoss(_Loss): # Rotation Matrix
+    
+    def __init__(self, key = None, eps = 0.1):
+        super(RLoss, self).__init__()
+        self.eps = eps
+
+        if key:
+            self.key = key
+        else:
+            self.key = 'R'
+
+    def forward(self, gt_pred_matches) -> Tensor:
+
+        # Catching no-instance scenario
+        if type(gt_pred_matches) != type(None) and self.key in gt_pred_matches.keys():
+
+            # Selecting the ground truth data
+            gt = gt_pred_matches[self.key][0]
+
+            # Selecting the predicted data
+            pred = gt_pred_matches[self.key][1]
+
+            # Calculating the loss
+            similarity = torch.bmm(torch.transpose(gt, 1, 2), pred)
+            traced_value = torch.einsum('bii->b', similarity) # batched trace
+            loss = torch.acos((traced_value - 1) / 2)
+
+        else:
+            try:
+                return torch.tensor(float('nan'), device=gt_pred_matches['instance_masks'].device).float()   
+            except:
+                return torch.tensor(float('nan')).cuda().float()   
+
+        # Remove any nans in the data
+        clean_loss = loss[torch.isnan(loss) == False]
+
+        # Return the some of all the losses
+        return torch.mean(clean_loss)
+
+# Translation
+class TLoss(_Loss): # Translation Vector
+
+    def __init__(self, key = None, eps = 0.1):
+        super(TLoss, self).__init__()
+        self.eps = eps
+
+        if key:
+            self.key = key
+        else:
+            self.key = 'T'
+
+    def forward(self, gt_pred_matches) -> Tensor:
+
+        # Catching no-instance scenario
+        if type(gt_pred_matches) != type(None) and self.key in gt_pred_matches.keys():
+
+            # Selecting the ground truth data
+            gt = gt_pred_matches[self.key][0]
+
+            # Selecting the predicted data
+            pred = gt_pred_matches[self.key][1]
+
+            # Calculating the loss
+            loss = (gt-pred).norm(dim=1)
+
+        else:
+            try:
+                return torch.tensor(float('nan'), device=gt_pred_matches['instance_masks'].device).float()   
+            except:
+                return torch.tensor(float('nan')).cuda().float()   
+
+        # Remove any nans in the data
+        clean_loss = loss[torch.isnan(loss) == False]
+
+        # Return the some of all the losses
+        return torch.mean(clean_loss)
+
+class XYLoss(_Loss): # 2D Center
+
+    def __init__(self, key = None, eps = 0.1):
+        super(XYLoss, self).__init__()
+        self.eps = eps
+
+        if key:
+            self.key = key
+        else:
+            self.key = 'xy'
+
+    def forward(self, gt_pred_matches) -> Tensor:
+
+        # Catching no-instance scenario
+        if type(gt_pred_matches) != type(None) and self.key in gt_pred_matches.keys():
+
+            # Selecting the ground truth data
+            gt = gt_pred_matches[self.key][0]
+
+            # Selecting the predicted data
+            pred = gt_pred_matches[self.key][1]
+
+            # Calculating the loss
+            loss = (gt-pred).norm(dim=1) / 10
+
+        else:
+            try:
+                return torch.tensor(float('nan'), device=gt_pred_matches['instance_masks'].device).float()   
+            except:
+                return torch.tensor(float('nan')).cuda().float()   
+
+        # Remove any nans in the data
+        clean_loss = loss[torch.isnan(loss) == False]
+
+        # Return the some of all the losses
+        return torch.mean(clean_loss)
+
+class ZLoss(_Loss): # Z - depth
+    
+    def __init__(self, key = None, eps = 0.1):
+        super(ZLoss, self).__init__()
+        self.eps = eps
+
+        if key:
+            self.key = key
+        else:
+            self.key = 'z'
+
+    def forward(self, gt_pred_matches) -> Tensor:
+
+        # Catching no-instance scenario
+        if type(gt_pred_matches) != type(None) and self.key in gt_pred_matches.keys():
+
+            # Selecting the ground truth data
+            gt = gt_pred_matches[self.key][0]
+
+            # Selecting the predicted data
+            pred = gt_pred_matches[self.key][1]
+
+            # Calculating the loss
+            loss = (torch.log(gt)-torch.log(pred)).norm(dim=1)
+
+        else:
+            try:
+                return torch.tensor(float('nan'), device=gt_pred_matches['instance_masks'].device).float()   
+            except:
+                return torch.tensor(float('nan')).cuda().float()   
+
+        # Remove any nans in the data
+        clean_loss = loss[torch.isnan(loss) == False]
+
+        # Return the some of all the losses
+        return torch.mean(clean_loss)
+
+# Scales
+class ScalesLoss(_Loss): # h, w, l scales
+
+    def __init__(self, key = None, eps = 0.1):
+        super(ScalesLoss, self).__init__()
+        self.eps = eps
+
+        if key:
+            self.key = key
+        else:
+            self.key = 'scales'
+
+    def forward(self, gt_pred_matches) -> Tensor:
+
+        # Catching no-instance scenario
+        if type(gt_pred_matches) != type(None) and self.key in gt_pred_matches.keys():
+
+            # Selecting the ground truth data
+            gt = gt_pred_matches[self.key][0]
+
+            # Selecting the predicted data
+            pred = gt_pred_matches[self.key][1]
+
+            # Calculating the loss
+            loss = (gt-pred).norm(dim=1)
+
         else:
             try:
                 return torch.tensor(float('nan'), device=gt_pred_matches['instance_masks'].device).float()   

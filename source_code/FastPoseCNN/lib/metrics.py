@@ -37,7 +37,7 @@ class DegreeErrorMeanAP(pl.metrics.Metric):
             q1 = gt_pred_matches['quaternion'][1]
 
             # Calculating the distance between the quaternions
-            degree_distance = gtf.torch_quat_distance(q0, q1)
+            degree_distance = gtf.get_quat_distance(q0, q1, gt_pred_matches['symmetric_ids'])
 
             # Compare against threshold
             thresh_degree_distance = (degree_distance < self.threshold)
@@ -77,7 +77,7 @@ class DegreeError(pl.metrics.Metric):
             q1 = gt_pred_matches['quaternion'][1]
 
             # Calculating the distance between the quaternions
-            degree_distance = gtf.torch_quat_distance(q0, q1)
+            degree_distance = gtf.get_quat_distance(q0, q1, gt_pred_matches['symmetric_ids'])
 
             # This rounds accuracy
             this_round_error = torch.mean(degree_distance)

@@ -13,15 +13,15 @@ class DEFAULT_POSE_HPARAM(argparse.Namespace):
     
     # Experiment Identification 
     EXPERIMENT_NAME = "TESTING" # string
-    CHECKPOINT = pathlib.Path(os.getenv("LOGS")) / 'good_saved_runs' / '12-49-SMALL_RUN-NOCS-resnet18-imagenet' / '_' / 'checkpoints' / 'last.ckpt' # pathlib
+    CHECKPOINT = None #pathlib.Path(os.getenv("LOGS")) / 'good_saved_runs' / '12-49-SMALL_RUN-NOCS-resnet18-imagenet' / '_' / 'checkpoints' / 'last.ckpt' # pathlib
     DATASET_NAME = 'CAMERA' # string
-    SELECTED_CLASSES = ['bg','camera','laptop']
-    #SELECTED_CLASSES = tools.pj.constants.CAMERA_CLASSES 
+    #SELECTED_CLASSES = ['bg','camera','laptop']
+    SELECTED_CLASSES = tools.pj.constants.CAMERA_CLASSES 
 
     # Run Specifications
     CUDA_VISIBLE_DEVICES = '2, 3' # '0,1,2,3'
     BATCH_SIZE = 5
-    NUM_WORKERS = 9 # 36 total CPUs
+    NUM_WORKERS = 18 # 36 total CPUs
     NUM_GPUS = 1 # 4 total GPUs
     TRAIN_SIZE= 50#5000#100
     VALID_SIZE= 20#300#20

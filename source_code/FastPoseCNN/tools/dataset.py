@@ -66,6 +66,11 @@ class Dataset(abc.ABC):
 
     @property
     @abc.abstractmethod
+    def SYMMETRIC_CLASSES(self) -> List:
+        ...
+
+    @property
+    @abc.abstractmethod
     def COLORMAP(self) -> np.ndarray:
         ...
 
@@ -99,13 +104,13 @@ class NOCSDataset(Dataset, torch.utils.data.Dataset):
         ):
 
         # If None or just all the classes, no nead of class values map
-        if classes is None or classes == self.CLASSES:
-            self.selected_classes = self.CLASSES
-            self.class_values_map = {self.CLASSES.index(cls.lower()):self.CLASSES.index(cls.lower()) for cls in self.selected_classes}
+        if classes is None:
+            self.classes = self.CLASSES
+        
         # then create class values map
-        elif classes:
-            self.selected_classes = classes
-            self.class_values_map = {self.CLASSES.index(cls.lower()):self.selected_classes.index(cls) for cls in self.selected_classes}
+        self.classes = classes
+        self.class_values_map = {self.CLASSES.index(cls.lower()):self.classes.index(cls) for cls in self.classes}
+        self.symmetric_classes = [self.classes.index(cls.lower()) for cls in self.SYMMETRIC_CLASSES if cls in self.classes]
 
         # Obtaining the filepaths for the images
         self.images_fps = self.get_image_paths_in_dir(dataset_dir, max_size=max_size)
@@ -186,7 +191,6 @@ class NOCSDataset(Dataset, torch.utils.data.Dataset):
         quaternions = dm.create_dense_quaternion(good_instances_mask, good_json_data)
         scales = dm.create_dense_scales(good_instances_mask, good_json_data)
         xy, z = dm.create_dense_3d_centers(good_instances_mask, good_json_data, self.INTRINSICS)
-        #xy, z = dm.create_simple_dense_3d_centers(mask, json_data)
 
         # Generating class mask with the desired object class
         class_mask = np.zeros_like(good_instances_mask)
@@ -344,6 +348,7 @@ class NOCSDataset(Dataset, torch.utils.data.Dataset):
         # Creating a pure instances image
         agg_data = {
             'class_ids': np.zeros((num_of_instances,)),
+            'symmetric_ids': np.zeros((num_of_instances,)),
             'instance_masks': np.zeros((num_of_instances, h, w)),
             'quaternion': np.zeros((num_of_instances, 4)),
             'scales': np.zeros((num_of_instances, 3)),
@@ -369,6 +374,11 @@ class NOCSDataset(Dataset, torch.utils.data.Dataset):
                 if data_name == 'class_ids': 
                     agg_data[data_name][enumerate_id] = json_data['instance_dict'][instance_id]
                 
+                # Marking 1 for symmetric, 0 for non-symmetric classes
+                elif data_name == 'symmetric_ids':
+                    symmetric_ids = 1 * (json_data['instance_dict'][instance_id] in self.symmetric_classes)
+                    agg_data[data_name][enumerate_id] = symmetric_ids
+
                 # Use the mask instead of json_data
                 elif data_name == 'instance_masks': 
                     agg_data[data_name][enumerate_id] = np.where(instances_mask == instance_id, 1, 0)
@@ -390,12 +400,14 @@ class NOCSDataset(Dataset, torch.utils.data.Dataset):
 class CAMERADataset(NOCSDataset):
 
     CLASSES = pj.constants.CAMERA_CLASSES
+    SYMMETRIC_CLASSES = pj.constants.CAMERA_SYMMETRIC_CLASSES
     COLORMAP = pj.constants.CAMERA_COLORMAP
     INTRINSICS = pj.constants.INTRINSICS['CAMERA']
 
 class REALDataset(NOCSDataset):
 
     CLASSES = pj.constants.CAMERA_CLASSES
+    SYMMETRIC_CLASSES = pj.constants.REAL_SYMMETRIC_CLASSES
     COLORMAP = pj.constants.CAMERA_COLORMAP
     INTRINSICS = pj.constants.INTRINSICS['REAL']
 

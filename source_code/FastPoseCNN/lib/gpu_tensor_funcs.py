@@ -21,7 +21,7 @@ try:
 except ImportError:
     pass
 
-import hough_voting as hv
+import hough_voting as hvk
 
 #-------------------------------------------------------------------------------
 # Helper Functions
@@ -41,7 +41,7 @@ def normalize(data, dim):
 
     # Replace zero norm by one to avoid division by zero error
     safe_norm_data = torch.where(
-        norm_data != 0, norm_data, torch.tensor(1.0, device=norm_data.device).float()
+        norm_data != 0, norm_data.float(), torch.tensor(1.0, device=norm_data.device).float()
     )
 
     # Normalize data
@@ -403,7 +403,8 @@ def batchwise_find_matches(preds, gts):
 
     pred_gt_matches = {
         'sample_ids': [],
-        'class_ids': []
+        'class_ids': [],
+        'symmetric_ids': []
     }
 
     keys_to_stack = [
@@ -486,7 +487,9 @@ def batchwise_find_matches(preds, gts):
             [class_id], device=gts_class_instances.device
         ).repeat(max_gt_id.shape[0])
 
+        # Storing data that is shared between ground truth and pred agg data
         pred_gt_matches['sample_ids'].append(gts['sample_ids'][gts_class_instances][max_gt_id])
+        pred_gt_matches['symmetric_ids'].append(gts['symmetric_ids'][gts_class_instances][max_gt_id])
         pred_gt_matches['class_ids'].append(class_instance_identifiers)
 
         # Select the match data and combined them together!
@@ -508,7 +511,7 @@ def batchwise_find_matches(preds, gts):
 
     # Concatinating the results
     for key in pred_gt_matches.keys():
-        if key in ['sample_ids', 'class_ids']:
+        if key in ['sample_ids', 'class_ids', 'symmetric_ids']:
             axis = 0
         else:
             axis = 1
@@ -857,15 +860,43 @@ def batchwise_get_2d_iou(batch_masks1, batch_masks2):
     
     return iou
 
-def torch_quat_distance(q0, q1):
+def get_quat_distance(q0, q1, symmetric_ids=None):
+
+    # If symmetric ids are given, then use them
+
+    if type(symmetric_ids) != type(None):
+        # Separate symmetric and non-symmetric items
+        non_sym_i = torch.where(symmetric_ids == 0)[0]
+        sym_i = torch.where(symmetric_ids != 0)[0]
+
+        # Process the non-symmetric instances easily
+        non_sym_distances = get_raw_quat_distance(q0[non_sym_i], q1[non_sym_i])
+        sym_distances = get_symmetric_quat_distance(q0[sym_i], q1[sym_i])
+
+        # Getting all the distances together
+        distances = torch.cat((non_sym_distances, sym_distances), dim=0)
+
+        # Removing any nans
+        clean_distances = distances[torch.isnan(distances) == False]
+
+        return clean_distances
+
+    else:    
+        return get_raw_quat_distance(q0, q1)
+
+def get_raw_quat_distance(q0, q1):
+
+    # Catching zero data case
+    if q0.shape[0] == 0:
+        return torch.tensor([float('nan')], device=q0.device)
 
     # Determine the difference
     q0_minus_q1 = q0 - q1
     q0_plus_q1  = q0 + q1
     
     # Obtain the norm
-    d_minus = q0_minus_q1.norm(dim=1)
-    d_plus  = q0_plus_q1.norm(dim=1)
+    d_minus = q0_minus_q1.norm(dim=-1)
+    d_plus  = q0_plus_q1.norm(dim=-1)
 
     # Compare the norms and select the one with the smallest norm
     ds = torch.stack((d_minus, d_plus))
@@ -875,6 +906,26 @@ def torch_quat_distance(q0, q1):
     degree_distance = torch.rad2deg(rad_distance)
 
     return degree_distance
+
+def get_symmetric_quat_distance(q0, q1):
+
+    # If already constructed, simply use for calculating the best distance
+
+    # Catching zero data case
+    if q0.shape[0] == 0:
+        return torch.tensor([float('nan')], device=q0.device)
+
+    # Expanding q1 to account for 0-360 degrees of rotation to account for z-axis
+    # symmetric and expanding the q0 to match its size for later comparison
+    rot_e_q1, e_q0 = quat_symmetric_tf(q1, q0)
+
+    # Calculating the distance
+    distance = get_raw_quat_distance(e_q0, rot_e_q1)
+
+    # Determing the best distance
+    best_distance = torch.min(distance, dim=-1).values
+
+    return best_distance
 
 def y_rotation_matrix(theta):
     return torch.tensor([
@@ -1051,6 +1102,86 @@ def calculate_aps(raw_data, metrics_threshold, metrics_operator):
         aps[data_key]['mean'] = torch.mean(torch.stack(list(aps[data_key].values())).float(), dim=0)
 
     return aps
+
+#-------------------------------------------------------------------------------
+# Operations 
+
+def quaternion_raw_multiply(a, b):
+    # Take from https://github.com/facebookresearch/pytorch3d/blob/e13e63a811438c250c1760cbcbcbe6c034a8570d/pytorch3d/transforms/rotation_conversions.py#L339
+    """
+    Multiply two quaternions.
+    Usual torch rules for broadcasting apply.
+    Args:
+        a: Quaternions as tensor of shape (..., 4), real part first.
+        b: Quaternions as tensor of shape (..., 4), real part first.
+    Returns:
+        The product of a and b, a tensor of quaternions shape (..., 4).
+    """
+    aw, ax, ay, az = torch.unbind(a, -1)
+    bw, bx, by, bz = torch.unbind(b, -1)
+    ow = aw * bw - ax * bx - ay * by - az * bz
+    ox = aw * bx + ax * bw + ay * bz - az * by
+    oy = aw * by - ax * bz + ay * bw + az * bx
+    oz = aw * bz + ax * by - ay * bx + az * bw
+    return torch.stack((ow, ox, oy, oz), -1)
+
+def quaternion_multiply(a, b):
+    # Take from https://github.com/facebookresearch/pytorch3d/blob/e13e63a811438c250c1760cbcbcbe6c034a8570d/pytorch3d/transforms/rotation_conversions.py#L339
+    """
+    Multiply two quaternions representing rotations, returning the quaternion
+    representing their composition, i.e. the versor with nonnegative real part.
+    Usual torch rules for broadcasting apply.
+    Args:
+        a: Quaternions as tensor of shape (..., 4), real part first.
+        b: Quaternions as tensor of shape (..., 4), real part first.
+    Returns:
+        The product of a and b, a tensor of quaternions of shape (..., 4).
+    """
+    ab = quaternion_raw_multiply(a, b)
+    return normalize(ab, dim=-1)
+
+def quat_symmetric_tf(tf_q, ex_q):
+    """
+    This function applies a rotation transformation on tf_q to account for z 
+    symmetry, while ex_q is simply expanded to match the size resulting tf_q
+    """
+
+    # Construct rotated quaternions
+    if not hasattr(quat_symmetric_tf, 'rot_q'):
+        
+        # Creating all the degrees of rotation
+        degrees = torch.tensor([0,45,90], device=tf_q.device).float() #torch.arange(0, 360).float()
+        factor = torch.sin(torch.deg2rad(degrees) / 2)
+        
+        # Creating the values for the quaternions 4 elements
+        w = torch.cos(torch.deg2rad(degrees) / 2)
+        ones = (1 * factor)
+        zeros = (0 * factor)
+        x, y, z = zeros, zeros, ones
+        
+        # Constructing the overall rotation quaternions
+        quat_symmetric_tf.rot_q = torch.vstack((w, x, y, z)).T
+
+        # Expanding the data to prepare it for larger-scale quaternion multiplication
+        quat_symmetric_tf.rot_q = torch.unsqueeze(quat_symmetric_tf.rot_q, dim=0)
+
+    # Ensuring that rot_q is in the same device as tf_q
+    if quat_symmetric_tf.rot_q.device != tf_q.device:
+        quat_symmetric_tf.rot_q = quat_symmetric_tf.rot_q.to(tf_q.device)
+
+    # Getting information of the size of data
+    n_of_quat = tf_q.shape[0]
+    n_of_r_quat = quat_symmetric_tf.rot_q.shape[1]
+
+    # Expanding data to make data match in size
+    e_tf_q = torch.unsqueeze(tf_q, dim=1).expand((n_of_quat, n_of_r_quat, 4))
+    e_ex_q = torch.unsqueeze(ex_q, dim=1).expand((n_of_quat, n_of_r_quat, 4))
+    e_q = quat_symmetric_tf.rot_q.expand((n_of_quat, n_of_r_quat, 4))
+
+    # Applying transformations onto the pred data
+    rot_tf_q = quaternion_multiply(e_tf_q.double(), e_q.double())
+
+    return rot_tf_q, e_ex_q
 
 #-------------------------------------------------------------------------------
 # GPU Memory Functions
