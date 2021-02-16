@@ -295,8 +295,8 @@ class QLoss(_Loss): # Quaternion
             return torch.tensor([float('nan')], device=gt.device)
 
         # ! For DEBUGGING/TESTING 
-        pred = torch.tensor([[0.7071, 0, 0, 0.7071]], device=pred.device)
-        gt = torch.tensor([[0,0,0,1]], device=gt.device)
+        #pred = torch.tensor([[0.7071, 0, 0, 0.7071]], device=pred.device)
+        #gt = torch.tensor([[0,0,0,1]], device=gt.device)
 
         # Expanding the pred to account for 0-360 degrees of rotation to account 
         # for z-axis symmetric and expanding the gt to match its size for later 
@@ -422,7 +422,13 @@ class XYLoss(_Loss): # 2D Center
             pred = gt_pred_matches[self.key][1]
 
             # Calculating the loss
-            loss = (gt-pred).norm(dim=1) / 10
+            abs_diff = torch.abs(gt-pred)
+
+            # Remove any nans in the data
+            abs_diff = abs_diff[torch.isnan(abs_diff) == False]
+
+            # Calculating the loss
+            loss = torch.mean(abs_diff) / 50 # Reducing the loss by a factor 
 
         else:
             try:
@@ -430,11 +436,8 @@ class XYLoss(_Loss): # 2D Center
             except:
                 return torch.tensor(float('nan')).cuda().float()   
 
-        # Remove any nans in the data
-        clean_loss = loss[torch.isnan(loss) == False]
-
         # Return the some of all the losses
-        return torch.mean(clean_loss)
+        return loss
 
 class ZLoss(_Loss): # Z - depth
     
@@ -458,8 +461,14 @@ class ZLoss(_Loss): # Z - depth
             # Selecting the predicted data
             pred = gt_pred_matches[self.key][1]
 
+            # Calculating the loss (logging the data first)
+            abs_diff = torch.abs(torch.log(gt)-torch.log(pred))
+
+            # Remove any nans in the data
+            abs_diff = abs_diff[torch.isnan(abs_diff) == False]
+
             # Calculating the loss
-            loss = (torch.log(gt)-torch.log(pred)).norm(dim=1)
+            loss = torch.mean(abs_diff) # Reducing the loss by a factor
 
         else:
             try:
@@ -467,11 +476,7 @@ class ZLoss(_Loss): # Z - depth
             except:
                 return torch.tensor(float('nan')).cuda().float()   
 
-        # Remove any nans in the data
-        clean_loss = loss[torch.isnan(loss) == False]
-
-        # Return the some of all the losses
-        return torch.mean(clean_loss)
+        return loss
 
 # Scales
 class ScalesLoss(_Loss): # h, w, l scales
@@ -497,7 +502,13 @@ class ScalesLoss(_Loss): # h, w, l scales
             pred = gt_pred_matches[self.key][1]
 
             # Calculating the loss
-            loss = (gt-pred).norm(dim=1)
+            abs_diff = torch.abs(gt-pred)
+
+            # Remove any nans in the data
+            abs_diff = abs_diff[torch.isnan(abs_diff) == False]
+
+            # Calculating the loss
+            loss = torch.mean(abs_diff) # Reducing the loss by a factor
 
         else:
             try:
@@ -505,11 +516,7 @@ class ScalesLoss(_Loss): # h, w, l scales
             except:
                 return torch.tensor(float('nan')).cuda().float()   
 
-        # Remove any nans in the data
-        clean_loss = loss[torch.isnan(loss) == False]
-
-        # Return the some of all the losses
-        return torch.mean(clean_loss)
+        return loss
 
 #-------------------------------------------------------------------------------
 # Pose loss functions

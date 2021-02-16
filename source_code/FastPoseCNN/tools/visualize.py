@@ -140,7 +140,7 @@ def get_visualized_simple_xys(xys):
 def get_visualized_z(z, colormap='viridis'):
 
     # Create norm function to shift data to [0:1]
-    norm = matplotlib.colors.Normalize(vmin=0, vmax=255)
+    norm = matplotlib.colors.Normalize(vmin=0, vmax=1)
 
     # Obtain the colormap of choice
     my_colormap = matplotlib.cm.get_cmap(colormap)
@@ -188,7 +188,7 @@ def get_visualized_quaternion(quaternion, bg='black'):
     empty_quaternion = np.zeros_like(quaternion)
 
     # creating norm function
-    norm = matplotlib.colors.Normalize(vmin=-255, vmax=255)
+    norm = matplotlib.colors.Normalize(vmin=-1, vmax=1)
 
     # Normalize data
     norm_quat = norm(quaternion)
@@ -524,9 +524,9 @@ def compare_all(preds, gts, mask_colormap):
 def compare_mask_performance(image, gt_mask, pred_mask, colormap):
     
     # Converting visual images into np.uint8 for matplotlib compatibility
-    image_vis = skimage.img_as_ubyte(image.cpu().numpy())
-    gt_mask = skimage.img_as_ubyte(gt_mask.cpu().numpy())
-    pred_mask = skimage.img_as_ubyte(pred_mask.cpu().numpy())
+    image_vis = image.cpu().numpy()
+    gt_mask = gt_mask.cpu().numpy()
+    pred_mask = pred_mask.cpu().numpy()
 
     # Colorized the binary masks
     gt_mask_vis = get_visualized_masks(gt_mask, colormap)
@@ -544,10 +544,10 @@ def compare_mask_performance(image, gt_mask, pred_mask, colormap):
 def compare_quat_performance(image, gt_quad, pred_quaternion, pred_mask, mask_colormap):
 
     # Converting visual images into np.uint8 for matplotlib compatibility
-    image_vis = skimage.img_as_ubyte(image.cpu().numpy())
-    gt_quad = skimage.img_as_ubyte(gt_quad.cpu().numpy())
-    pred_quaternion = skimage.img_as_ubyte(pred_quaternion.cpu().numpy())
-    pred_mask = skimage.img_as_ubyte(pred_mask.cpu().numpy())
+    image_vis = image.cpu().numpy()
+    gt_quad = gt_quad.cpu().numpy()
+    pred_quaternion = pred_quaternion.cpu().numpy()
+    pred_mask = pred_mask.cpu().numpy()
 
     # Colorizing the mask
     pred_mask_vis = get_visualized_masks(pred_mask, mask_colormap)
@@ -569,10 +569,10 @@ def compare_quat_performance(image, gt_quad, pred_quaternion, pred_mask, mask_co
 def compare_xy_performance(image, gt_mask, gt_xy, pred_mask, pred_xy, mask_colormap):
 
     # Converting visual images into np.uint8 for matplotlib compatibility
-    image_vis = skimage.img_as_ubyte(image.cpu().numpy())
-    gt_mask = skimage.img_as_ubyte(gt_mask.cpu().numpy())
+    image_vis = image.cpu().numpy()
+    gt_mask = gt_mask.cpu().numpy()
     gt_xy = gt_xy.cpu().numpy()
-    pred_mask = skimage.img_as_ubyte(pred_mask.cpu().numpy())
+    pred_mask = pred_mask.cpu().numpy()
     pred_xy = pred_xy.cpu().numpy()
 
     # Converting visual images into np.uint8 for matplotlib compatibility
@@ -595,10 +595,10 @@ def compare_xy_performance(image, gt_mask, gt_xy, pred_mask, pred_xy, mask_color
 def compare_z_performance(image, gt_z, pred_z, pred_mask, mask_colormap):
 
     # Converting visual images into np.uint8 for matplotlib compatibility
-    image_vis = skimage.img_as_ubyte(image.cpu().numpy())
-    gt_z = skimage.img_as_ubyte((gt_z/torch.max(gt_z)).cpu().numpy())
-    pred_z = skimage.img_as_ubyte((pred_z/torch.max(pred_z)).cpu().numpy())
-    pred_mask = skimage.img_as_ubyte(pred_mask.cpu().numpy())
+    image_vis = image.cpu().numpy()
+    gt_z = (gt_z/torch.max(torch.abs(gt_z))).cpu().numpy()
+    pred_z = (pred_z/torch.max(torch.abs(pred_z))).cpu().numpy()
+    pred_mask = pred_mask.cpu().numpy()
 
     # Converting visual images into np.uint8 for matplotlib compatibility
     pred_mask_vis = get_visualized_masks(pred_mask, mask_colormap)
@@ -620,10 +620,10 @@ def compare_z_performance(image, gt_z, pred_z, pred_mask, mask_colormap):
 def compare_scales_performance(image, gt_scales, pred_scales, pred_mask, mask_colormap):
 
     # Converting visual images into np.uint8 for matplotlib compatibility
-    image_vis = skimage.img_as_ubyte(image.cpu().numpy())
+    image_vis = image.cpu().numpy()
     gt_scales = gt_scales.cpu().numpy()
     pred_scales = pred_scales.cpu().numpy()
-    pred_mask = skimage.img_as_ubyte(pred_mask.cpu().numpy())
+    pred_mask = pred_mask.cpu().numpy()
 
     # Converting visual images into np.uint8 for matplotlib compatibility
     pred_mask_vis = get_visualized_masks(pred_mask, mask_colormap)
@@ -637,7 +637,7 @@ def compare_scales_performance(image, gt_scales, pred_scales, pred_mask, mask_co
         image = image_vis,
         pred_mask = pred_mask_vis,
         gt_scales = gt_scales_vis,
-        pred_z = pred_scales_vis
+        pred_scales = pred_scales_vis
     )
 
     return summary_fig
@@ -682,8 +682,8 @@ def compare_hough_voting_performance(image, preds_agg_data, return_as_figure=Tru
         )
 
     images = {
-        'pred_uv': skimage.img_as_ubyte(drawn_pred_uv.cpu().numpy()),
-        'pred_hv': skimage.img_as_ubyte(drawn_pred_hv.cpu().numpy())
+        'pred_uv': drawn_pred_uv.cpu().numpy(),
+        'pred_hv': drawn_pred_hv.cpu().numpy()
     }
 
     if return_as_figure:

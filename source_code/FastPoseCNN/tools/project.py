@@ -87,7 +87,6 @@ constants.CAMERA_CLASSES = [
 ]
 
 constants.CAMERA_SYMMETRIC_CLASSES = [
-    'laptop', # TEST, not really symmetric
     'bowl',
     'can',
     'bottle'

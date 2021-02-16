@@ -7,8 +7,8 @@ from pprint import pprint
 
 # DEBUGGING
 import pdb
-#import matplotlib
-#matplotlib.use('Agg')
+import matplotlib
+matplotlib.use('Agg')
 
 import numpy as np
 import base64
@@ -95,7 +95,23 @@ class PoseRegresssionTask(pl.LightningModule):
 
     @pl.core.decorators.auto_move_data
     def forward(self, x):
-        return self.model(x)
+
+        # Feed in the input to the actual model
+        y = self.model(x)
+
+        # Ensuring that the first-level outputs (mostly the image-size outputs)
+        # do not have nans for visualization and metric purposes
+        for key in y.keys():
+            if isinstance(y[key], torch.Tensor):
+                # Getting the dangerous conditions
+                is_nan = torch.isnan(y[key])
+                is_inf = torch.isinf(y[key])
+                is_nan_or_inf = torch.logical_or(is_nan, is_inf)
+
+                # Filling with stable information.
+                y[key][is_nan_or_inf] = 0
+
+        return y
 
     def training_step(self, batch, batch_idx):
         
@@ -113,7 +129,7 @@ class PoseRegresssionTask(pl.LightningModule):
             if task_name == 'total_loss' or 'loss' not in multi_task_losses[task_name]:
                 continue
             
-            result.log(f'train_{task_name}_loss', multi_task_losses[task_name]['loss'])
+            result.log(f'train_{task_name}_loss', multi_task_losses[task_name]['task_total_loss'])
 
         # Compress the multi_task_losses and multi_task_metrics to make logging easier
         loggable_metrics = tools.dm.compress_dict(multi_task_metrics)
@@ -152,7 +168,7 @@ class PoseRegresssionTask(pl.LightningModule):
     def shared_step(self, mode, batch, batch_idx):
         
         # Forward pass the input and generate the prediction of the NN
-        outputs = self.model(batch['image'])
+        outputs = self.forward(batch['image'])
 
         # Matching aggregated data between ground truth and predicted
         if self.HPARAM.PERFORM_AGGREGATION and self.HPARAM.PERFORM_MATCHING:
@@ -191,6 +207,9 @@ class PoseRegresssionTask(pl.LightningModule):
                     multi_task_losses['pose']['total_loss'] = losses['task_total_loss']
                 else:
                     multi_task_losses['pose']['total_loss'] += losses['task_total_loss']
+
+        # ! Debugging what is the loss that has large values!
+        #pprint(multi_task_losses)
 
         # Logging the losses
         for task_name in multi_task_losses.keys():
@@ -248,7 +267,7 @@ class PoseRegresssionTask(pl.LightningModule):
             weighted_sum = torch.sum(torch.stack(weighted_losses))
 
             # Save the calculated sum in the losses (for PyTorch progress bar logger)
-            losses['loss'] = weighted_sum
+            #losses['loss'] = weighted_sum
 
             # Saving the total loss (for customized Tensorboard logger)
             losses['task_total_loss'] = weighted_sum #total_loss
@@ -256,7 +275,7 @@ class PoseRegresssionTask(pl.LightningModule):
         else: # otherwise, just pass losses as nan
 
             # Place nan in losses (for PyTorch progress bar logger)
-            losses['loss'] = torch.tensor(float('nan')).to(self.device).float()
+            #losses['loss'] = torch.tensor(float('nan')).to(self.device).float()
 
             # Notate no task-specific total loss (for customized Tensorboard logger)
             losses['task_total_loss'] = torch.tensor(float('nan')).to(self.device).float()
@@ -487,26 +506,26 @@ if __name__ == '__main__':
         'quaternion': {
             #'loss_mse': {'D': 'pixel-wise', 'F': lib.loss.MaskedMSELoss(key='quaternion'), 'weight': 0.2},
             #'loss_pw_qloss': {'D': 'pixel-wise', 'F': lib.loss.PixelWiseQLoss(key='quaternion'), 'weight': 1.0}
-            'loss_quat': {'D': 'matched', 'F': lib.loss.QLoss(key='quaternion'), 'weight': 0.4},
+            'loss_quat': {'D': 'matched', 'F': lib.loss.QLoss(key='quaternion'), 'weight': 1.0},
         },
         'xy': {
             #'loss_mse': {'D': 'pixel-wise', 'F': lib.loss.MaskedMSELoss(key='xy'), 'weight': 0.2},
-            'loss_xy': {'D': 'matched', 'F': lib.loss.XYLoss(key='xy'), 'weight': 0.4},
+            'loss_xy': {'D': 'matched', 'F': lib.loss.XYLoss(key='xy'), 'weight': 1.0},
         },
         'z': {
             #'loss_mse': {'D': 'pixel-wise', 'F': lib.loss.MaskedMSELoss(key='z'), 'weight': 0.2},
-            'loss_z': {'D': 'matched', 'F': lib.loss.ZLoss(key='z'), 'weight': 0.4},
+            'loss_z': {'D': 'matched', 'F': lib.loss.ZLoss(key='z'), 'weight': 1.0},
         },
         'scales': {
             #'loss_mse': {'D': 'pixel-wise', 'F': lib.loss.MaskedMSELoss(key='scales'), 'weight': 0.2},
-            'loss_scales': {'D': 'matched', 'F': lib.loss.ScalesLoss(key='scales'), 'weight': 0.4},
+            'loss_scales': {'D': 'matched', 'F': lib.loss.ScalesLoss(key='scales'), 'weight': 1.0},
         },
-        'RT_and_metrics': {
-            'loss_R': {'D': 'matched', 'F': lib.loss.RLoss(key='R'), 'weight': 1.0},
-            'loss_T': {'D': 'matched', 'F': lib.loss.TLoss(key='T'), 'weight': 1.0},
+        #'RT_and_metrics': {
+        #    'loss_R': {'D': 'matched', 'F': lib.loss.RLoss(key='R'), 'weight': 1.0},
+        #    'loss_T': {'D': 'matched', 'F': lib.loss.TLoss(key='T'), 'weight': 1.0},
         #    'loss_iou3d': {'D': 'matched', 'F': lib.loss.Iou3dLoss(), 'weight': 1.0},
         #    'loss_offset': {'D': 'matched', 'F': lib.loss.OffsetLoss(), 'weight': 1.0}
-        }
+        #}
     }
 
     # Selecting metrics
@@ -675,7 +694,7 @@ if __name__ == '__main__':
         distributed_backend=HPARAM.DISTRIBUTED_BACKEND, # required to work
         logger=tb_logger,
         callbacks=[custom_callback, loss_checkpoint_callback],
-        gradient_clip_val=0.5
+        gradient_clip_val=0.25
     )
 
     # Train
