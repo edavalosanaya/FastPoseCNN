@@ -27,8 +27,6 @@ import torchvision.transforms.functional
 import segmentation_models_pytorch as smp
 
 import matplotlib
-#if os.environ.get('DISPLAY', '') == '':
-#    matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.cm
 
@@ -394,6 +392,9 @@ class NOCSDataset(Dataset, torch.utils.data.Dataset):
 
         # Reducing the size of the object
         agg_data['scales'] /= np.expand_dims(json_data['norm_factors'], axis=1)
+
+        # Flip the xy to match the other style
+        agg_data['xy'] = np.flip(agg_data['xy'], axis=1)
 
         return agg_data
 

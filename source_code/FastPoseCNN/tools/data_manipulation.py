@@ -272,6 +272,7 @@ def create_dense_3d_centers(mask, json_data, intrinsics):
             selected_RT,
             intrinsics
         )[0]
+        # Version 3
         center_2d = np.flip(center_2d)
 
         # Constructing the unit vectors pointing to the center
@@ -287,7 +288,7 @@ def create_dense_3d_centers(mask, json_data, intrinsics):
         z = instance_mask * z_value
         y = np.where(instance_mask, vector[:,:,0], 0)
         x = np.where(instance_mask, vector[:,:,1], 0)
-        xy = np.dstack([x,y])
+        xy = np.dstack([y,x])
 
         # Removing infinities and nan values
         xy = np.nan_to_num(xy)

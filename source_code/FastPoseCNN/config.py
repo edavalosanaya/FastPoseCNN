@@ -13,7 +13,10 @@ class DEFAULT_POSE_HPARAM(argparse.Namespace):
     
     # Experiment Identification 
     EXPERIMENT_NAME = "TESTING" # string
-    CHECKPOINT = pathlib.Path(os.getenv("LOGS")) / 'good_saved_runs' / '19-17-ALL_OBJECTS_EPOCH5-CAMERA-resnet18-imagenet' / '_' / 'checkpoints' / 'last.ckpt' # pathlib
+    DEBUG = False
+
+    # Training Specifications
+    CHECKPOINT = pathlib.Path(os.getenv("LOGS")) / 'good_saved_runs' / '21-38-XY_REGRESSION_DEBUG-CAMERA-resnet18-imagenet' / '_' / 'checkpoints' / 'last.ckpt'
     DATASET_NAME = 'CAMERA' # string
     #SELECTED_CLASSES = ['bg','camera','laptop']
     SELECTED_CLASSES = tools.pj.constants.CAMERA_CLASSES 
@@ -21,16 +24,16 @@ class DEFAULT_POSE_HPARAM(argparse.Namespace):
     # Run Specifications
     CUDA_VISIBLE_DEVICES = '0,1' # '0,1,2,3'
     BATCH_SIZE = 3
-    NUM_WORKERS = 9 # 36 total CPUs
-    NUM_GPUS = 2 # 4 total GPUs
-    TRAIN_SIZE= 5000#100
-    VALID_SIZE= 300#20
+    NUM_WORKERS = 18 # 36 total CPUs
+    NUM_GPUS = 1 # 4 total GPUs
+    TRAIN_SIZE= 50#5000#100
+    VALID_SIZE= 20#300#20
 
     # Training Specifications
     WEIGHT_DECAY = 0.0003
     LEARNING_RATE = 0.0001
     ENCODER_LEARNING_RATE = 0.0005
-    NUM_EPOCHS = 50#50#2#50
+    NUM_EPOCHS = 2#25#50#2#50
     DISTRIBUTED_BACKEND = None if NUM_GPUS <= 1 else 'ddp'
 
     # Freezing Training Specifications

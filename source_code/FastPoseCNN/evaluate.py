@@ -8,6 +8,7 @@ import tqdm
 import pandas as pd
 
 # DEBUGGING
+import pdb
 #import matplotlib
 #matplotlib.use('Agg')
 
@@ -31,16 +32,16 @@ from config import DEFAULT_POSE_HPARAM
 #-------------------------------------------------------------------------------
 # Constants
 
-PATH = pathlib.Path(os.getenv("LOGS")) / '21-02-11' / '18-15-DEBUG-CAMERA-resnet18-imagenet' / '_' / 'checkpoints' / 'last.ckpt'
-#PATH = pathlib.Path(os.getenv("LOGS")) / 'good_saved_runs' / '12-49-SMALL_RUN-NOCS-resnet18-imagenet' / '_' / 'checkpoints' / 'last.ckpt'
+PATH = pathlib.Path(os.getenv("LOGS")) / 'good_saved_runs' / '21-38-XY_REGRESSION_DEBUG-CAMERA-resnet18-imagenet' / '_' / 'checkpoints' / 'last.ckpt'
+#PATH = pathlib.Path(os.getenv("LOGS")) / 'good_saved_runs' / '23-16-CAM_LAPTOP_BASELINE-CAMERA-resnet18-imagenet' / '_' / 'checkpoints' / 'last.ckpt'
 
 HPARAM = DEFAULT_POSE_HPARAM()
-HPARAM.VALID_SIZE = 10
+HPARAM.VALID_SIZE = 2000
 HPARAM.HV_NUM_OF_HYPOTHESES = 501
 
 COLLECT_DATA = False
 DRAW = True
-TOTAL_DRAW_IMAGES = 50
+TOTAL_DRAW_IMAGES = 10
 APS_NUM_OF_POINTS = 50
 
 #-------------------------------------------------------------------------------
@@ -65,6 +66,13 @@ if __name__ == '__main__':
     for attr in OLD_HPARAM.keys():
         if attr in ['BACKBONE_ARCH', 'ENCODER', 'ENCODER_WEIGHTS', 'SELECTED_CLASSES']:
             setattr(HPARAM, attr, OLD_HPARAM[attr])
+
+    # If not debugging, then make matplotlib use the non-GUI backend to 
+    # improve stability and speed, otherwise allow debugging sessions to use 
+    # matplotlib figures.
+    if not HPARAM.DEBUG:
+        import matplotlib
+        matplotlib.use('Agg')
 
     # Determining if collect model's performance data
     # or visualizing the results of the model's performance
@@ -204,6 +212,8 @@ if __name__ == '__main__':
         # Load the .pth file with the tensors
         all_matches = torch.load(pth_path)
 
+        pdb.set_trace()
+
         if all_matches == []:
             print("All matches made were empty!")
             sys.exit(0)
@@ -218,7 +228,7 @@ if __name__ == '__main__':
             # Identify all the classes present in the match
             classes = match['class_ids']
 
-            for class_id in classes:
+            for class_id in torch.unique(classes):
 
                 # Identify the instances of this class
                 class_instances = torch.where(classes == class_id)[0]
@@ -227,8 +237,8 @@ if __name__ == '__main__':
                 gt_q = match['quaternion'][0][class_instances]
                 pred_q = match['quaternion'][1][class_instances]
                 gt_RTs = match['RT'][0][class_instances]
-                gt_scales = match['scales'][0][class_instances]
                 pred_RTs = match['RT'][1][class_instances]
+                gt_scales = match['scales'][0][class_instances]
                 pred_scales = match['scales'][1][class_instances]
 
                 # Calculating the distance between the quaternions
@@ -248,7 +258,7 @@ if __name__ == '__main__':
                 )
 
                 # Store data
-                if class_id not in raw_data['degree_error'].keys():
+                if int(class_id) not in raw_data['degree_error'].keys():
                     raw_data['degree_error'][int(class_id)] = [degree_distance]
                     raw_data['3d_iou'][int(class_id)] = [ious_3d]
                     raw_data['offset_error'][int(class_id)] = [offset_errors]
@@ -256,6 +266,8 @@ if __name__ == '__main__':
                     raw_data['degree_error'][int(class_id)].append(degree_distance)
                     raw_data['3d_iou'][int(class_id)].append(ious_3d)
                     raw_data['offset_error'][int(class_id)].append(offset_errors)
+
+        pdb.set_trace()
 
         # After the loop of the matches
         for class_id in range(1, len(HPARAM.SELECTED_CLASSES)): # -1 to remove bg

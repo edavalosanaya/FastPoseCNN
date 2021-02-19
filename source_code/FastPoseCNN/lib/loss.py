@@ -428,7 +428,7 @@ class XYLoss(_Loss): # 2D Center
             abs_diff = abs_diff[torch.isnan(abs_diff) == False]
 
             # Calculating the loss
-            loss = torch.mean(abs_diff) / 50 # Reducing the loss by a factor 
+            loss = torch.mean(abs_diff) / 10 # Reducing the loss by a factor 
 
         else:
             try:

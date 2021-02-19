@@ -7,8 +7,6 @@ from pprint import pprint
 
 # DEBUGGING
 import pdb
-import matplotlib
-matplotlib.use('Agg')
 
 import numpy as np
 import base64
@@ -480,6 +478,13 @@ if __name__ == '__main__':
 
     # Modification of hyperparameters
     #HPARAM.SELECTED_CLASSES = ['bg','camera','laptop']
+
+    # If not debugging, then make matplotlib use the non-GUI backend to 
+    # improve stability and speed, otherwise allow debugging sessions to use 
+    # matplotlib figures.
+    if not HPARAM.DEBUG:
+        import matplotlib
+        matplotlib.use('Agg')
 
     # Ensuring that DISTRIBUTED_BACKEND doesn't cause problems
     HPARAM.DISTRIBUTED_BACKEND = None if HPARAM.NUM_GPUS <= 1 else HPARAM.DISTRIBUTED_BACKEND
