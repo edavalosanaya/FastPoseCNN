@@ -16,24 +16,26 @@ class DEFAULT_POSE_HPARAM(argparse.Namespace):
     DEBUG = False
 
     # Training Specifications
-    CHECKPOINT = pathlib.Path(os.getenv("LOGS")) / 'good_saved_runs' / '21-38-XY_REGRESSION_DEBUG-CAMERA-resnet18-imagenet' / '_' / 'checkpoints' / 'last.ckpt'
+    #CHECKPOINT = pathlib.Path(os.getenv("LOGS")) / 'good_saved_runs' / '2_object' / '21-38-XY_REGRESSION_DEBUG-CAMERA-resnet18-imagenet' / '_' / 'checkpoints' / 'last.ckpt'
+    CHECKPOINT = pathlib.Path(os.getenv("LOGS")) / 'good_saved_runs' / 'all_object' / '23-52-ALL_OBJECTS_E25-CAMERA-resnet18-imagenet' / '_' / 'checkpoints' / 'last.ckpt'
     DATASET_NAME = 'CAMERA' # string
     #SELECTED_CLASSES = ['bg','camera','laptop']
     SELECTED_CLASSES = tools.pj.constants.CAMERA_CLASSES 
+    CKPT_SAVE_FREQUENCY = 2
 
     # Run Specifications
-    CUDA_VISIBLE_DEVICES = '0,1' # '0,1,2,3'
-    BATCH_SIZE = 3
-    NUM_WORKERS = 18 # 36 total CPUs
+    CUDA_VISIBLE_DEVICES = '0' # '0,1,2,3'
+    BATCH_SIZE = 2
+    NUM_WORKERS = 30 # 36 total CPUs
     NUM_GPUS = 1 # 4 total GPUs
-    TRAIN_SIZE= 50#5000#100
-    VALID_SIZE= 20#300#20
+    TRAIN_SIZE= 20#5000#100
+    VALID_SIZE= 10#300#20
 
     # Training Specifications
-    WEIGHT_DECAY = 0.0003
-    LEARNING_RATE = 0.0001
-    ENCODER_LEARNING_RATE = 0.0005
-    NUM_EPOCHS = 2#25#50#2#50
+    WEIGHT_DECAY = 0.003
+    LEARNING_RATE = 0.001
+    ENCODER_LEARNING_RATE = 0.005
+    NUM_EPOCHS = 10#25#2#50
     DISTRIBUTED_BACKEND = None if NUM_GPUS <= 1 else 'ddp'
 
     # Freezing Training Specifications

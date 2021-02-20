@@ -21,7 +21,7 @@ import lib
 #-------------------------------------------------------------------------------
 # Classes
 
-class MyCallback(pl.callbacks.Callback):
+class TensorboardCallback(pl.callbacks.Callback):
 
     @rank_zero_only
     def __init__(self, HPARAM, tasks, hparams, checkpoint_monitor=None):
@@ -231,7 +231,11 @@ class MyCallback(pl.callbacks.Callback):
         )
 
         # Log the figure to tensorboard
-        pl_module.logger.writers[mode].add_figure(f'mask_gen/{mode}', summary_fig, trainer.global_step)
+        pl_module.logger.writers[mode].add_figure(
+            f'mask_gen/{mode}', 
+            summary_fig, 
+            trainer.current_epoch+1
+        )
     
     # QUAT
     @rank_zero_only
@@ -260,7 +264,11 @@ class MyCallback(pl.callbacks.Callback):
         )
 
         # Log the figure to tensorboard
-        pl_module.logger.writers[mode].add_figure(f'quat_gen/{mode}', summary_fig, trainer.global_step)      
+        pl_module.logger.writers[mode].add_figure(
+            f'quat_gen/{mode}', 
+            summary_fig, 
+            trainer.current_epoch+1
+        )
 
     # XY
     @rank_zero_only
@@ -290,7 +298,11 @@ class MyCallback(pl.callbacks.Callback):
         )
 
         # Log the figure to tensorboard
-        pl_module.logger.writers[mode].add_figure(f'xy_gen/{mode}', summary_fig, trainer.global_step)      
+        pl_module.logger.writers[mode].add_figure(
+            f'xy_gen/{mode}', 
+            summary_fig, 
+            trainer.current_epoch+1
+        )
 
     # Z
     @rank_zero_only
@@ -319,7 +331,11 @@ class MyCallback(pl.callbacks.Callback):
         )
 
         # Log the figure to tensorboard
-        pl_module.logger.writers[mode].add_figure(f'z_gen/{mode}', summary_fig, trainer.global_step)      
+        pl_module.logger.writers[mode].add_figure(
+            f'z_gen/{mode}', 
+            summary_fig, 
+            trainer.current_epoch+1
+        )      
 
     # SCALES
     @rank_zero_only
@@ -348,7 +364,11 @@ class MyCallback(pl.callbacks.Callback):
         )
 
         # Log the figure to tensorboard
-        pl_module.logger.writers[mode].add_figure(f'scales_gen/{mode}', summary_fig, trainer.global_step)      
+        pl_module.logger.writers[mode].add_figure(
+            f'scales_gen/{mode}', 
+            summary_fig, 
+            trainer.current_epoch+1
+        )
 
     # HOUGH VOTING
     @rank_zero_only
@@ -380,7 +400,11 @@ class MyCallback(pl.callbacks.Callback):
         )
 
         # Log the figure to tensorboard
-        pl_module.logger.writers[mode].add_figure(f'hough_voting_gen/{mode}', summary_fig, trainer.global_step)
+        pl_module.logger.writers[mode].add_figure(
+            f'hough_voting_gen/{mode}', 
+            summary_fig, 
+            trainer.current_epoch+1
+        )
 
     # POSE
     @rank_zero_only
@@ -423,7 +447,11 @@ class MyCallback(pl.callbacks.Callback):
                 )
 
                 # Log the figure to tensorboard
-                pl_module.logger.writers[mode].add_figure(f'pose_gen/{mode}', summary_fig, trainer.global_step)      
+                pl_module.logger.writers[mode].add_figure(
+                    f'pose_gen/{mode}', 
+                    summary_fig, 
+                    trainer.current_epoch+1
+                )      
 
             except Exception as e:
                 print('pose visualization error: ', e)
@@ -459,3 +487,49 @@ class MyCallback(pl.callbacks.Callback):
 
                 # Then delete the ugly folder >:(
                 os.rmdir(str(child))
+
+
+class CheckpointEveryNSteps(pl.Callback):
+    """
+    # Credit goes to Andrew Jong for this callback code gotten from here:
+    
+    https://github.com/PyTorchLightning/pytorch-lightning/issues/2534#issuecomment-674582085
+
+    Note that I modified his code to only save every N epochs after the validation,
+    instead of both the training and validation epoch end.
+
+    Save a checkpoint every N steps, instead of Lightning's default that checkpoints
+    based on validation loss.
+    """
+
+    def __init__(
+        self,
+        save_step_frequency,
+        prefix="N-Step-Checkpoint",
+        use_modelcheckpoint_filename=False,
+    ):
+        """
+        Args:
+            save_step_frequency: how often to save in steps
+            prefix: add a prefix to the name, only used if
+                use_modelcheckpoint_filename=False
+            use_modelcheckpoint_filename: just use the ModelCheckpoint callback's
+                default filename, don't use ours.
+        """
+        self.save_step_frequency = save_step_frequency
+        self.prefix = prefix
+        self.use_modelcheckpoint_filename = use_modelcheckpoint_filename
+
+    def on_validation_epoch_end(self, trainer: pl.Trainer, _):
+        """ Check if we should save a checkpoint after every train batch """
+        
+        epoch = trainer.current_epoch
+        
+        if epoch % self.save_step_frequency == 0:
+            if self.use_modelcheckpoint_filename:
+                filename = trainer.checkpoint_callback.filename
+            else:
+                filename = f"{self.prefix}_{epoch=}.ckpt"
+            
+            ckpt_path = os.path.join(trainer.checkpoint_callback.dirpath, filename)
+            trainer.save_checkpoint(ckpt_path)

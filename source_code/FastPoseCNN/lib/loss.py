@@ -259,7 +259,10 @@ class QLoss(_Loss): # Quaternion
             try:
                 return torch.tensor(float('nan'), device=gt_pred_matches['instance_masks'].device).float()   
             except:
-                return torch.tensor(float('nan')).cuda().float()   
+                try:
+                    return torch.tensor(float('nan')).cuda().float()
+                except:
+                    return torch.tensor(float('nan')).float()
 
         # Remove any nans in the data
         clean_loss = loss[torch.isnan(loss) == False]
@@ -306,11 +309,11 @@ class QLoss(_Loss): # Quaternion
         # Performing dot product on the transformed e_pred and e_gt
         dot_product = torch.einsum('bij,bij->bi', rot_e_pred.double(), e_gt.double())
 
-        # Determine the maximum along the first dimension (rotated dimension)
-        best_alignment = torch.max(dot_product, dim=1).values
-
         # Calculating the loss
-        loss = self.dot_product_to_loss(best_alignment)
+        all_loss = self.dot_product_to_loss(dot_product)
+
+        # Obtain the smallest loss and return that
+        loss = torch.min(all_loss, dim=1).values
 
         return loss
 
@@ -353,7 +356,10 @@ class RLoss(_Loss): # Rotation Matrix
             try:
                 return torch.tensor(float('nan'), device=gt_pred_matches['instance_masks'].device).float()   
             except:
-                return torch.tensor(float('nan')).cuda().float()   
+                try:
+                    return torch.tensor(float('nan')).cuda().float()
+                except:
+                    return torch.tensor(float('nan')).float()
 
         # Remove any nans in the data
         clean_loss = loss[torch.isnan(loss) == False]
@@ -391,7 +397,10 @@ class TLoss(_Loss): # Translation Vector
             try:
                 return torch.tensor(float('nan'), device=gt_pred_matches['instance_masks'].device).float()   
             except:
-                return torch.tensor(float('nan')).cuda().float()   
+                try:
+                    return torch.tensor(float('nan')).cuda().float()
+                except:
+                    return torch.tensor(float('nan')).float()  
 
         # Remove any nans in the data
         clean_loss = loss[torch.isnan(loss) == False]
@@ -428,13 +437,16 @@ class XYLoss(_Loss): # 2D Center
             abs_diff = abs_diff[torch.isnan(abs_diff) == False]
 
             # Calculating the loss
-            loss = torch.mean(abs_diff) / 10 # Reducing the loss by a factor 
+            loss = torch.mean(abs_diff)
 
         else:
             try:
                 return torch.tensor(float('nan'), device=gt_pred_matches['instance_masks'].device).float()   
             except:
-                return torch.tensor(float('nan')).cuda().float()   
+                try:
+                    return torch.tensor(float('nan')).cuda().float()
+                except:
+                    return torch.tensor(float('nan')).float() 
 
         # Return the some of all the losses
         return loss
@@ -474,7 +486,10 @@ class ZLoss(_Loss): # Z - depth
             try:
                 return torch.tensor(float('nan'), device=gt_pred_matches['instance_masks'].device).float()   
             except:
-                return torch.tensor(float('nan')).cuda().float()   
+                try:
+                    return torch.tensor(float('nan')).cuda().float()
+                except:
+                    return torch.tensor(float('nan')).float()  
 
         return loss
 
@@ -514,7 +529,10 @@ class ScalesLoss(_Loss): # h, w, l scales
             try:
                 return torch.tensor(float('nan'), device=gt_pred_matches['instance_masks'].device).float()   
             except:
-                return torch.tensor(float('nan')).cuda().float()   
+                try:
+                    return torch.tensor(float('nan')).cuda().float()
+                except:
+                    return torch.tensor(float('nan')).float()  
 
         return loss
 
@@ -550,9 +568,12 @@ class Iou3dLoss(_Loss):
 
         else:
             try:
-                return torch.tensor(float('nan'), device=gt_pred_matches[0]['instance_masks'].device).float()   
+                return torch.tensor(float('nan'), device=gt_pred_matches['instance_masks'].device).float()   
             except:
-                return torch.tensor(float('nan')).cuda().float()   
+                try:
+                    return torch.tensor(float('nan')).cuda().float()
+                except:
+                    return torch.tensor(float('nan')).float()
 
         # Remove any nans in the data
         clean_loss = loss[torch.isnan(loss) == False]
@@ -587,9 +608,12 @@ class OffsetLoss(_Loss):
 
         else:
             try:
-                return torch.tensor(float('nan'), device=gt_pred_matches[0]['instance_masks'].device).float()   
+                return torch.tensor(float('nan'), device=gt_pred_matches['instance_masks'].device).float()   
             except:
-                return torch.tensor(float('nan')).cuda().float()   
+                try:
+                    return torch.tensor(float('nan')).cuda().float()
+                except:
+                    return torch.tensor(float('nan')).float()  
 
         # Remove any nans in the data
         clean_loss = loss[torch.isnan(loss) == False]

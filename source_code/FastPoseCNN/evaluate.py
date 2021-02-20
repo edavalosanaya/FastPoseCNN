@@ -32,8 +32,8 @@ from config import DEFAULT_POSE_HPARAM
 #-------------------------------------------------------------------------------
 # Constants
 
-PATH = pathlib.Path(os.getenv("LOGS")) / 'good_saved_runs' / '21-38-XY_REGRESSION_DEBUG-CAMERA-resnet18-imagenet' / '_' / 'checkpoints' / 'last.ckpt'
-#PATH = pathlib.Path(os.getenv("LOGS")) / 'good_saved_runs' / '23-16-CAM_LAPTOP_BASELINE-CAMERA-resnet18-imagenet' / '_' / 'checkpoints' / 'last.ckpt'
+#PATH = pathlib.Path(os.getenv("LOGS")) / 'good_saved_runs' / '2_object' / '21-38-XY_REGRESSION_DEBUG-CAMERA-resnet18-imagenet' / '_' / 'checkpoints' / 'last.ckpt'
+PATH = pathlib.Path(os.getenv("LOGS")) / 'good_saved_runs' / 'all_object' / '23-52-ALL_OBJECTS_E25-CAMERA-resnet18-imagenet' / '_' / 'checkpoints' / 'last.ckpt'
 
 HPARAM = DEFAULT_POSE_HPARAM()
 HPARAM.VALID_SIZE = 2000
@@ -212,8 +212,6 @@ if __name__ == '__main__':
         # Load the .pth file with the tensors
         all_matches = torch.load(pth_path)
 
-        pdb.set_trace()
-
         if all_matches == []:
             print("All matches made were empty!")
             sys.exit(0)
@@ -266,8 +264,6 @@ if __name__ == '__main__':
                     raw_data['degree_error'][int(class_id)].append(degree_distance)
                     raw_data['3d_iou'][int(class_id)].append(ious_3d)
                     raw_data['offset_error'][int(class_id)].append(offset_errors)
-
-        pdb.set_trace()
 
         # After the loop of the matches
         for class_id in range(1, len(HPARAM.SELECTED_CLASSES)): # -1 to remove bg

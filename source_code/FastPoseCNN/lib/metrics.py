@@ -29,7 +29,7 @@ class DegreeErrorMeanAP(pl.metrics.Metric):
         """
 
         # Catching no-instance scenario
-        if 'quaternion' in gt_pred_matches.keys():
+        if type(gt_pred_matches) != type(None) and 'quaternion' in gt_pred_matches.keys():
 
             # Determing the degree per error (absolute distance)
             # https://github.com/KieranWynn/pyquaternion/blob/99025c17bab1c55265d61add13375433b35251af/pyquaternion/quaternion.py#L772

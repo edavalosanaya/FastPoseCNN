@@ -214,7 +214,12 @@ class PoseRegresssionTask(pl.LightningModule):
             
             # Logging the batch loss to Tensorboard
             for loss_name, loss_value in multi_task_losses[task_name].items():
-                self.logger.log_metrics(mode, {f'{task_name}/{loss_name}/batch':loss_value.detach().clone()}, batch_idx)
+                self.logger.log_metrics(
+                    mode, 
+                    {f'{task_name}/{loss_name}/batch':loss_value.detach().clone()}, 
+                    batch_idx,
+                    use_epoch_num=False
+                )
 
         # Calculate separate task metrics
         for task_name in self.metrics.keys():
@@ -233,7 +238,12 @@ class PoseRegresssionTask(pl.LightningModule):
         # Logging the metrics
         for task_name in multi_task_metrics.keys():
             for metric_name, metric_value in multi_task_metrics[task_name].items():
-                self.logger.log_metrics(mode, {f'{task_name}/{metric_name}/batch':metric_value.detach().clone()}, batch_idx) 
+                self.logger.log_metrics(
+                    mode, 
+                    {f'{task_name}/{metric_name}/batch':metric_value.detach().clone()}, 
+                    batch_idx,
+                    use_epoch_num=False
+                ) 
 
         return multi_task_losses, multi_task_metrics
 
@@ -504,26 +514,26 @@ if __name__ == '__main__':
     # Selecting the criterion (specific to each task)
     criterion = {
         'mask': {
-            'loss_ce': {'D': 'pixel-wise', 'F': lib.loss.CE(), 'weight': 0.8},
-            'loss_cce': {'D': 'pixel-wise', 'F': lib.loss.CCE(), 'weight': 0.8},
-            'loss_focal': {'D': 'pixel-wise', 'F': lib.loss.Focal(), 'weight': 1.0}
+            'loss_ce': {'D': 'pixel-wise', 'F': lib.loss.CE(), 'weight': 5.0},
+            'loss_cce': {'D': 'pixel-wise', 'F': lib.loss.CCE(), 'weight': 5.0},
+            'loss_focal': {'D': 'pixel-wise', 'F': lib.loss.Focal(), 'weight': 5.0}
         },
         'quaternion': {
             #'loss_mse': {'D': 'pixel-wise', 'F': lib.loss.MaskedMSELoss(key='quaternion'), 'weight': 0.2},
             #'loss_pw_qloss': {'D': 'pixel-wise', 'F': lib.loss.PixelWiseQLoss(key='quaternion'), 'weight': 1.0}
-            'loss_quat': {'D': 'matched', 'F': lib.loss.QLoss(key='quaternion'), 'weight': 1.0},
+            'loss_quat': {'D': 'matched', 'F': lib.loss.QLoss(key='quaternion'), 'weight': 0.1},
         },
         'xy': {
             #'loss_mse': {'D': 'pixel-wise', 'F': lib.loss.MaskedMSELoss(key='xy'), 'weight': 0.2},
-            'loss_xy': {'D': 'matched', 'F': lib.loss.XYLoss(key='xy'), 'weight': 1.0},
+            'loss_xy': {'D': 'matched', 'F': lib.loss.XYLoss(key='xy'), 'weight': 0.01},
         },
         'z': {
             #'loss_mse': {'D': 'pixel-wise', 'F': lib.loss.MaskedMSELoss(key='z'), 'weight': 0.2},
-            'loss_z': {'D': 'matched', 'F': lib.loss.ZLoss(key='z'), 'weight': 1.0},
+            'loss_z': {'D': 'matched', 'F': lib.loss.ZLoss(key='z'), 'weight': 0.1},
         },
         'scales': {
             #'loss_mse': {'D': 'pixel-wise', 'F': lib.loss.MaskedMSELoss(key='scales'), 'weight': 0.2},
-            'loss_scales': {'D': 'matched', 'F': lib.loss.ScalesLoss(key='scales'), 'weight': 1.0},
+            'loss_scales': {'D': 'matched', 'F': lib.loss.ScalesLoss(key='scales'), 'weight': 0.1},
         },
         #'RT_and_metrics': {
         #    'loss_R': {'D': 'matched', 'F': lib.loss.RLoss(key='R'), 'weight': 1.0},
@@ -662,14 +672,21 @@ if __name__ == '__main__':
         name=run_name
     )
 
-    # Creating my own callback
-    custom_callback = plc.MyCallback(
+    # A callback for creating the visualization and logging data to Tensorboard
+    tensorboard_callback = plc.TensorboardCallback(
         HPARAM=HPARAM,
         tasks=['mask', 'quaternion', 'xy', 'z', 'scales', 'hough voting', 'pose'],
         hparams=runs_hparams,
         #checkpoint_monitor={
         #    'pose/degree_error_AP_5': 'max'
         #}
+    )
+
+    # A callback that saves ckpts every N steps (useful for when the test crashes)
+    ckpt_save_n_callback = plc.CheckpointEveryNSteps(
+        save_step_frequency = HPARAM.CKPT_SAVE_FREQUENCY,
+        prefix = 'n-ckpt'
+
     )
 
     # Checkpoint callbacks
@@ -698,7 +715,10 @@ if __name__ == '__main__':
         num_processes=HPARAM.NUM_WORKERS,
         distributed_backend=HPARAM.DISTRIBUTED_BACKEND, # required to work
         logger=tb_logger,
-        callbacks=[custom_callback, loss_checkpoint_callback],
+        callbacks=[
+            tensorboard_callback, 
+            loss_checkpoint_callback,
+            ckpt_save_n_callback],
         gradient_clip_val=0.25
     )
 

@@ -1,6 +1,7 @@
 import os
 import pathlib
 from pathlib import Path
+from matplotlib import use
 
 from torch.utils.tensorboard.writer import SummaryWriter
 
@@ -113,11 +114,14 @@ class MyLogger(pl.loggers.LightningLoggerBase):
         pass
 
     @rank_zero_only
-    def log_metrics(self, mode, metrics, batch_idx, store=True):
+    def log_metrics(self, mode, metrics, batch_idx, store=True, use_epoch_num=True):
 
         # Calculate global step, since given information regarding the step is 
         # given in batch_idx
-        step = self.calculate_global_step(mode, batch_idx)
+        if use_epoch_num:
+            step = batch_idx
+        else:
+            step = self.calculate_global_step(mode, batch_idx)
 
         # Logging the metrics invidually to tensorboard
         for metric_name, metric_value in metrics.items():
