@@ -24,18 +24,18 @@ class DEFAULT_POSE_HPARAM(argparse.Namespace):
     CKPT_SAVE_FREQUENCY = 5
 
     # Run Specifications
-    CUDA_VISIBLE_DEVICES = '2,3' # '0,1,2,3'
-    BATCH_SIZE = 2
+    CUDA_VISIBLE_DEVICES = '3' # '0,1,2,3'
+    BATCH_SIZE = 3
     NUM_WORKERS = 18 # 36 total CPUs
-    NUM_GPUS = 2 # 4 total GPUs
-    TRAIN_SIZE= None#20#5000#100
-    VALID_SIZE= None#10#300#20
+    NUM_GPUS = 1 # 4 total GPUs
+    TRAIN_SIZE= 30#10_000#100
+    VALID_SIZE= 20#500#20
 
     # Training Specifications
     WEIGHT_DECAY = 0.003
     LEARNING_RATE = 0.001
     ENCODER_LEARNING_RATE = 0.005
-    NUM_EPOCHS = 50#2#50
+    NUM_EPOCHS = 2#50#2#50
     DISTRIBUTED_BACKEND = None if NUM_GPUS <= 1 else 'ddp'
 
     # Freezing Training Specifications

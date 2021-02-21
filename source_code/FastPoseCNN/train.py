@@ -171,7 +171,7 @@ class PoseRegresssionTask(pl.LightningModule):
         # Matching aggregated data between ground truth and predicted
         if self.HPARAM.PERFORM_AGGREGATION and self.HPARAM.PERFORM_MATCHING:
             # Determine matches between the aggreated ground truth and preds
-            gt_pred_matches = lib.gtf.batchwise_find_matches(
+            gt_pred_matches = lib.mg.batchwise_find_matches(
                 outputs['auxilary']['agg_pred'],
                 batch['agg_data']
             )

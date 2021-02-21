@@ -428,7 +428,7 @@ class TensorboardCallback(pl.callbacks.Callback):
             outputs = pl_module(batch['image'].float())
 
         # Determine matches between the aggreated ground truth and preds
-        gt_pred_matches = lib.gtf.batchwise_find_matches(
+        gt_pred_matches = lib.mg.batchwise_find_matches(
             outputs['auxilary']['agg_pred'],
             batch['agg_data']
         )

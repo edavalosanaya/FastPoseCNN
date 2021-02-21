@@ -138,7 +138,7 @@ if __name__ == '__main__':
                 outputs = model.forward(batch['image'])
 
             # Determine matches between the aggreated ground truth and preds
-            gt_pred_matches = lib.gtf.batchwise_find_matches(
+            gt_pred_matches = lib.mg.batchwise_find_matches(
                 outputs['auxilary']['agg_pred'],
                 batch['agg_data']
             )
