@@ -28,14 +28,14 @@ class DEFAULT_POSE_HPARAM(argparse.Namespace):
     BATCH_SIZE = 3
     NUM_WORKERS = 18 # 36 total CPUs
     NUM_GPUS = 1 # 4 total GPUs
-    TRAIN_SIZE= 30#10_000#100
+    TRAIN_SIZE= 100#10_000#100
     VALID_SIZE= 20#500#20
 
     # Training Specifications
     WEIGHT_DECAY = 0.003
     LEARNING_RATE = 0.001
     ENCODER_LEARNING_RATE = 0.005
-    NUM_EPOCHS = 2#50#2#50
+    NUM_EPOCHS = 5#50#2#50
     DISTRIBUTED_BACKEND = None if NUM_GPUS <= 1 else 'ddp'
 
     # Freezing Training Specifications
