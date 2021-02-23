@@ -523,7 +523,7 @@ class CheckpointEveryNSteps(pl.Callback):
     def on_validation_epoch_end(self, trainer: pl.Trainer, _):
         """ Check if we should save a checkpoint after every train batch """
         
-        epoch = trainer.current_epoch
+        epoch = trainer.current_epoch + 1
         
         if epoch % self.save_step_frequency == 0:
             if self.use_modelcheckpoint_filename:

@@ -184,7 +184,7 @@ class PoseRegressor(torch.nn.Module):
         cc_logits = gtf.class_compress2(self.classes, cat_mask, logits)
 
         # Perform aggregation, hough voting, and generate RT matrix given the 
-        # results of previous operations.
+        # results o f previous operations.
         agg_pred = self.agg_hough_and_generate_RT(
             cat_mask,
             cc_logits

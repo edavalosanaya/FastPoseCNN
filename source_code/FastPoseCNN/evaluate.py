@@ -33,13 +33,14 @@ from config import DEFAULT_POSE_HPARAM
 # Constants
 
 #PATH = pathlib.Path(os.getenv("LOGS")) / 'good_saved_runs' / '2_object' / '21-38-XY_REGRESSION_DEBUG-CAMERA-resnet18-imagenet' / '_' / 'checkpoints' / 'last.ckpt'
-PATH = pathlib.Path(os.getenv("LOGS")) / 'good_saved_runs' / 'all_object' / '23-52-ALL_OBJECTS_E25-CAMERA-resnet18-imagenet' / '_' / 'checkpoints' / 'last.ckpt'
+#PATH = pathlib.Path(os.getenv("LOGS")) / 'good_saved_runs' / 'all_object' / '23-52-ALL_OBJECTS_E25-CAMERA-resnet18-imagenet' / '_' / 'checkpoints' / 'last.ckpt'
+PATH = pathlib.Path(os.getenv("LOGS")) / 'debugging_test_runs' / '22-58-FREEZE_MASK_ALL_OBJECT-CAMERA-resnet18-imagenet' / '_' / 'checkpoints' / 'n-ckpt_epoch=5.ckpt'
 
 HPARAM = DEFAULT_POSE_HPARAM()
 HPARAM.VALID_SIZE = 2000
 HPARAM.HV_NUM_OF_HYPOTHESES = 501
 
-COLLECT_DATA = False
+COLLECT_DATA = True
 DRAW = True
 TOTAL_DRAW_IMAGES = 10
 APS_NUM_OF_POINTS = 50
@@ -48,6 +49,19 @@ APS_NUM_OF_POINTS = 50
 # File Main
 
 if __name__ == '__main__':
+
+    # Parse arguments and replace global variables if needed
+    parser = argparse.ArgumentParser(description='Train with PyTorch Lightning framework')
+    
+    # Automatically adding all the attributes of the HPARAM to the parser
+    for attr in dir(HPARAM):
+        if '__' in attr or attr[0] == '_': # Private or magic attributes
+            continue
+        
+        parser.add_argument(f'--{attr}', type=type(getattr(HPARAM, attr)), default=getattr(HPARAM, attr))
+
+    # Updating the HPARAMs
+    parser.parse_args(namespace=HPARAM)
 
     # Construct the json path depending on the PATH string
     pth_path = PATH.parent.parent / f'pred_gt_{HPARAM.VALID_SIZE}_results.pth'

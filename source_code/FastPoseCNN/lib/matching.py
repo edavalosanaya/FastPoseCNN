@@ -37,7 +37,30 @@ KEYS_TO_STACK = [
 ]
 
 #-------------------------------------------------------------------------------
-# Routines
+# Utility Routines
+
+def stack_and_store_data(pred_gt_matches, gts, preds, gts_instances, preds_instances):
+    
+    # Select the match data and combined them together!
+    for data_key in gts.keys():
+        if data_key in KEYS_TO_STACK:
+            
+            # Stack data
+            stacked_data = torch.stack(
+                (
+                    gts[data_key][gts_instances],
+                    preds[data_key][preds_instances]
+                )
+            )
+
+            # Store stacked data
+            if data_key in pred_gt_matches.keys():
+                pred_gt_matches[data_key].append(stacked_data)
+            else:
+                pred_gt_matches[data_key] = [stacked_data]
+
+#-------------------------------------------------------------------------------
+# Filling-Missing-Pred Routines
 
 def find_matches_batched(preds, gts):
     """
@@ -187,7 +210,7 @@ def find_matches_batched(preds, gts):
 
     return pred_gt_matches
 
-def batchwise_find_matches(preds, gts):
+def batchwise_find_matches2(preds, gts):
 
     pred_gt_matches = {
         'sample_ids': [],
@@ -307,26 +330,6 @@ def batchwise_find_matches(preds, gts):
 
     return pred_gt_matches 
 
-def stack_and_store_data(pred_gt_matches, gts, preds, gts_instances, preds_instances):
-    
-    # Select the match data and combined them together!
-    for data_key in gts.keys():
-        if data_key in KEYS_TO_STACK:
-            
-            # Stack data
-            stacked_data = torch.stack(
-                (
-                    gts[data_key][gts_instances],
-                    preds[data_key][preds_instances]
-                )
-            )
-
-            # Store stacked data
-            if data_key in pred_gt_matches.keys():
-                pred_gt_matches[data_key].append(stacked_data)
-            else:
-                pred_gt_matches[data_key] = [stacked_data]
-
 def get_standard_preds(gts, n_of_data):
 
     # Construct standard preds base (scalar)
@@ -348,6 +351,7 @@ def get_standard_preds(gts, n_of_data):
         # Exception to zeros is quaternions (to make the data have a norm = 1)
         get_standard_preds.standard_preds['quaternion'][0] = 1
         get_standard_preds.standard_preds['RT'] = torch.eye(4, device=gts['RT'].device)
+        get_standard_preds.standard_preds['z'][0] = 1000
 
     # Creating the standard preds for this specific gts
     std_preds = {}
@@ -365,6 +369,96 @@ def get_standard_preds(gts, n_of_data):
 
     return std_preds
             
+#-------------------------------------------------------------------------------
+# Non-Filling-Missing-Pred Routines
 
+def batchwise_find_matches(preds, gts):
 
-    
+    pred_gt_matches = {
+        'sample_ids': [],
+        'class_ids': [],
+        'symmetric_ids': []
+    }
+
+    keys_to_stack = [
+        'instance_masks', # Class
+        'quaternion', 'R', # Rotation
+        'scales', # Size
+        'xy', 'z', 'T', # Translation
+        'RT', # Transformation
+        'xy_mask', 'hypothesis', 'pruned_hypothesis' # Hough Voting
+    ]
+
+    # If there is no classes in the predicted, then return None
+    if preds['class_ids'].shape[0] == 0:
+        return None
+
+    # For each class
+    for class_id in torch.unique(gts['class_ids']):
+
+        # Finding the specific indexes for the class
+        gts_class_instances = torch.where(gts['class_ids'] == class_id)[0]
+        preds_class_instances = torch.where(preds['class_ids'] == class_id)[0]
+
+        # Check the number of instances in pred and gts dicts
+        n_of_m1 = gts_class_instances.shape[0]
+        n_of_m2 = preds_class_instances.shape[0]
+
+        # If there is no instances of this class to begin with
+        if n_of_m1 == 0 or n_of_m2 == 0:
+            continue
+
+        # Find the 2D Iou between the pred and gt instance masks
+        iou_2ds = gtf.batchwise_get_2d_iou(
+            gts['instance_masks'][gts_class_instances],
+            preds['instance_masks'][preds_class_instances]
+        )
+
+        #iou_2ds = torch.zeros((n_of_m1, n_of_m2))
+        #min_n = min(n_of_m1, n_of_m2)
+        #iou_2ds[torch.arange(min_n), torch.arange(min_n)] = 1
+
+        # Pair ground truth and predictions based on their iou_2ds
+        max_v, max_pred_id = torch.max(iou_2ds, dim=1)
+        max_gt_id = torch.arange(n_of_m1)
+
+        # Removing those whose max iou2d was zero
+        valid_max_id = max_v > 0
+
+        # Check that there is true matches to begin
+        if (valid_max_id == False).all():
+            continue            
+
+        # Keep only good matches
+        max_v = max_v[valid_max_id]
+        max_pred_id = max_pred_id[valid_max_id]
+        max_gt_id = max_gt_id[valid_max_id]
+
+        # Storing shared data
+        class_instance_identifiers = torch.tensor(
+            [class_id], device=gts_class_instances.device
+        ).repeat(max_gt_id.shape[0])
+
+        # Storing data that is shared between ground truth and pred agg data
+        pred_gt_matches['sample_ids'].append(gts['sample_ids'][gts_class_instances][max_gt_id])
+        pred_gt_matches['symmetric_ids'].append(gts['symmetric_ids'][gts_class_instances][max_gt_id])
+        pred_gt_matches['class_ids'].append(class_instance_identifiers)
+
+        # Stacking and storing data
+        stack_and_store_data(
+            pred_gt_matches,
+            gts,
+            preds,
+            gts_class_instances[max_gt_id],
+            preds_class_instances[max_pred_id]
+        )
+
+    # Concatinating the results
+    for key in pred_gt_matches.keys():
+        if key in ['sample_ids', 'class_ids', 'symmetric_ids']:
+            axis = 0
+        else:
+            axis = 1
+        pred_gt_matches[key] = torch.cat(pred_gt_matches[key], dim=axis)
+
+    return pred_gt_matches   
