@@ -34,7 +34,7 @@ from config import DEFAULT_POSE_HPARAM
 
 #PATH = pathlib.Path(os.getenv("LOGS")) / 'good_saved_runs' / '2_object' / '21-38-XY_REGRESSION_DEBUG-CAMERA-resnet18-imagenet' / '_' / 'checkpoints' / 'last.ckpt'
 #PATH = pathlib.Path(os.getenv("LOGS")) / 'good_saved_runs' / 'all_object' / '23-52-ALL_OBJECTS_E25-CAMERA-resnet18-imagenet' / '_' / 'checkpoints' / 'last.ckpt'
-PATH = pathlib.Path(os.getenv("LOGS")) / 'debugging_test_runs' / '22-58-FREEZE_MASK_ALL_OBJECT-CAMERA-resnet18-imagenet' / '_' / 'checkpoints' / 'n-ckpt_epoch=5.ckpt'
+PATH = pathlib.Path(os.getenv("LOGS")) / 'debugging_test_runs' / '23-40-LOG_DEBUG-CAMERA-resnet18-imagenet' / '_' / 'checkpoints' / 'n-ckpt_epoch=5.ckpt'
 
 HPARAM = DEFAULT_POSE_HPARAM()
 HPARAM.VALID_SIZE = 2000

@@ -2,6 +2,7 @@ import pdb
 import shutil
 import os
 import operator
+import logging
 
 import numpy as np
 from numpy.core.numeric import False_
@@ -17,6 +18,11 @@ from pytorch_lightning.utilities import rank_zero_only
 # Local import
 import tools
 import lib
+
+#-------------------------------------------------------------------------------
+# Constants
+
+LOGGER = logging.getLogger('fastposecnn')
 
 #-------------------------------------------------------------------------------
 # Classes
@@ -126,6 +132,8 @@ class TensorboardCallback(pl.callbacks.Callback):
 
     @rank_zero_only
     def shared_epoch_end(self, mode, trainer, pl_module):
+
+        LOGGER.info(f'epoch={trainer.current_epoch+1}')
 
         # Log the average for the metrics for each epoch
         self.log_epoch_average(mode, trainer, pl_module)

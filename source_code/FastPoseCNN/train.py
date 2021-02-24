@@ -3,10 +3,11 @@ import warnings
 import datetime
 import argparse
 import pathlib
-from pprint import pprint
+import pprint
 
 # DEBUGGING
 import pdb
+import logging
 
 import numpy as np
 import base64
@@ -69,6 +70,15 @@ To delete hanging Tensorboard processes use the following:
 # File Constants
 
 HPARAM = cfg.DEFAULT_POSE_HPARAM()
+LOGGER = logging.getLogger('fastposecnn')
+
+LOGGER.setLevel(logging.DEBUG)
+logging.getLogger('requests').setLevel(logging.DEBUG)
+logging.getLogger('PIL').setLevel(logging.INFO)
+
+for log_name, log_obj in logging.Logger.manager.loggerDict.items():
+    if log_name != 'fastposecnn':
+        log_obj.disabled = True
 
 #-------------------------------------------------------------------------------
 # Classes
@@ -164,6 +174,8 @@ class PoseRegresssionTask(pl.LightningModule):
         return result
 
     def shared_step(self, mode, batch, batch_idx):
+
+        LOGGER.info(f'batch id={batch_idx}')
         
         # Forward pass the input and generate the prediction of the NN
         outputs = self.forward(batch['image'])
@@ -207,7 +219,8 @@ class PoseRegresssionTask(pl.LightningModule):
                     multi_task_losses['pose']['total_loss'] += losses['task_total_loss']
 
         # ! Debugging what is the loss that has large values!
-        #pprint(multi_task_losses)
+        LOGGER.debug(pprint.pformat(batch['agg_data']))
+        LOGGER.debug(pprint.pformat(multi_task_losses))
 
         # Logging the losses
         for task_name in multi_task_losses.keys():
@@ -707,6 +720,12 @@ if __name__ == '__main__':
         mode='max'
     )
     """
+
+    # Add logging for debugging long sessions
+    logging.basicConfig(
+        filename=str(run_of_the_day_dir / run_name  / 'run.log'),
+        level=logging.DEBUG
+    )
 
     # Training
     trainer = pl.Trainer(
