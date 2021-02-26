@@ -143,6 +143,7 @@ class TensorboardCallback(pl.callbacks.Callback):
             # Log visualization of the mask
             self.log_epoch_mask(mode, trainer, pl_module)
         
+        """
         if 'quaternion' in self.tasks:
             # Log visualization of quat
             self.log_epoch_quat(mode, trainer, pl_module)
@@ -158,6 +159,7 @@ class TensorboardCallback(pl.callbacks.Callback):
         if 'scales' in self.tasks:
             # Log visualization of scales
             self.log_epoch_scales(mode, trainer, pl_module)
+        """
 
         if 'hough voting' in self.tasks:
             # Log visualization of hough voting
@@ -243,7 +245,10 @@ class TensorboardCallback(pl.callbacks.Callback):
             f'mask_gen/{mode}', 
             summary_fig, 
             trainer.current_epoch+1
-        )
+            )
+
+        # Saving mask as well to help visualize
+        self.save_figure('mask', summary_fig, mode, trainer, pl_module)
     
     # QUAT
     @rank_zero_only
@@ -414,6 +419,9 @@ class TensorboardCallback(pl.callbacks.Callback):
             trainer.current_epoch+1
         )
 
+        # Saving image
+        self.save_figure('hv', summary_fig, mode, trainer, pl_module)
+
     # POSE
     @rank_zero_only
     def log_epoch_pose(self, mode, trainer, pl_module):
@@ -459,13 +467,29 @@ class TensorboardCallback(pl.callbacks.Callback):
                     f'pose_gen/{mode}', 
                     summary_fig, 
                     trainer.current_epoch+1
-                )      
+                )
+
+                # Saving image
+                self.save_figure('pose', summary_fig, mode, trainer, pl_module)
 
             except Exception as e:
                 print('pose visualization error: ', e)
         
     #---------------------------------------------------------------------------
     # End of Training
+
+    @rank_zero_only
+    def save_figure(self, postfix, summary_fig, mode, trainer, pl_module):
+
+        # Save the image to help visualize performance without having to see
+        # in Tensorboard
+        if mode == 'train':
+            fig_path = pl_module.logger.train_dir
+        else:
+            fig_path = pl_module.logger.valid_dir
+
+        fig_path = fig_path / f'{trainer.current_epoch+1}_{postfix}.png'
+        summary_fig.savefig(str(fig_path), dpi=400)
 
     @rank_zero_only
     def teardown(self, trainer, pl_module, stage):

@@ -5,8 +5,10 @@ import pathlib
 import collections
 from typing import List, Union
 import abc
+import pprint
 
 import pdb
+import logging
 
 import random
 import numpy as np
@@ -47,6 +49,7 @@ import transforms
 
 ENCODER = 'resnext50_32x4d'
 ENCODER_WEIGHTS = 'imagenet'
+LOGGER = logging.getLogger('fastposecnn')
 
 #-------------------------------------------------------------------------------
 # Custom Abstract Dataset
@@ -120,9 +123,12 @@ class NOCSDataset(Dataset, torch.utils.data.Dataset):
     def __getitem__(self, i):
 
         # DEBUGGING
-        # self.images_fps[i] = pathlib.Path(
-        #     '/home/students/edavalos/GitHub/FastPoseCNN/datasets/NOCS/camera/val/01916/0009_color.png'
-        # )
+        """
+        self.images_fps[i] = pathlib.Path(
+            '/home/students/edavalos/GitHub/FastPoseCNN/datasets/NOCS/camera/val/01173/0007_color.png'
+        )
+        """
+        LOGGER.debug(f"LOADING IMAGE: {str(self.images_fps[i])}")
 
         # Reading data
         # Image
@@ -185,10 +191,15 @@ class NOCSDataset(Dataset, torch.utils.data.Dataset):
         # Generate the aggregated data (instance-lead data)
         agg_data = self.generate_agg_data(good_instances_mask, good_json_data)
 
+        # Check if any data is invalid, if it is, simply return None for the sample
+        if (agg_data['z'] <= 0).any():
+            LOGGER.debug(f"INVALID/CORRUPT SAMPLE: z <= 0, class_ids: {agg_data['class_ids']}")
+            return None
+
         # Create dense representation of the data (class type is instances)
-        quaternions = dm.create_dense_quaternion(good_instances_mask, good_json_data)
-        scales = dm.create_dense_scales(good_instances_mask, good_json_data)
-        xy, z = dm.create_dense_3d_centers(good_instances_mask, good_json_data, self.INTRINSICS)
+        #quaternions = dm.create_dense_quaternion(good_instances_mask, good_json_data)
+        #scales = dm.create_dense_scales(good_instances_mask, good_json_data)
+        #xy, z = dm.create_dense_3d_centers(good_instances_mask, good_json_data, self.INTRINSICS)
 
         # Generating class mask with the desired object class
         class_mask = np.zeros_like(good_instances_mask)
@@ -200,10 +211,10 @@ class NOCSDataset(Dataset, torch.utils.data.Dataset):
             'clean_image': image,
             'image': image, 
             'mask': class_mask, 
-            'quaternion': quaternions,
-            'scales': scales,
-            'xy': xy,
-            'z': z
+            #'quaternion': quaternions,
+            #'scales': scales,
+            #'xy': xy,
+            #'z': z
         }
 
         # apply augmentations
@@ -227,10 +238,10 @@ class NOCSDataset(Dataset, torch.utils.data.Dataset):
         sample.update({
             'image': skimage.img_as_float32(sample['image']),
             'mask': sample['mask'].astype('long'),
-            'quaternion': skimage.img_as_float32(sample['quaternion']),
-            'scales': skimage.img_as_float32(sample['scales']),
-            'xy': skimage.img_as_float32(sample['xy']),
-            'z': skimage.img_as_float32(sample['z']),
+            #'quaternion': skimage.img_as_float32(sample['quaternion']),
+            #'scales': skimage.img_as_float32(sample['scales']),
+            #'xy': skimage.img_as_float32(sample['xy']),
+            #'z': skimage.img_as_float32(sample['z']),
             'agg_data': agg_data
         })
 
@@ -416,6 +427,9 @@ class REALDataset(NOCSDataset):
 # Dataloader
 
 def my_collate_fn(batch, device=None):
+
+    # Filtering any samples that were deemed corrupted or invalid
+    batch = list(filter(lambda x : x is not None, batch))
 
     collate_batch = {}
     agg_data = {

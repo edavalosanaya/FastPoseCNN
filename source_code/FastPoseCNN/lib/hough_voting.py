@@ -2,6 +2,7 @@ import os
 import sys
 import time
 import argparse
+import logging
 
 import matplotlib.pyplot as plt
 
@@ -19,6 +20,11 @@ except ImportError:
     pass
 
 import gpu_tensor_funcs as gtf
+
+#-------------------------------------------------------------------------------
+# Constants
+
+LOGGER = logging.getLogger('fastposecnn')
 
 #-------------------------------------------------------------------------------
 # Primary Hough Voting Routines

@@ -189,6 +189,9 @@ class PoseRegresssionTask(pl.LightningModule):
             )
         else:
             gt_pred_matches = None
+
+        LOGGER.debug("\nMATCHED DATA")
+        LOGGER.debug(pprint.pformat(gt_pred_matches))
         
         # Storage for losses and metrics depending on the task
         multi_task_losses = {'pose': {'total_loss': torch.tensor(0).float().to(self.device)}}
@@ -219,7 +222,7 @@ class PoseRegresssionTask(pl.LightningModule):
                     multi_task_losses['pose']['total_loss'] += losses['task_total_loss']
 
         # ! Debugging what is the loss that has large values!
-        LOGGER.debug(pprint.pformat(batch['agg_data']))
+        LOGGER.debug("\nALL LOSSESS")
         LOGGER.debug(pprint.pformat(multi_task_losses))
 
         # Logging the losses
@@ -335,6 +338,18 @@ class PoseRegresssionTask(pl.LightningModule):
                     metrics[metric_name] = metric_attrs['F'](gt_pred_matches)
 
         return metrics
+
+    def on_after_backward(self) -> None:
+        # ! Debugging purposes
+        #"""
+        for section_name, params in {'translation_decoder': self.model.translation_decoder, 'translation_head': self.model.translation_head}.items():
+            LOGGER.debug(f"\nSEEING {section_name} parameters")
+            for name, param in params.named_parameters():
+                if type(param.grad) != type(None):
+                    LOGGER.debug(f'{name}: max={torch.max(torch.abs(param.grad))} nan={torch.isfinite(param.grad).all()}')
+                else:
+                    LOGGER.debug(f'{name}: {param.grad}')
+        #"""
 
     def configure_optimizers(self):
 
@@ -563,6 +578,7 @@ if __name__ == '__main__':
             'iou': {'D': 'pixel-wise', 'F': pl.metrics.functional.iou},
             'f1': {'D': 'pixel-wise', 'F': pl.metrics.functional.f1_score}
         },
+        """
         'quaternion': {
             'mae': {'D': 'pixel-wise', 'F': pl.metrics.functional.mean_absolute_error},
         },
@@ -575,6 +591,7 @@ if __name__ == '__main__':
         'scales': {
             'mae': {'D': 'pixel-wise', 'F': pl.metrics.functional.mean_absolute_error}
         },
+        """
         'pose': {
             'degree_error': {'D': 'matched', 'F': lib.metrics.DegreeError()},
             'degree_error_AP_5': {'D': 'matched', 'F': lib.metrics.DegreeErrorMeanAP(5)},
@@ -685,6 +702,12 @@ if __name__ == '__main__':
         name=run_name
     )
 
+    # Add logging for debugging long sessions
+    logging.basicConfig(
+        filename=str(run_of_the_day_dir / run_name  / 'run.log'),
+        level=logging.DEBUG
+    )
+
     # A callback for creating the visualization and logging data to Tensorboard
     tensorboard_callback = plc.TensorboardCallback(
         HPARAM=HPARAM,
@@ -699,7 +722,6 @@ if __name__ == '__main__':
     ckpt_save_n_callback = plc.CheckpointEveryNSteps(
         save_step_frequency = HPARAM.CKPT_SAVE_FREQUENCY,
         prefix = 'n-ckpt'
-
     )
 
     # Checkpoint callbacks
@@ -721,12 +743,6 @@ if __name__ == '__main__':
     )
     """
 
-    # Add logging for debugging long sessions
-    logging.basicConfig(
-        filename=str(run_of_the_day_dir / run_name  / 'run.log'),
-        level=logging.DEBUG
-    )
-
     # Training
     trainer = pl.Trainer(
         max_epochs=HPARAM.NUM_EPOCHS,
@@ -738,7 +754,7 @@ if __name__ == '__main__':
             tensorboard_callback, 
             loss_checkpoint_callback,
             ckpt_save_n_callback],
-        gradient_clip_val=0.25
+        gradient_clip_val=0.15
     )
 
     # Train

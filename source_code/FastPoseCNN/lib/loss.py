@@ -431,7 +431,7 @@ class XYLoss(_Loss): # 2D Center
             pred = gt_pred_matches[self.key][1]
 
             # Calculating the loss
-            abs_diff = torch.abs(gt-pred)
+            abs_diff = (gt-pred).norm(dim=1)
 
             # Remove any nans in the data
             abs_diff = abs_diff[torch.isnan(abs_diff) == False]
@@ -474,13 +474,13 @@ class ZLoss(_Loss): # Z - depth
             pred = gt_pred_matches[self.key][1]
 
             # Calculating the loss (logging the data first)
-            abs_diff = torch.abs(torch.log(gt)-torch.log(pred))
+            abs_diff = (torch.log(gt)-torch.log(pred)).norm(dim=1)
 
             # Remove any nans in the data
-            abs_diff = abs_diff[torch.isnan(abs_diff) == False]
+            clean_diff = abs_diff[torch.isnan(abs_diff) == False]
 
             # Calculating the loss
-            loss = torch.mean(abs_diff) # Reducing the loss by a factor
+            loss = torch.mean(clean_diff) # Reducing the loss by a factor
 
         else:
             try:
@@ -517,7 +517,7 @@ class ScalesLoss(_Loss): # h, w, l scales
             pred = gt_pred_matches[self.key][1]
 
             # Calculating the loss
-            abs_diff = torch.abs(gt-pred)
+            abs_diff = (gt-pred).norm(dim=1)
 
             # Remove any nans in the data
             abs_diff = abs_diff[torch.isnan(abs_diff) == False]

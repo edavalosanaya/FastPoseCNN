@@ -1048,18 +1048,18 @@ def compare_all_performance(sample, outputs, pred_gt_matches, intrinsics, mask_c
     gt_mask_vis = get_visualized_masks(sample['mask'], mask_colormap)
 
     # z
-    gt_z_vis = get_visualized_zs(sample['z'])
+    #gt_z_vis = get_visualized_zs(sample['z'])
     pred_z_vis = get_visualized_zs(outputs['z'])
 
     # Ground truth xy
-    gt_uv = get_visualized_u_vector_xys(sample['mask'], sample['xy'].cpu().numpy())
+    #gt_uv = get_visualized_u_vector_xys(sample['mask'], sample['xy'].cpu().numpy())
 
     # scales
-    gt_scales_vis = get_visualized_scales(sample['scales'].cpu().numpy())
+    #gt_scales_vis = get_visualized_scales(sample['scales'].cpu().numpy())
     pred_scales_vis = get_visualized_scales(outputs['scales'].cpu().numpy())
 
     # quaternion
-    gt_quat_vis = get_visualized_quaternions(sample['quaternion'].cpu().numpy())
+    #gt_quat_vis = get_visualized_quaternions(sample['quaternion'].cpu().numpy())
     pred_quat_vis = get_visualized_quaternions(outputs['quaternion'].cpu().numpy())
 
     # If only matches are found
@@ -1083,10 +1083,10 @@ def compare_all_performance(sample, outputs, pred_gt_matches, intrinsics, mask_c
 
         gt_images = {
             'gt_mask': np.moveaxis(gt_mask_vis, 1,-1),
-            'gt_z': gt_z_vis,
-            'gt_scales': gt_scales_vis,
-            'gt_quat': gt_quat_vis,
-            'gt_uv': gt_uv
+            #'gt_z': gt_z_vis,
+            #'gt_scales': gt_scales_vis,
+            #'gt_quat': gt_quat_vis,
+            #'gt_uv': gt_uv
         }
 
         pred_images = {
@@ -1106,9 +1106,9 @@ def compare_all_performance(sample, outputs, pred_gt_matches, intrinsics, mask_c
 
         gt_images = {
             'gt_mask': np.moveaxis(gt_mask_vis, 1,-1),
-            'gt_z': gt_z_vis,
-            'gt_scales': gt_scales_vis,
-            'gt_quat': gt_quat_vis
+            #'gt_z': gt_z_vis,
+            #'gt_scales': gt_scales_vis,
+            #'gt_quat': gt_quat_vis
         }
 
         pred_images = {
