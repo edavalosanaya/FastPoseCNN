@@ -1,3 +1,4 @@
+import sys
 import os
 import warnings
 import datetime
@@ -261,7 +262,7 @@ class PoseRegresssionTask(pl.LightningModule):
                 )
 
         # Before the end of this loop, save a detach instance of the matched data
-        self.gt_pred_matches = gt_pred_matches
+        self.batch = batch
 
         return multi_task_losses, multi_task_metrics
 
@@ -354,18 +355,35 @@ class PoseRegresssionTask(pl.LightningModule):
                     # Catching the instance that a gradient is not finite (+- inf)
                     all_finite = torch.isfinite(param.grad).all()
                     if not all_finite:
-                        inf_flag = True 
+                        inf_flag = True
+
+                    # Catching nans
+                    any_nans = torch.isnan(param.grad).any()
+                    
+                    # If any nans are detected after the inf loss, then stop training
+                    if inf_flag and any_nans:
+                        print("Destructive INF detected!\nStopping training!")
+                        sys.exit(0) 
 
                     # Loggging data
                     LOGGER.debug(f'{name}: max={torch.max(torch.abs(param.grad))} all finite={all_finite}')
                 else:
                     LOGGER.debug(f'{name}: {param.grad}')
 
-        # If we ever detect a infinite gradient, we need to save the matched data
-        # to help debug this issue.
+        """
+        If an infinite loss is calculated, then we need to save the input batch 
+        that caused the infinite loss and the weights and biases of the model to
+        easily replicate this issue.
+        """
         if inf_flag:
-            pth_path = pathlib.Path(os.environ['RUNS_LOG_DIR']) / f'gpm_epoch={self.trainer.current_epoch+1}'
-            torch.save(self.gt_pred_matches, str(pth_path))
+
+            # Saving the most up-to-date batch
+            pth_path = pathlib.Path(os.environ['RUNS_LOG_DIR']) / f'inf_batch_epoch={self.trainer.current_epoch+1}.pth'
+            torch.save(self.batch, str(pth_path))
+
+            # Saving the model's weights and biases
+            ckpt_path = pathlib.Path(os.environ['RUNS_LOG_DIR']) / f'inf_ckpt_epoch={self.trainer.current_epoch+1}.pth'
+            self.trainer.save_checkpoint(ckpt_path)
         
         #"""
         return None
@@ -726,6 +744,11 @@ if __name__ == '__main__':
         filename=str(run_of_the_day_dir / run_name  / 'run.log'),
         level=logging.DEBUG
     )
+
+    # Saving the HPARAMS as a json file in the runs directory for easier
+    # troubleshooting
+    json_hparam = {k:getattr(HPARAM, k) for k in dir(HPARAM) if (k.find("__") == -1 and k[0] != '_')}
+    tools.jt.save_to_json(str(run_of_the_day_dir / run_name / 'HPARAM.json'), json_hparam)
 
     # A callback for creating the visualization and logging data to Tensorboard
     tensorboard_callback = plc.TensorboardCallback(

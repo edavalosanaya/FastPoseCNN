@@ -251,6 +251,7 @@ class QLoss(_Loss): # Quaternion
 
             # Calculate the loss for symmetric items
             symmetric_loss = self.get_symmetric_loss(gt[symmetric_instances], pred[symmetric_instances])
+            #symmetric_loss = self.get_loss(gt[symmetric_instances], pred[symmetric_instances])
 
             # Sum the total loss
             loss = torch.cat((non_symmetric_loss, symmetric_loss), dim=0)

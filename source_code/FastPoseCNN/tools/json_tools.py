@@ -1,4 +1,5 @@
 import json
+import pathlib
 
 import numpy as np
 
@@ -23,6 +24,9 @@ class NumpyEncoder(json.JSONEncoder):
         
         elif isinstance(obj,(np.ndarray,)): #### This is the fix
             return obj.tolist()
+
+        elif isinstance(obj,(pathlib.Path,)):
+            return str(obj)
         
         return json.JSONEncoder.default(self, obj)
 
