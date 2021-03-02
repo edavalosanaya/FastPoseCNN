@@ -18,16 +18,16 @@ class DEFAULT_POSE_HPARAM(argparse.Namespace):
     # Training Specifications
     #CHECKPOINT = pathlib.Path(os.getenv("LOGS")) / 'good_saved_runs' / '2_object' / '21-38-XY_REGRESSION_DEBUG-CAMERA-resnet18-imagenet' / '_' / 'checkpoints' / 'last.ckpt'
     #CHECKPOINT = pathlib.Path(os.getenv("LOGS")) / 'good_saved_runs' / 'all_object' / '20-23-MASK_ALL_OBJECTS-CAMERA-resnet18-imagenet' / '_' / 'checkpoints' / 'last.ckpt'
-    CHECKPOINT = pathlib.Path(os.getenv("LOGS")) / 'debugging_test_runs' / '22-58-FREEZE_MASK_ALL_OBJECT-CAMERA-resnet18-imagenet' / '_' / 'checkpoints' / 'n-ckpt_epoch=5.ckpt'
+    CHECKPOINT = pathlib.Path(os.getenv("LOGS")) / 'debugging_test_runs' / '13-15-MASK_TEST-CAMERA-resnet18-imagenet' / '_' / 'checkpoints' / 'n-ckpt_epoch=5.ckpt'
     DATASET_NAME = 'CAMERA' # string
     #SELECTED_CLASSES = ['bg','camera','laptop']
     SELECTED_CLASSES = tools.pj.constants.CAMERA_CLASSES 
     CKPT_SAVE_FREQUENCY = 5
 
     # Run Specifications
-    CUDA_VISIBLE_DEVICES = '3' # '0,1,2,3'
+    CUDA_VISIBLE_DEVICES = '0' # '0,1,2,3'
     BATCH_SIZE = 3
-    NUM_WORKERS = 18 # 36 total CPUs
+    NUM_WORKERS = 8 # 36 total CPUs
     NUM_GPUS = 1 # 4 total GPUs
     TRAIN_SIZE= 10_000#100
     VALID_SIZE= 500#20
@@ -35,7 +35,7 @@ class DEFAULT_POSE_HPARAM(argparse.Namespace):
     # Training Specifications
     WEIGHT_DECAY = 0.0003
     LEARNING_RATE = 0.0001
-    ENCODER_LEARNING_RATE = 0.0005
+    ENCODER_LEARNING_RATE = 0.00005
     NUM_EPOCHS = 15#2#50
     DISTRIBUTED_BACKEND = None if NUM_GPUS <= 1 else 'ddp'
 

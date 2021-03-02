@@ -24,9 +24,14 @@ import matplotlib
 #matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.cm
+from mpl_toolkits.mplot3d import Axes3D # <---- This is important for 3D plotting
 
 # Local Imports
-root = pathlib.Path(os.getenv("ROOT_DIR"))
+try:
+    root = pathlib.Path(os.getenv("ROOT_DIR"))
+except TypeError:
+    pass
+
 sys.path.append(str(pathlib.Path(__file__).parent))
 
 import project as pj
@@ -1035,7 +1040,7 @@ def compare_pose_performance_v5(
         return images
 
 #-------------------------------------------------------------------------------
-# Visualiation of All Things
+# Visualization of All Things
 
 def compare_all_performance(sample, outputs, pred_gt_matches, intrinsics, mask_colormap):
 
@@ -1131,6 +1136,62 @@ def compare_all_performance(sample, outputs, pred_gt_matches, intrinsics, mask_c
     return gt_fig, pred_fig, poses_fig
 
 #-------------------------------------------------------------------------------
+# Ground Truth Visualization (for debugging purposes)
+
+def visualize_gt_pose(sample, mask_colormap, intrinsics, return_as_figure=True):
+
+    image = sample['clean_image']
+    mask = sample['mask']
+    agg_data = sample['agg_data']
+
+    # Draw image
+    quat_draw_image = image.cpu().numpy()
+    rt_draw_image = image.cpu().numpy()
+
+    # Obtaining the sample ids
+    try:
+        sample_ids = agg_data['sample_ids']
+    except KeyError:
+        # No instances for this class, skip it
+        return None
+
+    # Drawing per sample
+    for sequence_id, sample_id in enumerate(sample_ids):
+
+        # Draw the ground truth pose
+        quat_gt_pose = dr.draw_quat(
+            image=quat_draw_image[sample_id],
+            intrinsics=intrinsics,
+            quaternion = agg_data['quaternion'][sequence_id].cpu().numpy(),
+            translation_vector = agg_data['T'][sequence_id].cpu().numpy(),
+            scale = agg_data['scales'][sequence_id].cpu().numpy(),
+            color=(0,255,255)
+        )
+
+        rt_qt_pose = dr.draw_RT(
+            image=quat_draw_image[sample_id],
+            intrinsics=intrinsics,
+            RT = agg_data['RT'][sequence_id].cpu().numpy(),
+            scale = agg_data['scales'][sequence_id].cpu().numpy(),
+            color=(0,255,255)
+        )
+
+        # Overwrite the older draw image
+        quat_draw_image[sample_id] = quat_gt_pose
+        rt_draw_image[sample_id] = rt_qt_pose
+
+    images = {
+        'quat_poses': quat_draw_image,
+        'RT_poses': rt_draw_image
+    }        
+
+    if return_as_figure:
+        summary_fig = make_summary_figure(**images)
+        return summary_fig
+    else:
+        return images
+
+#-------------------------------------------------------------------------------
 # Plot metrics
 
 def plot_ap(
@@ -1199,3 +1260,55 @@ def plot_aps(
     plt.legend()
 
     return fig
+
+#-------------------------------------------------------------------------------
+# Plot quaternions
+
+def plot_quaternions(qs):
+    
+    origin = np.zeros((qs.shape[0], 3))
+
+    x_axis = np.array([1,0,0])
+    y_axis = np.array([0,1,0])
+    z_axis = np.array([0,0,1])
+    
+    r_x_axis = dm.qv_mult(qs, x_axis)
+    r_y_axis = dm.qv_mult(qs, y_axis)
+    r_z_axis = dm.qv_mult(qs, z_axis)
+
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection='3d')
+    ax.set_xlim3d(-1.25,1.25)
+    ax.set_ylim3d(-1.25,1.25)
+    ax.set_zlim3d(-1.25,1.25)
+
+    for v, c in zip([x_axis, y_axis, z_axis], ['red', 'blue', 'green']):
+        ax.quiver(
+            origin[:,0], origin[:,1], origin[:,2],
+            v[0], v[1], v[2],
+            color = c, alpha = 1, arrow_length_ratio = 0.1, normalize=True,
+            length = 1
+        )
+    
+    for v, c in zip([r_x_axis, r_y_axis, r_z_axis], ['red', 'blue', 'green']):
+        ax.quiver(
+            origin[:,0], origin[:,1], origin[:,2],
+            v[:,0], v[:,1], v[:,2],
+            color = c, alpha = 0.25, arrow_length_ratio = 0.1, normalize=True,
+            length = 1
+        )
+
+    return fig
+
+#-------------------------------------------------------------------------------
+# File's Main
+
+if __name__ == '__main__':
+
+    # Initialize simple quaternions
+    q = np.array([[0.909,0.001,0.395,-0.132]])
+
+    fig = plot_quaternions(q)
+    plt.show()
+
+    

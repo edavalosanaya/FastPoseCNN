@@ -884,8 +884,8 @@ def quat_symmetric_tf(tf_q, ex_q):
     if not hasattr(quat_symmetric_tf, 'rot_q'):
         
         # Creating all the degrees of rotation
-        #degrees = torch.tensor([0,45,90], device=tf_q.device).float() #
-        degrees = torch.arange(0, 360).float()
+        degrees = torch.tensor([0,45,90], device=tf_q.device).float() #
+        #degrees = torch.arange(0, 360).float()
         factor = torch.sin(torch.deg2rad(degrees) / 2)
         
         # Creating the values for the quaternions 4 elements

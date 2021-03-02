@@ -21,6 +21,7 @@ test_output/
 **/bts/logs
 **/DenseDepth/logs
 **/NOCS_CVPR2019/data
+**/tests_output
 
 /networks/NOCS_CVPR2019/__pycache__
 /networks/DenseDepth/Tensorflow/__pycache__

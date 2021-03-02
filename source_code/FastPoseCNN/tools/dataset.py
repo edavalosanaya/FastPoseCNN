@@ -6,6 +6,7 @@ import collections
 from typing import List, Union
 import abc
 import pprint
+import tqdm
 
 import pdb
 import logging
@@ -33,6 +34,8 @@ import matplotlib.pyplot as plt
 import matplotlib.cm
 
 # Local Imports
+sys.path.append("/home/students/edavalos/GitHub/FastPoseCNN/source_code/FastPoseCNN")
+import setup_env
 
 root = next(path for path in pathlib.Path(os.path.abspath(__file__)).parents if path.name == 'FastPoseCNN')
 sys.path.append(str(pathlib.Path(__file__).parent))
@@ -104,6 +107,9 @@ class NOCSDataset(Dataset, torch.utils.data.Dataset):
         preprocessing: Union[albu.Compose, None] = None
         ):
 
+        # ! Debugging
+        self.counter = 0
+
         # If None or just all the classes, no nead of class values map
         if classes is None:
             self.classes = self.CLASSES
@@ -124,11 +130,19 @@ class NOCSDataset(Dataset, torch.utils.data.Dataset):
 
         # DEBUGGING
         """
-        self.images_fps[i] = pathlib.Path(
-            '/home/students/edavalos/GitHub/FastPoseCNN/datasets/NOCS/camera/val/01173/0007_color.png'
-        )
-        """
-        LOGGER.debug(f"LOADING IMAGE: {str(self.images_fps[i])}")
+        if self.counter == 0:
+            image_path = '/home/students/edavalos/GitHub/FastPoseCNN/datasets/NOCS/camera/train/27102/0001_color.png'
+        elif self.counter == 1:
+            image_path = '/home/students/edavalos/GitHub/FastPoseCNN/datasets/NOCS/camera/train/16523/0008_color.png'
+        elif self.counter == 2:
+            image_path = '/home/students/edavalos/GitHub/FastPoseCNN/datasets/NOCS/camera/train/10915/0000_color.png'
+        
+        self.images_fps[i] = pathlib.Path(image_path)
+        self.counter += 1
+        self.counter = (self.counter % 3)
+        #"""
+
+        #LOGGER.debug(f"LOADING IMAGE: {str(self.images_fps[i])}")
 
         # Reading data
         # Image
@@ -193,7 +207,7 @@ class NOCSDataset(Dataset, torch.utils.data.Dataset):
 
         # Check if any data is invalid, if it is, simply return None for the sample
         if (agg_data['z'] <= 0).any():
-            LOGGER.debug(f"INVALID/CORRUPT SAMPLE: z <= 0, class_ids: {agg_data['class_ids']}")
+            LOGGER.debug(f"{str(self.images_fps[i])} -> INVALID/CORRUPT SAMPLE: z <= 0, class_ids: {agg_data['class_ids']}")
             return None
 
         # Create dense representation of the data (class type is instances)
@@ -236,6 +250,7 @@ class NOCSDataset(Dataset, torch.utils.data.Dataset):
 
         # Changing dtype
         sample.update({
+            'path': self.images_fps[i],
             'image': skimage.img_as_float32(sample['image']),
             'mask': sample['mask'].astype('long'),
             #'quaternion': skimage.img_as_float32(sample['quaternion']),
@@ -473,7 +488,10 @@ def my_collate_fn(batch, device=None):
     if device:
         # Now stacking all the uniform data
         for key in collate_batch.keys():
-            stacked_collate_batch[key] = torch.from_numpy(np.stack(collate_batch[key])).to(device)
+            if isinstance(collate_batch[key][0], np.ndarray):
+                stacked_collate_batch[key] = torch.from_numpy(np.stack(collate_batch[key])).to(device)
+            else:
+                stacked_collate_batch[key] = collate_batch[key]
 
         # Now concatinating all non-uniform data
         for subkey in agg_data.keys():
@@ -483,11 +501,14 @@ def my_collate_fn(batch, device=None):
     else:
         # Now stacking all the uniform data
         for key in collate_batch.keys():
-            stacked_collate_batch[key] = torch.from_numpy(np.stack(collate_batch[key])).to(device)
+            if isinstance(collate_batch[key][0], np.ndarray):
+                stacked_collate_batch[key] = torch.from_numpy(np.stack(collate_batch[key]))
+            else:
+                stacked_collate_batch[key] = collate_batch[key]
 
         # Now concatinating all non-uniform data
         for subkey in agg_data.keys():
-            concated_agg_data[subkey] = torch.from_numpy(np.concatenate(agg_data[subkey], axis=0)).to(device)
+            concated_agg_data[subkey] = torch.from_numpy(np.concatenate(agg_data[subkey], axis=0))
 
     # Now storing agg data into the collate batch
     stacked_collate_batch['agg_data'] = concated_agg_data
@@ -501,48 +522,27 @@ def test_pose_camera_dataset():
 
     preprocessing_fn = smp.encoders.get_preprocessing_fn(ENCODER, ENCODER_WEIGHTS)
 
-    dataset = NOCSDataset(
-        dataset_dir=pathlib.Path(os.getenv("CAMERA_TRAIN_DATASET")),
-        max_size=1,
-        classes=['bg','camera'],#pj.constants.CAMERA_CLASSES,
+    dataset = CAMERADataset(
+        dataset_dir=pathlib.Path(os.getenv("NOCS_CAMERA_TRAIN_DATASET")),
+        max_size=300,
+        classes=pj.constants.CAMERA_CLASSES,
         augmentation=transforms.pose.get_training_augmentation(),
         preprocessing=transforms.pose.get_preprocessing(preprocessing_fn)
     )
 
-    """
-    for id in range(20):
-
-        sample = dataset[id]
-        #sample = dataset.get_random_batched_sample(batch_size=2)
-
-        #vis_test = vz.get_visualized_unit_vector(sample['mask'], sample['xy'])
-        #vis_test = vz.get_visualized_quaternions(sample['quaternion'])
-        #vis_test = vz.get_visualized_simple_center_2d(sample['xy'])
-        #vis_test = vz.get_visualized_pose(sample)
-        output_data = dm.aggregate_dense_sample(sample, pj.constants.CAMERA_INTRINSICS)
-        
-        vis_test = dr.draw_quats(
-            image = sample['clean_image'], 
-            intrinsics = pj.constants.CAMERA_INTRINSICS,
-            quaternions = output_data['quaternion'],
-            translation_vectors = output_data['translation_vector'],
-            norm_scales = output_data['scales'],
-            color=(0,255,255)
-        )
-
-        plt.imshow(vis_test)
-        #summary_fig = vz.make_summary_figure(image = sample['image'], vis_test = vis_test)
-        plt.show()
-        break
-        #fig.savefig(f'/home/students/edavalos/GitHub/MastersProject/source_code/FastPoseCNN/test_output/global_pose/{id}.png')
-
-    """
-
     # Testing dataloader
-    dataloader = torch.utils.data.DataLoader(dataset, batch_size=2, shuffle=True)
-    sample = next(iter(dataloader))
+    dataloader = torch.utils.data.DataLoader(
+        dataset, 
+        batch_size=3,
+        collate_fn=my_collate_fn,
+        shuffle=False
+    )
 
-    return 0
+    # Iterative through data batches
+    for i, batch in tqdm.tqdm(enumerate(dataloader)):
+        fig = vz.visualize_gt_pose(batch, dataset.COLORMAP, dataset.INTRINSICS)
+        fig_path = pathlib.Path(os.getenv("TEST_OUTPUT")) / f'quat_pose{i}.png'
+        fig.savefig(str(fig_path), dpi=400)
 
 #-------------------------------------------------------------------------------
 # Main Code

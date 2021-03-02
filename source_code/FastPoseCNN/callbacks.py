@@ -520,7 +520,6 @@ class TensorboardCallback(pl.callbacks.Callback):
                 # Then delete the ugly folder >:(
                 os.rmdir(str(child))
 
-
 class CheckpointEveryNSteps(pl.Callback):
     """
     # Credit goes to Andrew Jong for this callback code gotten from here:

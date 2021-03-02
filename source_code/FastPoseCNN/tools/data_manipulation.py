@@ -1160,7 +1160,7 @@ def quat_2_RT_given_T_in_world(quaternion, translation_vector):
     rotation_matrix = smart_rotation_object.as_matrix()
     inv_rotation_matrix = np.linalg.inv(rotation_matrix)
 
-    inv_RT =  np.vstack([np.hstack([inv_rotation_matrix, translation_vector]), [0,0,0,1]])
+    inv_RT =  np.vstack([np.hstack([inv_rotation_matrix, translation_vector.reshape((3,1))]), [0,0,0,1]])
     RT = np.linalg.inv(inv_RT)
 
     return RT
@@ -1361,3 +1361,34 @@ def fix_quat_RT_matrix(intrinsics, original_RT, quat_RT, pts=None):
 
 #-------------------------------------------------------------------------------
 # Quaternion Functions
+
+def normalize(q, axis=0):
+
+    # Obtain the norm
+    norm = np.linalg.norm(q, axis, keepdims=True)
+
+    # Ensure no division by zero occurs
+    norm = np.where(norm != 0, norm, 1)
+
+    # Divide by safe norm
+    return q / norm
+
+def q_mult(q1, q2):
+    w1, x1, y1, z1 = np.split(q1, 4, axis=-1)
+    w2, x2, y2, z2 = np.split(q2, 4, axis=-1)
+    w = w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2
+    x = w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2
+    y = w1 * y2 + y1 * w2 + z1 * x2 - x1 * z2
+    z = w1 * z2 + z1 * w2 + x1 * y2 - y1 * x2
+    new_q = np.squeeze(np.stack((w,x,y,z), axis=-1), axis=-2)
+    return new_q
+
+def q_conjugate(q):
+    q_c = q.copy()
+    q_c[...,1:] = -1 * q_c[...,1:]
+    return q_c
+
+def qv_mult(q1, v):
+    q2 = np.concatenate((np.array([0]), v))
+    result = q_mult(q_mult(q1, q2), q_conjugate(q1))[:, 1:]
+    return normalize(result, axis=-1)

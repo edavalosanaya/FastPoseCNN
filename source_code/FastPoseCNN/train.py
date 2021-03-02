@@ -175,7 +175,8 @@ class PoseRegresssionTask(pl.LightningModule):
 
     def shared_step(self, mode, batch, batch_idx):
 
-        LOGGER.info(f'batch id={batch_idx}')
+        LOGGER.info(f'batch id={batch_idx} ({self.device})')
+        LOGGER.info(f"({self.device}) images={pprint.pformat(batch['path'])}")
         
         # Forward pass the input and generate the prediction of the NN
         outputs = self.forward(batch['image'])
@@ -190,8 +191,7 @@ class PoseRegresssionTask(pl.LightningModule):
         else:
             gt_pred_matches = None
 
-        LOGGER.debug("\nMATCHED DATA")
-        LOGGER.debug(pprint.pformat(gt_pred_matches))
+        LOGGER.debug(f"\nMATCHED DATA {self.device}\n" + pprint.pformat(gt_pred_matches))
         
         # Storage for losses and metrics depending on the task
         multi_task_losses = {'pose': {'total_loss': torch.tensor(0).float().to(self.device)}}
@@ -222,8 +222,7 @@ class PoseRegresssionTask(pl.LightningModule):
                     multi_task_losses['pose']['total_loss'] += losses['task_total_loss']
 
         # ! Debugging what is the loss that has large values!
-        LOGGER.debug("\nALL LOSSESS")
-        LOGGER.debug(pprint.pformat(multi_task_losses))
+        LOGGER.debug(f"\nALL LOSSESS {self.device}\n" + pprint.pformat(multi_task_losses))
 
         # Logging the losses
         for task_name in multi_task_losses.keys():
@@ -259,7 +258,10 @@ class PoseRegresssionTask(pl.LightningModule):
                     {f'{task_name}/{metric_name}/batch':metric_value.detach().clone()}, 
                     batch_idx,
                     use_epoch_num=False
-                ) 
+                )
+
+        # Before the end of this loop, save a detach instance of the matched data
+        self.gt_pred_matches = gt_pred_matches
 
         return multi_task_losses, multi_task_metrics
 
@@ -342,14 +344,31 @@ class PoseRegresssionTask(pl.LightningModule):
     def on_after_backward(self) -> None:
         # ! Debugging purposes
         #"""
+        inf_flag = False
+
         for section_name, params in {'translation_decoder': self.model.translation_decoder, 'translation_head': self.model.translation_head}.items():
             LOGGER.debug(f"\nSEEING {section_name} parameters")
             for name, param in params.named_parameters():
                 if type(param.grad) != type(None):
-                    LOGGER.debug(f'{name}: max={torch.max(torch.abs(param.grad))} nan={torch.isfinite(param.grad).all()}')
+                    
+                    # Catching the instance that a gradient is not finite (+- inf)
+                    all_finite = torch.isfinite(param.grad).all()
+                    if not all_finite:
+                        inf_flag = True 
+
+                    # Loggging data
+                    LOGGER.debug(f'{name}: max={torch.max(torch.abs(param.grad))} all finite={all_finite}')
                 else:
                     LOGGER.debug(f'{name}: {param.grad}')
+
+        # If we ever detect a infinite gradient, we need to save the matched data
+        # to help debug this issue.
+        if inf_flag:
+            pth_path = pathlib.Path(os.environ['RUNS_LOG_DIR']) / f'gpm_epoch={self.trainer.current_epoch+1}'
+            torch.save(self.gt_pred_matches, str(pth_path))
+        
         #"""
+        return None
 
     def configure_optimizers(self):
 
