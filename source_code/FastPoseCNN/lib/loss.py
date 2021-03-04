@@ -1,8 +1,22 @@
+import sys
+import os
+
 import torch
 from torch import Tensor, nn
 from torch.nn.modules.loss import _Loss
 from pytorch_toolbelt.losses.focal import FocalLoss
 import gpu_tensor_funcs as gtf
+
+# For debugging plotting!
+import matplotlib.pyplot as plt
+
+# Local imports
+sys.path.append(os.getenv("TOOLS_DIR"))
+
+try:
+    import visualize as vz
+except ImportError:
+    pass
 
 #-------------------------------------------------------------------------------
 # Mask Losses
@@ -305,10 +319,12 @@ class QLoss(_Loss): # Quaternion
         # Expanding the pred to account for 0-360 degrees of rotation to account 
         # for z-axis symmetric and expanding the gt to match its size for later 
         # comparison
-        rot_e_pred, e_gt = gtf.quat_symmetric_tf(pred, gt)
+        #rot_e_pred, e_gt = gtf.quat_symmetric_tf(pred, gt)
+        rot_e_gt, e_pred = gtf.quat_symmetric_tf(gt, pred)
 
         # Performing dot product on the transformed e_pred and e_gt
-        dot_product = torch.einsum('bij,bij->bi', rot_e_pred.double(), e_gt.double())
+        #dot_product = torch.einsum('bij,bij->bi', rot_e_pred.double(), e_gt.double())
+        dot_product = torch.einsum('bij,bij->bi', e_pred.double(), rot_e_gt.double())
 
         # Calculating the loss
         all_loss = self.dot_product_to_loss(dot_product)
@@ -621,10 +637,3 @@ class OffsetLoss(_Loss):
 
         # Return the some of all the losses
         return torch.mean(clean_loss)
-
-
-
-
-
-
-

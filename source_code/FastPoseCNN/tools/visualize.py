@@ -1264,9 +1264,12 @@ def plot_aps(
 #-------------------------------------------------------------------------------
 # Plot quaternions
 
-def plot_quaternions(qs):
+def plot_quaternions(qs, name=None):
     
-    origin = np.zeros((qs.shape[0], 3))
+    if len(qs.shape) >= 2:
+        origin = np.zeros((qs.shape[0], 3))
+    else:
+        origin = np.zeros((3,))
 
     x_axis = np.array([1,0,0])
     y_axis = np.array([0,1,0])
@@ -1276,27 +1279,60 @@ def plot_quaternions(qs):
     r_y_axis = dm.qv_mult(qs, y_axis)
     r_z_axis = dm.qv_mult(qs, z_axis)
 
-    fig = plt.figure()
-    ax = fig.add_subplot(111, projection='3d')
-    ax.set_xlim3d(-1.25,1.25)
-    ax.set_ylim3d(-1.25,1.25)
-    ax.set_zlim3d(-1.25,1.25)
+    # More on how to change the viewpoint of the 3D plot
+    # https://stackoverflow.com/questions/12904912/how-to-set-camera-position-for-3d-plots-using-python-matplotlib
 
-    for v, c in zip([x_axis, y_axis, z_axis], ['red', 'blue', 'green']):
-        ax.quiver(
-            origin[:,0], origin[:,1], origin[:,2],
-            v[0], v[1], v[2],
-            color = c, alpha = 1, arrow_length_ratio = 0.1, normalize=True,
-            length = 1
-        )
+    fig = plt.figure(figsize=plt.figaspect(0.25))
+
+    if name:
+        fig.suptitle(name)
+
+    ax0 = fig.add_subplot(141, projection='3d') # Isometric
+    ax1 = fig.add_subplot(142, projection='3d') # top-view
+    ax2 = fig.add_subplot(143, projection='3d') # front-view
+    ax3 = fig.add_subplot(144, projection='3d') # side-view
     
-    for v, c in zip([r_x_axis, r_y_axis, r_z_axis], ['red', 'blue', 'green']):
-        ax.quiver(
-            origin[:,0], origin[:,1], origin[:,2],
-            v[:,0], v[:,1], v[:,2],
-            color = c, alpha = 0.25, arrow_length_ratio = 0.1, normalize=True,
-            length = 1
-        )
+    for ax in [ax0, ax1, ax2, ax3]:
+
+        ax.set_xlim3d(-1.25,1.25)
+        ax.set_ylim3d(-1.25,1.25)
+        ax.set_zlim3d(-1.25,1.25)
+
+        ax.set_xlabel('x')
+        ax.set_ylabel('y')
+        ax.set_zlabel('z')
+
+        for v, c in zip([x_axis, y_axis, z_axis], ['red', 'blue', 'green']):
+            ax.quiver(
+                origin[...,0], origin[...,1], origin[...,2],
+                v[0], v[1], v[2],
+                color = c, alpha = 1, arrow_length_ratio = 0.1, normalize=True,
+                length = 1.1
+            )
+        
+        for v, c in zip([r_x_axis, r_y_axis, r_z_axis], ['red', 'blue', 'green']):
+            ax.quiver(
+                origin[...,0], origin[...,1], origin[...,2],
+                v[...,0], v[...,1], v[...,2],
+                color = c, alpha = 0.25, arrow_length_ratio = 0.1, normalize=True,
+                length = 1.1
+            )
+
+    plt.subplots_adjust(wspace=0, hspace=0)
+
+    # Now setting the viewpoint of each plot
+    #ax0.azim, ax0.dist, ax0.elev = (-60, 10, 30) # Isometric
+    
+    ax0.title.set_text('Isometric')
+    
+    ax1.title.set_text('Top-View')
+    ax1.view_init(azim=0, elev=90) # xy-plane
+    
+    ax2.title.set_text('Front-View')
+    ax2.view_init(azim=0, elev=0) # yz-plane
+    
+    ax3.title.set_text("Side-View")
+    ax3.view_init(azim=-90, elev=0) # zx-plane
 
     return fig
 
@@ -1306,7 +1342,7 @@ def plot_quaternions(qs):
 if __name__ == '__main__':
 
     # Initialize simple quaternions
-    q = np.array([[0.909,0.001,0.395,-0.132]])
+    q = np.array([0.909,0.001,0.395,-0.132])
 
     fig = plot_quaternions(q)
     plt.show()

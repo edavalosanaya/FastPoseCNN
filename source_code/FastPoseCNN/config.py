@@ -26,10 +26,10 @@ class DEFAULT_POSE_HPARAM(argparse.Namespace):
     CKPT_SAVE_FREQUENCY = 5
 
     # Run Specifications
-    CUDA_VISIBLE_DEVICES = '' # '0,1,2,3'
+    CUDA_VISIBLE_DEVICES = '2' # '0,1,2,3'
     BATCH_SIZE = 3
-    NUM_WORKERS = 0 # 36 total CPUs
-    NUM_GPUS = 0 # 4 total GPUs
+    NUM_WORKERS = 8 # 36 total CPUs
+    NUM_GPUS = 1 # 4 total GPUs
     TRAIN_SIZE= 10_000#100
     VALID_SIZE= 500#20
 
@@ -41,8 +41,8 @@ class DEFAULT_POSE_HPARAM(argparse.Namespace):
     DISTRIBUTED_BACKEND = None if NUM_GPUS <= 1 else 'ddp'
 
     # Freezing Training Specifications
-    FREEZE_ENCODER = False
-    FREEZE_MASK_TRAINING = False
+    FREEZE_ENCODER = True
+    FREEZE_MASK_TRAINING = True
     FREEZE_ROTATION_TRAINING = False
     FREEZE_TRANSLATION_TRAINING = False
     FREEZE_SCALES_TRAINING = False

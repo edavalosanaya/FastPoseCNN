@@ -123,6 +123,11 @@ class PoseRegresssionTask(pl.LightningModule):
         return y
 
     def training_step(self, batch, batch_idx):
+
+        # If batch is None, skip it
+        if not batch:
+            LOGGER.debug("Empty batch, skipped")
+            return None
         
         # Calculate the loss and metrics
         multi_task_losses, multi_task_metrics = self.shared_step('train', batch, batch_idx)
@@ -149,6 +154,11 @@ class PoseRegresssionTask(pl.LightningModule):
         return result
 
     def validation_step(self, batch, batch_idx):
+
+        # If batch is None, skip it
+        if not batch:
+            LOGGER.debug("Empty batch, skipped")
+            return None
         
         # Calculate the loss
         multi_task_losses, multi_task_metrics = self.shared_step('valid', batch, batch_idx)

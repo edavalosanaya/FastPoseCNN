@@ -1385,10 +1385,10 @@ def q_mult(q1, q2):
 
 def q_conjugate(q):
     q_c = q.copy()
-    q_c[...,1:] = -1 * q_c[...,1:]
+    q_c[..., 1:] = -1 * q_c[..., 1:]
     return q_c
 
 def qv_mult(q1, v):
     q2 = np.concatenate((np.array([0]), v))
-    result = q_mult(q_mult(q1, q2), q_conjugate(q1))[:, 1:]
+    result = q_mult(q_mult(q1, q2), q_conjugate(q1))[..., 1:]
     return normalize(result, axis=-1)

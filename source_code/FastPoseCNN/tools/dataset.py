@@ -446,6 +446,10 @@ def my_collate_fn(batch, device=None):
     # Filtering any samples that were deemed corrupted or invalid
     batch = list(filter(lambda x : x is not None, batch))
 
+    # If the batch is empty, simply return None
+    if not batch:
+        return None
+
     collate_batch = {}
     agg_data = {
         'sample_ids': []
