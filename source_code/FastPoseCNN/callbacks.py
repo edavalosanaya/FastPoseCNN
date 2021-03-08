@@ -133,7 +133,7 @@ class TensorboardCallback(pl.callbacks.Callback):
     @rank_zero_only
     def shared_epoch_end(self, mode, trainer, pl_module):
 
-        LOGGER.info(f'epoch={trainer.current_epoch+1}')
+        LOGGER.info(f'EPOCH={trainer.current_epoch+1}')
 
         # Log the average for the metrics for each epoch
         self.log_epoch_average(mode, trainer, pl_module)

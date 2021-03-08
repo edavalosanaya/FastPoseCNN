@@ -3,6 +3,7 @@ import sys
 import time
 import argparse
 import logging
+import pprint
 
 import matplotlib.pyplot as plt
 
@@ -57,6 +58,15 @@ class HoughVotingLayer(nn.Module):
         # If instances exist, perform hough voting
         if uv_img.shape[0] != 0:
 
+            # dummy_output = {
+            #     'xy': 100*torch.ones((uv_img.shape[0], 2), device=uv_img.device),
+            #     'xy_mask': uv_img,
+            #     'hypothesis': 100*torch.ones((uv_img.shape[0], 51, 2), device=uv_img.device),
+            #     'pruned_hypothesis': 100*torch.ones((uv_img.shape[0], 51, 2), device=uv_img.device)
+            # }
+
+            # return dummy_output
+
             # Generate hypothesis
             hypothesis, all_pts = self.batchwise_generate_hypothesis(
                 uv_img, 
@@ -64,7 +74,8 @@ class HoughVotingLayer(nn.Module):
             )
 
             # Pruning of outliers
-            pruned_hypothesis = self.prun_outliers(hypothesis)
+            # pruned_hypothesis = self.prun_outliers(hypothesis)
+            pruned_hypothesis = hypothesis.clone()
 
             # Calculate the weights of each hypothesis
             weights = self.batchwise_calculate_hypothesis_weights(
@@ -72,6 +83,8 @@ class HoughVotingLayer(nn.Module):
                 uv_img, 
                 pruned_hypothesis
             )
+
+            # weights = torch.ones((uv_img.shape[0], 51), device=uv_img.device) / (51 * uv_img.shape[0])
 
             # Account for the pruning of outliers
             is_nan = torch.isnan(pruned_hypothesis)
@@ -103,6 +116,17 @@ class HoughVotingLayer(nn.Module):
                 'hypothesis': hypothesis,
                 'pruned_hypothesis': pruned_hypothesis
             }
+
+            # # Logging hough voting!
+            # logger_data = {
+            #     'xy': pixel_xy,
+            #     'hypothesis': hypothesis,
+            #     'pruned_hypothesis': pruned_hypothesis,
+            #     'weights': weights,
+            #     'is_nan': is_nan,
+            #     'is_outlier': is_outlier
+            # }
+            # LOGGER.debug(pprint.pformat(logger_data))
 
         else:
 

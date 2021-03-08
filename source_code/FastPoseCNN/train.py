@@ -5,6 +5,7 @@ import datetime
 import argparse
 import pathlib
 import pprint
+import random
 
 # DEBUGGING
 import pdb
@@ -17,6 +18,8 @@ import base64
 os.environ["TF_CPP_MIN_LOG_LEVEL"]="3"
 warnings.filterwarnings('ignore')
 #os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
+
+import numpy as np
 
 import torch
 import torch.optim
@@ -102,6 +105,9 @@ class PoseRegresssionTask(pl.LightningModule):
         # Saving the metrics
         self.metrics = metrics
 
+        # Error flags
+        self.past_inf_flag = False
+
     @pl.core.decorators.auto_move_data
     def forward(self, x):
 
@@ -126,7 +132,7 @@ class PoseRegresssionTask(pl.LightningModule):
 
         # If batch is None, skip it
         if not batch:
-            LOGGER.debug("Empty batch, skipped")
+            LOGGER.debug("EMPTY BATCH, SKIPPED!")
             return None
         
         # Calculate the loss and metrics
@@ -157,7 +163,7 @@ class PoseRegresssionTask(pl.LightningModule):
 
         # If batch is None, skip it
         if not batch:
-            LOGGER.debug("Empty batch, skipped")
+            LOGGER.debug("EMPTY BATCH, SKIPPED")
             return None
         
         # Calculate the loss
@@ -186,9 +192,12 @@ class PoseRegresssionTask(pl.LightningModule):
 
     def shared_step(self, mode, batch, batch_idx):
 
-        LOGGER.info(f'batch id={batch_idx} ({self.device})')
-        LOGGER.info(f"({self.device}) images={pprint.pformat(batch['path'])}")
-        
+        LOGGER.info(f'BATCH ID={batch_idx} ({self.device})')
+        LOGGER.info(f"({self.device}) IMAGES={pprint.pformat(batch['path'])}")
+
+        #! Debugging the inf problem
+        #batch = torch.load('/home/students/edavalos/GitHub/FastPoseCNN/source_code/FastPoseCNN/logs/21-03-04/18-43-INF_CATCH1-CAMERA-resnet18-imagenet/inf_batch_epoch=1.pth', map_location = self.device)
+
         # Forward pass the input and generate the prediction of the NN
         outputs = self.forward(batch['image'])
 
@@ -202,7 +211,7 @@ class PoseRegresssionTask(pl.LightningModule):
         else:
             gt_pred_matches = None
 
-        LOGGER.debug(f"\nMATCHED DATA {self.device}\n" + pprint.pformat(gt_pred_matches))
+        #LOGGER.debug(f"\nMATCHED DATA {self.device}\n" + pprint.pformat(gt_pred_matches))
         
         # Storage for losses and metrics depending on the task
         multi_task_losses = {'pose': {'total_loss': torch.tensor(0).float().to(self.device)}}
@@ -233,7 +242,7 @@ class PoseRegresssionTask(pl.LightningModule):
                     multi_task_losses['pose']['total_loss'] += losses['task_total_loss']
 
         # ! Debugging what is the loss that has large values!
-        LOGGER.debug(f"\nALL LOSSESS {self.device}\n" + pprint.pformat(multi_task_losses))
+        #LOGGER.debug(f"\nALL LOSSESS {self.device}\n" + pprint.pformat(multi_task_losses))
 
         # Logging the losses
         for task_name in multi_task_losses.keys():
@@ -355,45 +364,76 @@ class PoseRegresssionTask(pl.LightningModule):
     def on_after_backward(self) -> None:
         # ! Debugging purposes
         #"""
+        nan_flag = False
         inf_flag = False
 
         for section_name, params in {'translation_decoder': self.model.translation_decoder, 'translation_head': self.model.translation_head}.items():
-            LOGGER.debug(f"\nSEEING {section_name} parameters")
+            #LOGGER.debug(f"\nSEEING {section_name} PARAMETERS")
             for name, param in params.named_parameters():
                 if type(param.grad) != type(None):
-                    
-                    # Catching the instance that a gradient is not finite (+- inf)
-                    all_finite = torch.isfinite(param.grad).all()
-                    if not all_finite:
-                        inf_flag = True
 
                     # Catching nans
                     any_nans = torch.isnan(param.grad).any()
-                    
-                    # If any nans are detected after the inf loss, then stop training
-                    if inf_flag and any_nans:
-                        print("Destructive INF detected!\nStopping training!")
-                        sys.exit(0) 
 
-                    # Loggging data
-                    LOGGER.debug(f'{name}: max={torch.max(torch.abs(param.grad))} all finite={all_finite}')
-                else:
-                    LOGGER.debug(f'{name}: {param.grad}')
+                    if any_nans:
+                        nan_flag = True
+                    
+                    # Catching the instance that a gradient is not finite (+- inf)
+                    any_inf = ~torch.isfinite(param.grad).all()
+
+                    if any_inf:
+                        inf_flag = True
 
         """
         If an infinite loss is calculated, then we need to save the input batch 
         that caused the infinite loss and the weights and biases of the model to
         easily replicate this issue.
         """
+
         if inf_flag:
 
-            # Saving the most up-to-date batch
-            pth_path = pathlib.Path(os.environ['RUNS_LOG_DIR']) / f'inf_batch_epoch={self.trainer.current_epoch+1}.pth'
-            torch.save(self.batch, str(pth_path))
+            #print("\nDestructive INF detected!\n")
+            LOGGER.debug("DESTRUCTIVE INF DETECTED!")
 
-            # Saving the model's weights and biases
-            ckpt_path = pathlib.Path(os.environ['RUNS_LOG_DIR']) / f'inf_ckpt_epoch={self.trainer.current_epoch+1}.pth'
-            self.trainer.save_checkpoint(ckpt_path)
+            # # Saving the most up-to-date batch
+            # pth_path = pathlib.Path(os.environ['RUNS_LOG_DIR']) / f'inf_batch_epoch={self.trainer.current_epoch+1}.pth'
+            # torch.save(self.batch, str(pth_path))
+
+            # # Saving the model's weights and biases
+            # ckpt_path = pathlib.Path(os.environ['RUNS_LOG_DIR']) / f'inf_ckpt_epoch={self.trainer.current_epoch+1}.pth'
+            # self.trainer.save_checkpoint(ckpt_path)
+
+            # Clearing gradients
+            # https://stackoverflow.com/questions/48001598/why-do-we-need-to-call-zero-grad-in-pytorch
+            #print("Clearing gradients\n")
+            LOGGER.debug("CLEARING GRADIENTS")
+            self.model.zero_grad()
+
+            # Keeping track of past inf
+            self.past_inf_flag = True
+
+        elif nan_flag and self.past_inf_flag:
+
+            # # Saving the most up-to-date batch
+            # pth_path = pathlib.Path(os.environ['RUNS_LOG_DIR']) / f'nan_batch_epoch={self.trainer.current_epoch+1}.pth'
+            # torch.save(self.batch, str(pth_path))
+
+            # # Saving the model's weights and biases
+            # ckpt_path = pathlib.Path(os.environ['RUNS_LOG_DIR']) / f'nan_ckpt_epoch={self.trainer.current_epoch+1}.pth'
+            # self.trainer.save_checkpoint(ckpt_path)
+
+            # Stopping training 
+            print("\nNans procceding desctructive INF detected. Stopping training!\n")
+            LOGGER.debug("NANS PROCCEDING DESRUCTIVE INF DETECTED. STOPPING TRAINING!")
+            sys.exit(0)
+
+        else:
+
+            # If nans are not detected after the inf, then clear the history of the 
+            # of the flag.
+            if self.past_inf_flag:
+                LOGGER.debug("STABITLY DETECTED AFTER INF CORRECTION. CONTINUING TRAINING")
+                self.past_inf_flag = False
         
         #"""
         return None
@@ -432,7 +472,8 @@ class PoseRegressionDataModule(pl.LightningDataModule):
         encoder=None,
         encoder_weights=None,
         train_size=None,
-        valid_size=None
+        valid_size=None,
+        is_deterministic=False
         ):
 
         super().__init__()
@@ -446,6 +487,7 @@ class PoseRegressionDataModule(pl.LightningDataModule):
         self.encoder_weights = encoder_weights
         self.train_size = train_size
         self.valid_size = valid_size
+        self.is_deterministic = is_deterministic
 
     def setup(self, stage=None):
 
@@ -515,13 +557,28 @@ class PoseRegressionDataModule(pl.LightningDataModule):
 
         if dataset_key in self.datasets.keys():        
             
-            dataloader = torch.utils.data.DataLoader(
-                self.datasets[dataset_key],
-                num_workers=self.num_workers,
-                batch_size=self.batch_size,
-                collate_fn=tools.ds.my_collate_fn,
-                shuffle=True
-            )
+            # Constructing general params
+            params = {
+                'dataset': self.datasets[dataset_key],
+                'num_workers': self.num_workers,
+                'batch_size': self.batch_size,
+                'collate_fn': tools.ds.my_collate_fn,
+            }
+
+            # If deterministic, don't shuffle and provide seed_worker function
+            if self.is_deterministic:
+                params.update({
+                    'worker_init_fn': tools.ds.seed_worker,
+                    'shuffle': False
+                })
+            else: # else, enable shuffle
+                params.update({
+                    'shuffle': True
+                })
+
+            # Passing parameters
+            dataloader = torch.utils.data.DataLoader(**params)
+            
             return dataloader
 
         else:
@@ -571,6 +628,21 @@ if __name__ == '__main__':
         import matplotlib
         matplotlib.use('Agg')
 
+    # If deterministic is selected, try our best to make the experiment deterministic
+    if HPARAM.DETERMINISTIC:
+        # More information here:
+        # https://pytorch.org/docs/stable/notes/randomness.html
+
+        # Random seeds
+        torch.manual_seed(0)
+        random.seed(0)
+        np.random.seed(0)
+
+        # CUDA
+        torch.backends.cudnn.benchmark = False
+        #torch.use_deterministic_algorithms()
+        torch.backends.cudnn.deterministic = True
+
     # Ensuring that DISTRIBUTED_BACKEND doesn't cause problems
     HPARAM.DISTRIBUTED_BACKEND = None if HPARAM.NUM_GPUS <= 1 else HPARAM.DISTRIBUTED_BACKEND
 
@@ -583,7 +655,8 @@ if __name__ == '__main__':
         encoder=HPARAM.ENCODER,
         encoder_weights=HPARAM.ENCODER_WEIGHTS,
         train_size=HPARAM.TRAIN_SIZE,
-        valid_size=HPARAM.VALID_SIZE
+        valid_size=HPARAM.VALID_SIZE,
+        is_deterministic=HPARAM.DETERMINISTIC
     )
 
     # Selecting the criterion (specific to each task)

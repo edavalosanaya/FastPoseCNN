@@ -55,6 +55,14 @@ ENCODER_WEIGHTS = 'imagenet'
 LOGGER = logging.getLogger('fastposecnn')
 
 #-------------------------------------------------------------------------------
+# Dataset-related functions
+
+def seed_worker(worker_id):
+    worker_seed = torch.initial_seed() % 2**32
+    np.random.seed(worker_seed)
+    random.seed(worker_seed)
+
+#-------------------------------------------------------------------------------
 # Custom Abstract Dataset
 
 class Dataset(abc.ABC):
