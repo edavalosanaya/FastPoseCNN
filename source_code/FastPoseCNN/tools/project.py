@@ -70,6 +70,7 @@ def generate_colormap(num_classes, cmap=matplotlib.cm.get_cmap('hsv'), bg_index=
 
 constants.NUM_CLASSES = {}
 constants.INTRINSICS = {}
+constants.COLORMAP = {}
 
 #-------------------------------------------------------------------------------
 # CAMERA Dataset Constants
@@ -92,7 +93,7 @@ constants.CAMERA_SYMMETRIC_CLASSES = [
     'bottle'
 ]
 
-constants.CAMERA_COLORMAP = generate_colormap(len(constants.CAMERA_CLASSES))
+constants.COLORMAP['CAMERA'] = generate_colormap(len(constants.CAMERA_CLASSES))
 
 constants.CAMERA_CLASS_MAP = {
     'bottle': 'bottle',
@@ -124,7 +125,7 @@ constants.REAL_SYMMETRIC_CLASSES = [
     'bottle'
 ]
 
-constants.REAL_COLORMAP = generate_colormap(len(constants.REAL_CLASSES))
+constants.COLORMAP['REAL'] = generate_colormap(len(constants.REAL_CLASSES))
 
 constants.REAL_CLASS_MAP = {
     'bottle': 'bottle',

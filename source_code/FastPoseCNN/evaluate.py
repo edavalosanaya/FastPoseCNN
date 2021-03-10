@@ -26,8 +26,7 @@ os.environ['CUDA_VISIBLE_DEVICES'] = ''
 import setup_env
 import tools
 import lib
-import train
-from config import DEFAULT_POSE_HPARAM
+import config
 
 #-------------------------------------------------------------------------------
 # Constants
@@ -38,8 +37,8 @@ from config import DEFAULT_POSE_HPARAM
 #PATH = pathlib.Path(os.getenv("LOGS")) / '21-02-25' / '19-57-7_56_DEBUG-CAMERA-resnet18-imagenet' / '_' / 'checkpoints' / 'n-ckpt_epoch=5.ckpt'
 PATH = pathlib.Path('/home/students/edavalos/GitHub/FastPoseCNN/source_code/FastPoseCNN/logs/21-03-06/16-36-BASE_TEST-CAMERA-resnet18-imagenet/_/checkpoints/epoch=14-checkpoint_on=0.7963.ckpt')
 
-HPARAM = DEFAULT_POSE_HPARAM()
-HPARAM.VALID_SIZE = 2000
+HPARAM = config.DEFAULT_POSE_HPARAM()
+HPARAM.VALID_SIZE = 10
 HPARAM.HV_NUM_OF_HYPOTHESES = 501
 
 COLLECT_DATA = False
@@ -73,16 +72,6 @@ if __name__ == '__main__':
     if images_path.exists() is False:
         os.mkdir(str(images_path))
 
-    # Load from checkpoint
-    checkpoint = torch.load(PATH, map_location=torch.device('cpu'))
-    OLD_HPARAM = checkpoint['hyper_parameters']
-
-    # Merge the NameSpaces between the model's hyperparameters and 
-    # the evaluation hyperparameters
-    for attr in OLD_HPARAM.keys():
-        if attr in ['BACKBONE_ARCH', 'ENCODER', 'ENCODER_WEIGHTS', 'SELECTED_CLASSES']:
-            setattr(HPARAM, attr, OLD_HPARAM[attr])
-
     # If not debugging, then make matplotlib use the non-GUI backend to 
     # improve stability and speed, otherwise allow debugging sessions to use 
     # matplotlib figures.
@@ -90,39 +79,25 @@ if __name__ == '__main__':
         import matplotlib
         matplotlib.use('Agg')
 
+    # Getting the intrinsics for the dataset selected
+    HPARAM.NUMPY_INTRINSICS = tools.pj.constants.INTRINSICS[HPARAM.DATASET_NAME]
+
     # Determining if collect model's performance data
     # or visualizing the results of the model's performance
     if COLLECT_DATA:
 
-        # Create model
-        base_model = lib.PoseRegressor(
-            HPARAM,
-            intrinsics=torch.from_numpy(tools.pj.constants.INTRINSICS['CAMERA']).float(), #HPARAM.DATASET_NAME
-            architecture=HPARAM.BACKBONE_ARCH,
-            encoder_name=HPARAM.ENCODER,
-            encoder_weights=HPARAM.ENCODER_WEIGHTS,
-            classes=len(HPARAM.SELECTED_CLASSES),
+        model = lib.pose_regressor.MODELS[HPARAM.MODEL].load_from_ckpt(
+            PATH,
+            HPARAM
         )
-
-        # Create PyTorch Lightning Module
-        model = train.PoseRegresssionTask.load_from_checkpoint(
-            str(PATH),
-            model=base_model,
-            criterion=None,
-            metrics=None,
-            HPARAM=HPARAM
-        )
-
-        # Freezing weights to avoid updating the weights
-        model.freeze()
 
         # Put the model into evaluation mode
         #model.to('cuda') # ! Make it work with multiple GPUs
         model.eval()
 
         # Load the PyTorch Lightning dataset
-        datamodule = train.PoseRegressionDataModule(
-            dataset_name='CAMERA', #HPARAM.DATASET_NAME,
+        datamodule = tools.ds.PoseRegressionDataModule(
+            dataset_name=HPARAM.DATASET_NAME,
             selected_classes=HPARAM.SELECTED_CLASSES,
             batch_size=HPARAM.BATCH_SIZE,
             num_workers=HPARAM.NUM_WORKERS,
@@ -287,6 +262,9 @@ if __name__ == '__main__':
             raw_data['3d_iou'][class_id] = torch.cat(raw_data['3d_iou'][class_id])
             raw_data['offset_error'][class_id] = torch.cat(raw_data['offset_error'][class_id])
 
+        # Creating a list of all the plotted classes
+        plot_classes = HPARAM.SELECTED_CLASSES[1:] + ['mean']
+
         # Determine the APs values for figure data
         figure_aps = lib.gtf.calculate_aps(
             raw_data,
@@ -299,7 +277,7 @@ if __name__ == '__main__':
             figure_aps,
             titles={'3d_iou': '3D Iou AP', 'degree_error':'Rotation AP', 'offset_error': 'Translation AP'},
             x_ranges=figure_metrics_thresholds,
-            cls_names=HPARAM.SELECTED_CLASSES[1:] + ['mean'],
+            cls_names=plot_classes,
             x_axis_labels={'3d_iou': '3D IoU %', 'degree_error': 'Rotation error/degree', 'offset_error': 'Translation error/cm'}
         )
 
@@ -317,4 +295,4 @@ if __name__ == '__main__':
 
         # Storing the table critical values into an excel sheet
         excel_path = PATH.parent.parent / f'{HPARAM.VALID_SIZE}_aps_values_table.xlsx'
-        tools.et.save_aps_to_excel(excel_path, table_metrics_thresholds, table_aps)
+        tools.et.save_aps_to_excel(excel_path, table_metrics_thresholds, table_aps, plot_classes)

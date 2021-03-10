@@ -374,6 +374,14 @@ def get_standard_preds(gts, n_of_data):
 
 def batchwise_find_matches(preds, gts):
 
+    # If preds == None or gts == None, skip it!
+    if not preds or not gts:
+        return None
+
+    # If there is no classes in the predicted, then return None
+    if preds['class_ids'].shape[0] == 0:
+        return None
+
     pred_gt_matches = {
         'sample_ids': [],
         'class_ids': [],
@@ -388,10 +396,6 @@ def batchwise_find_matches(preds, gts):
         'RT', # Transformation
         'xy_mask', 'hypothesis', 'pruned_hypothesis' # Hough Voting
     ]
-
-    # If there is no classes in the predicted, then return None
-    if preds['class_ids'].shape[0] == 0:
-        return None
 
     # For each class
     for class_id in torch.unique(gts['class_ids']):

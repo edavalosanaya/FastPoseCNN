@@ -28,6 +28,7 @@ import torch.utils.tensorboard
 import torchvision.transforms.functional
 
 import segmentation_models_pytorch as smp
+import pytorch_lightning as pl
 
 import matplotlib
 import matplotlib.pyplot as plt
@@ -436,14 +437,14 @@ class CAMERADataset(NOCSDataset):
 
     CLASSES = pj.constants.CAMERA_CLASSES
     SYMMETRIC_CLASSES = pj.constants.CAMERA_SYMMETRIC_CLASSES
-    COLORMAP = pj.constants.CAMERA_COLORMAP
+    COLORMAP = pj.constants.COLORMAP['CAMERA']
     INTRINSICS = pj.constants.INTRINSICS['CAMERA']
 
 class REALDataset(NOCSDataset):
 
     CLASSES = pj.constants.CAMERA_CLASSES
     SYMMETRIC_CLASSES = pj.constants.REAL_SYMMETRIC_CLASSES
-    COLORMAP = pj.constants.CAMERA_COLORMAP
+    COLORMAP = pj.constants.COLORMAP['REAL']
     INTRINSICS = pj.constants.INTRINSICS['REAL']
 
 #-------------------------------------------------------------------------------
@@ -526,6 +527,142 @@ def my_collate_fn(batch, device=None):
     stacked_collate_batch['agg_data'] = concated_agg_data
 
     return stacked_collate_batch
+
+#-------------------------------------------------------------------------------
+# PyTorch-Lightning DataModule
+
+class PoseRegressionDataModule(pl.LightningDataModule):
+
+    def __init__(
+        self,
+        dataset_name='NOCS', 
+        batch_size=1, 
+        num_workers=0,
+        selected_classes=None,
+        encoder=None,
+        encoder_weights=None,
+        train_size=None,
+        valid_size=None,
+        is_deterministic=False
+        ):
+
+        super().__init__()
+        
+        # Saving parameters
+        self.dataset_name = dataset_name
+        self.selected_classes = selected_classes
+        self.batch_size = batch_size
+        self.num_workers = num_workers
+        self.encoder = encoder
+        self.encoder_weights = encoder_weights
+        self.train_size = train_size
+        self.valid_size = valid_size
+        self.is_deterministic = is_deterministic
+
+    def setup(self, stage=None):
+
+        # Obtaining the preprocessing_fn depending on the encoder and the encoder
+        # weights
+        if self.encoder and self.encoder_weights:
+            preprocessing_fn = smp.encoders.get_preprocessing_fn(self.encoder, self.encoder_weights)
+        else:
+            preprocessing_fn = None
+
+        # CAMERA / NOCS
+        if self.dataset_name == 'CAMERA':
+
+            train_dataset = CAMERADataset(
+                dataset_dir=pathlib.Path(os.getenv("NOCS_CAMERA_TRAIN_DATASET")),
+                max_size=self.train_size,
+                classes=self.selected_classes,
+                augmentation=transforms.pose.get_training_augmentation(),
+                preprocessing=transforms.pose.get_preprocessing(preprocessing_fn)
+            )
+
+            valid_dataset = CAMERADataset(
+                dataset_dir=pathlib.Path(os.getenv("NOCS_CAMERA_VALID_DATASET")), 
+                max_size=self.valid_size,
+                classes=self.selected_classes,
+                augmentation=transforms.pose.get_validation_augmentation(),
+                preprocessing=transforms.pose.get_preprocessing(preprocessing_fn)
+            )
+
+            self.datasets = {
+                'train': train_dataset,
+                'valid': valid_dataset
+            }
+
+        # REAL / NOCS
+        elif self.dataset_name == 'REAL':
+
+            train_dataset = REALDataset(
+                dataset_dir=pathlib.Path(os.getenv("NOCS_REAL_TRAIN_DATASET")),
+                max_size=self.train_size,
+                classes=self.selected_classes,
+                augmentation=transforms.pose.get_training_augmentation(),
+                preprocessing=transforms.pose.get_preprocessing(preprocessing_fn)
+            )
+
+            valid_dataset = REALDataset(
+                dataset_dir=pathlib.Path(os.getenv("NOCS_REAL_TEST_DATASET")), 
+                max_size=self.valid_size,
+                classes=self.selected_classes,
+                augmentation=transforms.pose.get_validation_augmentation(),
+                preprocessing=transforms.pose.get_preprocessing(preprocessing_fn)
+            )
+
+            self.datasets = {
+                'train': train_dataset,
+                'valid': valid_dataset
+            }
+        
+        # INVALID DATASET
+        else:
+            raise RuntimeError('Dataset needs to be selected')
+
+        print(f"Training datset size: {len(self.datasets['train'])}")
+        print(f"Validation dataset size: {len(self.datasets['valid'])}")
+
+    def get_loader(self, dataset_key):
+
+        if dataset_key in self.datasets.keys():        
+            
+            # Constructing general params
+            params = {
+                'dataset': self.datasets[dataset_key],
+                'num_workers': self.num_workers,
+                'batch_size': self.batch_size,
+                'collate_fn': my_collate_fn,
+            }
+
+            # If deterministic, don't shuffle and provide seed_worker function
+            if self.is_deterministic:
+                params.update({
+                    'worker_init_fn': seed_worker,
+                    'shuffle': False
+                })
+            else: # else, enable shuffle
+                params.update({
+                    'shuffle': True
+                })
+
+            # Passing parameters
+            dataloader = torch.utils.data.DataLoader(**params)
+            
+            return dataloader
+
+        else:
+
+            return None
+
+    def train_dataloader(self):
+        return self.get_loader('train')
+
+    def val_dataloader(self):
+        return self.get_loader('valid')
+
+    def test_dataloader(self):
+        return self.get_loader('test')
 
 #-------------------------------------------------------------------------------
 # Functions

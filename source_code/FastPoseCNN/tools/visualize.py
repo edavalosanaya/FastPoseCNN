@@ -991,18 +991,18 @@ def compare_pose_performance_v5(
     return_as_figure: bool = True,
     ):
 
+    # Checking invalid condition
+    if type(gt_pred_matches) == type(None) or 'sample_ids' not in gt_pred_matches.keys():
+        return None
+
+    # Getting the sample ids
+    sample_ids = gt_pred_matches['sample_ids']
+
     # Draw image
     draw_image = image.cpu().numpy()
 
     # Create colorized mask
     pred_mask_vis = get_visualized_masks(pred_mask, mask_colormap)
-
-    # Obtaining the sample ids
-    try:
-        sample_ids = gt_pred_matches['sample_ids']
-    except KeyError:
-        # No instances for this class, skip it
-        return None
 
     # Drawing per sample
     for sequence_id, sample_id in enumerate(sample_ids):
@@ -1138,15 +1138,15 @@ def compare_all_performance(sample, outputs, pred_gt_matches, intrinsics, mask_c
 #-------------------------------------------------------------------------------
 # Ground Truth Visualization (for debugging purposes)
 
-def visualize_gt_pose(sample, mask_colormap, intrinsics, return_as_figure=True):
+def visualize_gt_pose(sample, intrinsics, return_as_figure=True):
 
     image = sample['clean_image']
-    mask = sample['mask']
+    #mask = sample['mask']
     agg_data = sample['agg_data']
 
     # Draw image
     quat_draw_image = image.cpu().numpy()
-    rt_draw_image = image.cpu().numpy()
+    #rt_draw_image = image.cpu().numpy()
 
     # Obtaining the sample ids
     try:
@@ -1168,6 +1168,7 @@ def visualize_gt_pose(sample, mask_colormap, intrinsics, return_as_figure=True):
             color=(0,255,255)
         )
 
+        """
         rt_qt_pose = dr.draw_RT(
             image=quat_draw_image[sample_id],
             intrinsics=intrinsics,
@@ -1175,14 +1176,15 @@ def visualize_gt_pose(sample, mask_colormap, intrinsics, return_as_figure=True):
             scale = agg_data['scales'][sequence_id].cpu().numpy(),
             color=(0,255,255)
         )
+        """
 
         # Overwrite the older draw image
         quat_draw_image[sample_id] = quat_gt_pose
-        rt_draw_image[sample_id] = rt_qt_pose
+        #rt_draw_image[sample_id] = rt_qt_pose
 
     images = {
         'quat_poses': quat_draw_image,
-        'RT_poses': rt_draw_image
+        #'RT_poses': rt_draw_image
     }        
 
     if return_as_figure:

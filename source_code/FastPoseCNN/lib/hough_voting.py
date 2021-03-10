@@ -74,8 +74,8 @@ class HoughVotingLayer(nn.Module):
             )
 
             # Pruning of outliers
-            # pruned_hypothesis = self.prun_outliers(hypothesis)
-            pruned_hypothesis = hypothesis.clone()
+            pruned_hypothesis = self.prun_outliers(hypothesis)
+            #pruned_hypothesis = hypothesis.clone()
 
             # Calculate the weights of each hypothesis
             weights = self.batchwise_calculate_hypothesis_weights(

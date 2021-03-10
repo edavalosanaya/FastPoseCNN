@@ -7,4 +7,4 @@ import loss
 import gpu_tensor_funcs as gtf
 import matching as mg
 import metrics 
-from pose_regressor import PoseRegressor
+import pose_regressor

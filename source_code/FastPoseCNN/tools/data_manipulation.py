@@ -162,20 +162,6 @@ def standardize_depth(depth):
     else:
         assert False, '[ Error ]: Unsupported depth type'
 
-def compress_dict(my_dict, additional_subkey=None):
-
-    new_dict = {}
-
-    for key in my_dict.keys():
-
-        if additional_subkey:
-            new_dict[f"{key}/{additional_subkey}"] = None
-
-        for subkey in my_dict[key].keys():
-            new_dict[f"{key}/{subkey}"] = my_dict[key][subkey]
-
-    return new_dict
-
 #-------------------------------------------------------------------------------
 # create Functions
 
