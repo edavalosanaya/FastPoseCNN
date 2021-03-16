@@ -468,7 +468,7 @@ class Model(object):
             # Merge the NameSpaces between the model's hyperparameters and 
             # the evaluation hyperparameters
             for attr in OLD_HPARAM.keys():
-                if attr in ['BACKBONE_ARCH', 'ENCODER', 'ENCODER_WEIGHTS', 'SELECTED_CLASSES']:
+                if attr in ['MODEL', 'BACKBONE_ARCH', 'ENCODER', 'ENCODER_WEIGHTS', 'SELECTED_CLASSES']:
                     setattr(HPARAM, attr, OLD_HPARAM[attr])
 
             # Constructing a new model with the new HPARAMS

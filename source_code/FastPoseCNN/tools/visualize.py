@@ -1042,7 +1042,7 @@ def compare_pose_performance_v5(
 #-------------------------------------------------------------------------------
 # Visualization of All Things
 
-def compare_all_performance(sample, outputs, pred_gt_matches, intrinsics, mask_colormap):
+def compare_all_performance(sample, outputs, pred_gt_matches, intrinsics, mask_colormap, return_as_fig=True):
 
     # Clean image
     image_key = 'clean_image' if 'clean_image' in sample.keys() else 'image'
@@ -1071,14 +1071,14 @@ def compare_all_performance(sample, outputs, pred_gt_matches, intrinsics, mask_c
     if pred_gt_matches:
         # unit vectors and hough voting
         hv_images = compare_hough_voting_performance(
-            sample['clean_image'],
+            sample['clean_image'].clone(),
             outputs['auxilary']['agg_pred'],
             return_as_figure=False
         )
 
         # Pose
         pose_images = compare_pose_performance_v5(
-            sample['clean_image'],
+            sample['clean_image'].clone(),
             pred_gt_matches,
             outputs['auxilary']['cat_mask'],
             mask_colormap,
@@ -1129,11 +1129,14 @@ def compare_all_performance(sample, outputs, pred_gt_matches, intrinsics, mask_c
 
 
     # Creating a gigantic figure
-    poses_fig = make_summary_figure(**pose_images)
-    gt_fig = make_summary_figure(**gt_images)
-    pred_fig = make_summary_figure(**pred_images)
+    if return_as_fig:
+        poses_fig = make_summary_figure(**pose_images)
+        gt_fig = make_summary_figure(**gt_images)
+        pred_fig = make_summary_figure(**pred_images)
 
-    return gt_fig, pred_fig, poses_fig
+        return gt_fig, pred_fig, poses_fig
+
+    return gt_images, pred_images, pose_images
 
 #-------------------------------------------------------------------------------
 # Ground Truth Visualization (for debugging purposes)

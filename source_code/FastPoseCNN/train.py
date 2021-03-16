@@ -71,10 +71,18 @@ To delete hanging Tensorboard processes use the following:
 #-------------------------------------------------------------------------------
 # File Constants
 
-HPARAM = cfg.DEFAULT_POSE_HPARAM()
-LOGGER = logging.getLogger('fastposecnn')
+# Select the type of training you wish to do:
+# Default = DEFAULT_POSE_HPARAM
+# Mask training = MASK_TRAINING
+# Head training = HEAD_TRAINING
 
+# HPARAM = cfg.DEFAULT_POSE_HPARAM()
+# HPARAM = cfg.MASK_TRAINING()       
+HPARAM = cfg.HEAD_TRAINING()
+
+LOGGER = logging.getLogger('fastposecnn')
 LOGGER.setLevel(logging.DEBUG)
+
 logging.getLogger('requests').setLevel(logging.DEBUG)
 logging.getLogger('PIL').setLevel(logging.INFO)
 
