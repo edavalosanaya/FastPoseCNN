@@ -22,7 +22,8 @@ import lib
 # Constants
 
 PATH = pathlib.Path('/home/students/edavalos/GitHub/FastPoseCNN/source_code/FastPoseCNN/logs/21-03-06/16-36-BASE_TEST-CAMERA-resnet18-imagenet/_/checkpoints/last.ckpt')
-HPARAM = config.DEFAULT_POSE_HPARAM()
+HPARAM = config.INFERENCE()
+DRAW_IMAGE = 10
 
 #-------------------------------------------------------------------------------
 # File Main
@@ -42,8 +43,6 @@ parser.parse_args(namespace=HPARAM)
 
 # Getting the intrinsics for the dataset selected
 HPARAM.NUMPY_INTRINSICS = tools.pj.constants.INTRINSICS[HPARAM.DATASET_NAME]
-HPARAM.BATCH_SIZE = 1
-HPARAM.VALID_SIZE = 20
 
 # Construct model (if ckpt=None, it will just load as is)
 model = lib.pose_regressor.MODELS[HPARAM.MODEL].load_from_ckpt(
@@ -52,7 +51,7 @@ model = lib.pose_regressor.MODELS[HPARAM.MODEL].load_from_ckpt(
 )
 
 # Put the model into evaluation mode
-#model.to('cuda') # ! Make it work with multiple GPUs
+model = model.to('cuda') # ! Make it work with multiple GPUs
 model.eval()
 
 # Load the PyTorch Lightning dataset
@@ -84,16 +83,19 @@ image_counter = 0
 # and the ground truths
 for batch_id, batch in tqdm.tqdm(enumerate(datamodule.val_dataloader())):
 
+    # Skip if the batch is empty
     if type(batch) == type(None):
         continue
 
-    # Forward pass
-    tic = time.time()
+    # Move the batch to the device
+    batch = tools.ds.move_batch_to(batch, 'cuda:0')
     
+    # Forward Propagating
     with torch.no_grad():
         outputs = model.forward(batch['image'])
-    
-    toc = time.time()
+
+    if batch_id > DRAW_IMAGE:
+        continue
 
     # Determine matches between the aggreated ground truth and preds
     gt_pred_matches = lib.mg.batchwise_find_matches(
@@ -148,3 +150,7 @@ for batch_id, batch in tqdm.tqdm(enumerate(datamodule.val_dataloader())):
             # Saving the image
             image_path = pathlib.Path(os.getenv('TEST_OUTPUT')) / f'{batch_id}-{image_type_name}.png'
             skimage.io.imsave(str(image_path), image)
+
+# At the end of running loop, calculate the runtime of each model
+if HPARAM.RUNTIME_TIMING:
+    model.report_runtime()

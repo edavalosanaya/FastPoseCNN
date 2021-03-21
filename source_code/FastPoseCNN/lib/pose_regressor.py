@@ -21,6 +21,9 @@ import pytorch_lightning.core.decorators
 import catalyst.contrib.nn
 
 # Local imports 
+sys.path.append(os.getenv("TOOLS_DIR"))
+import timer as tm
+
 import initialization as init
 import gpu_tensor_funcs as gtf
 import aggregation_layer as al
@@ -31,6 +34,16 @@ import matching as mg
 # Constants
 
 LOGGER = logging.getLogger('fastposecnn')
+
+#-------------------------------------------------------------------------------
+# Timers
+
+FORWARD_TIMER = tm.TimerDecorator('forward') # Total Timer
+MODEL_TIMER = tm.TimerDecorator('model') # Pure Pytorch Model Timer
+AGG_TIMER = tm.TimerDecorator('Aggregation') # Aggregation Timer
+HV_TIMER = tm.TimerDecorator('Hough Voting') # Hough Voting Timer
+RT_CAL_TIMER = tm.TimerDecorator('RT Calculation') # RT Calculating Timer
+CLASS_COMPRESS_TIMER = tm.TimerDecorator('Class Compression') # Class Compression Timer
 
 #-------------------------------------------------------------------------------
 # Small Helper Functions
@@ -430,23 +443,58 @@ class PoseRegressionTask(pl.LightningModule):
 
 class Model(object):
 
+    @CLASS_COMPRESS_TIMER
+    def class_compression(self, logits):
+
+        # Create categorical mask
+        cat_mask = torch.argmax(torch.nn.LogSoftmax(dim=1)(logits['mask']), dim=1)
+
+        # Class compression of the data
+        cc_logits = gtf.class_compress2(self.classes, cat_mask, logits)
+
+        return cat_mask, cc_logits
+
+    @AGG_TIMER
+    def aggregate(self, cat_mask, data):
+        
+        # Perform aggregation
+        agg_data = self.aggregation_layer.forward(cat_mask, data)
+
+        return agg_data
+
+    @HV_TIMER
+    def hough_voting(self, agg_data):
+
+        # Perform hough voting
+        agg_data = self.hough_voting_layer(agg_data)
+
+        return agg_data
+
+    @RT_CAL_TIMER
+    def perform_RT_calculation(self, agg_data):
+
+        # Perform RT calculation
+        agg_data = gtf.samplewise_get_RT(agg_data, self.inv_intrinsics)
+
+        return agg_data
+
     # Shared aggregation, hough voting and RT generation function
     def agg_hough_and_generate_RT(self, cat_mask, data):
 
         # If aggregation is wanted, perform it
         if self.HPARAM.PERFORM_AGGREGATION:
             # Aggregating the results
-            agg_data = self.aggregation_layer.forward(cat_mask, data)
+            agg_data = self.aggregate(cat_mask, data)
 
             # If hough voting is wanted, perform it
             if self.HPARAM.PERFORM_HOUGH_VOTING:
                 # Perform hough voting
-                agg_data = self.hough_voting_layer(agg_data)
+                agg_data = self.hough_voting(agg_data)
 
                 # If RT calculation is wanted, perform it
                 if self.HPARAM.PERFORM_RT_CALCULATION:
                     # Calculate RT
-                    agg_data = gtf.samplewise_get_RT(agg_data, self.inv_intrinsics)
+                    agg_data = self.perform_RT_calculation(agg_data)
 
         else:
             return None 
@@ -500,7 +548,24 @@ class Model(object):
             classes=len(HPARAM.SELECTED_CLASSES)
         )
 
+        # Appending the timers to calculate runtime
+        model.TIMERS = [MODEL_TIMER, AGG_TIMER, HV_TIMER, RT_CAL_TIMER, CLASS_COMPRESS_TIMER, FORWARD_TIMER]
+
+        # Enable timers bases on HPARA.RUNTIME_TIMING param
+        if HPARAM.RUNTIME_TIMING:
+            for timer in model.TIMERS:
+                timer.enabled = True
+
         return model
+
+    def report_runtime(self):
+
+        if self.HPARAM.RUNTIME_TIMING:
+            for timer in self.TIMERS:
+                print(f"{timer.name}: {timer.average:.3f} ms - {timer.fps} fps")
+
+        else:
+            print("Incapable of Runtime calculation: Set RUNTIME_TIMING = True next time.")
 
 #-------------------------------------------------------------------------------
 # Implemented Models
@@ -639,12 +704,8 @@ class PoseRegressor(Model, torch.nn.Module):
             gtf.freeze(self.scales_decoder)
             gtf.freeze(self.scales_head)
 
-    def forward(self, x):
-
-        # Ensuring that intrinsics is in the same device
-        if self.intrinsics.device != x.device:
-            self.intrinsics = self.intrinsics.to(x.device)
-            self.inv_intrinsics = torch.inverse(self.intrinsics)
+    @MODEL_TIMER
+    def pure_model_forward(self, x):
 
         # Encoder
         features = self.encoder(x)
@@ -670,20 +731,28 @@ class PoseRegressor(Model, torch.nn.Module):
 
         # Storing all logits in a dictionary
         logits = {
+            'mask': mask_logits,
             'quaternion': quat_logits,
             'scales': scales_logits,
             'xy': xy_logits,
             'z': z_logits
         }
 
-        # ! Debugging only
-        #return logits
+        return logits
 
-        # Create categorical mask
-        cat_mask = torch.argmax(torch.nn.LogSoftmax(dim=1)(mask_logits), dim=1)
+    @FORWARD_TIMER
+    def forward(self, x):
 
-        # Class compression of the data
-        cc_logits = gtf.class_compress2(self.classes, cat_mask, logits)
+        # Ensuring that intrinsics is in the same device
+        if self.intrinsics.device != x.device:
+            self.intrinsics = self.intrinsics.to(x.device)
+            self.inv_intrinsics = torch.inverse(self.intrinsics)
+
+        # Pass through the Pure Pytorch Model and get the raw logits
+        logits = self.pure_model_forward(x)
+
+        # Perform Class Compression
+        cat_mask, cc_logits = self.class_compression(logits)
 
         # Perform aggregation, hough voting, and generate RT matrix given the 
         # results o f previous operations.
@@ -694,7 +763,7 @@ class PoseRegressor(Model, torch.nn.Module):
 
         # Generating complete output
         output = {
-            'mask': mask_logits,
+            'mask': logits['mask'],
             **cc_logits,
             'auxilary': {
                 'cat_mask': cat_mask,
@@ -825,12 +894,8 @@ class PoseRegressor2(Model, torch.nn.Module):
         if HPARAM.FREEZE_SCALES_TRAINING:
             gtf.freeze(self.scales_head)
 
-    def forward(self, x):
-
-        # Ensuring that intrinsics is in the same device
-        if self.intrinsics.device != x.device:
-            self.intrinsics = self.intrinsics.to(x.device)
-            self.inv_intrinsics = torch.inverse(self.intrinsics)
+    @MODEL_TIMER
+    def pure_model_forward(self, x):
 
         # Encoder
         features = self.encoder(x)
@@ -851,20 +916,27 @@ class PoseRegressor2(Model, torch.nn.Module):
 
         # Storing all logits in a dictionary
         logits = {
+            'mask': mask_logits,
             'quaternion': quat_logits,
             'scales': scales_logits,
             'xy': xy_logits,
             'z': z_logits
         }
 
-        # ! Debugging only
-        #return logits
+        return logits
 
-        # Create categorical mask
-        cat_mask = torch.argmax(torch.nn.LogSoftmax(dim=1)(mask_logits), dim=1)
+    @FORWARD_TIMER
+    def forward(self, x):
 
-        # Class compression of the data
-        cc_logits = gtf.class_compress2(self.classes, cat_mask, logits)
+        # Ensuring that intrinsics is in the same device
+        if self.intrinsics.device != x.device:
+            self.intrinsics = self.intrinsics.to(x.device)
+            self.inv_intrinsics = torch.inverse(self.intrinsics)
+
+        logits = self.pure_model_forward(x)
+
+        # Perform Class Compression
+        cat_mask, cc_logits = self.class_compression(logits)
 
         # Perform aggregation, hough voting, and generate RT matrix given the 
         # results o f previous operations.
@@ -875,7 +947,7 @@ class PoseRegressor2(Model, torch.nn.Module):
 
         # Generating complete output
         output = {
-            'mask': mask_logits,
+            'mask': logits['mask'],
             **cc_logits,
             'auxilary': {
                 'cat_mask': cat_mask,

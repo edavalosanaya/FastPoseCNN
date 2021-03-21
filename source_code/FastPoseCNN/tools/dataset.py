@@ -633,6 +633,7 @@ class PoseRegressionDataModule(pl.LightningDataModule):
                 'num_workers': self.num_workers,
                 'batch_size': self.batch_size,
                 'collate_fn': my_collate_fn,
+                'pin_memory': True
             }
 
             # If deterministic, don't shuffle and provide seed_worker function
@@ -666,6 +667,32 @@ class PoseRegressionDataModule(pl.LightningDataModule):
 
 #-------------------------------------------------------------------------------
 # Functions
+
+def move_batch_to(batch: dict, device):
+
+    device_batch = {}
+
+    for key in batch.keys():
+
+        if key == 'agg_data':
+            agg_data_dict = {}
+
+            for subkey in batch[key].keys():
+                if isinstance(batch[key][subkey], torch.Tensor):
+                    agg_data_dict[subkey] = batch[key][subkey].to(device)
+                else:
+                    agg_data_dict[subkey] = batch[key][subkey]
+
+            device_batch[key] = agg_data_dict
+
+        else:
+
+            if isinstance(batch[key], torch.Tensor):
+                device_batch[key] = batch[key].to(device)
+            else:
+                device_batch[key] = batch[key]
+
+    return device_batch
 
 def test_pose_camera_dataset():
 

@@ -463,6 +463,12 @@ def batchwise_find_matches(preds, gts):
             axis = 0
         else:
             axis = 1
+        
+        # Catching a rather odd error
+        if len(pred_gt_matches[key]) == 0:
+            return None
+
+        # Concatinating results here
         pred_gt_matches[key] = torch.cat(pred_gt_matches[key], dim=axis)
 
     return pred_gt_matches   

@@ -35,11 +35,9 @@ import config
 #PATH = pathlib.Path(os.getenv("LOGS")) / 'good_saved_runs' / 'all_object' / '11-24-010_SYM_TEST-CAMERA-resnet18-imagenet' / '_' / 'checkpoints' / 'last.ckpt'
 #PATH = pathlib.Path(os.getenv("LOGS")) / 'debugging_test_runs' / '23-40-LOG_DEBUG-CAMERA-resnet18-imagenet' / '_' / 'checkpoints' / 'n-ckpt_epoch=5.ckpt'
 #PATH = pathlib.Path(os.getenv("LOGS")) / '21-02-25' / '19-57-7_56_DEBUG-CAMERA-resnet18-imagenet' / '_' / 'checkpoints' / 'n-ckpt_epoch=5.ckpt'
-PATH = pathlib.Path('/home/students/edavalos/GitHub/FastPoseCNN/source_code/FastPoseCNN/logs/21-03-12/20-37-BASE_TRIM_LONG-PoseRegressor-CAMERA-resnet18-imagenet/_/checkpoints/last.ckpt')
+PATH = pathlib.Path('/home/students/edavalos/GitHub/FastPoseCNN/source_code/FastPoseCNN/logs/21-03-17/18-32-STABLE_BASE2-PoseRegressor-CAMERA-resnet18-imagenet/_/checkpoints/epoch=45-checkpoint_on=0.5219.ckpt')
 
-HPARAM = config.DEFAULT_POSE_HPARAM()
-HPARAM.VALID_SIZE = 2000
-HPARAM.HV_NUM_OF_HYPOTHESES = 501
+HPARAM = config.EVALUATING()
 
 COLLECT_DATA = False
 DRAW = True
@@ -81,12 +79,6 @@ if __name__ == '__main__':
 
     # Getting the intrinsics for the dataset selected
     HPARAM.NUMPY_INTRINSICS = tools.pj.constants.INTRINSICS[HPARAM.DATASET_NAME]
-    
-    # Making the evaluation actually do something useful.
-    HPARAM.PERFORM_AGGREGATION = True 
-    HPARAM.PERFORM_HOUGH_VOTING = True
-    HPARAM.PERFORM_RT_CALCULATION = True
-    HPARAM.PERFORM_MATCHING = True
 
     # Determining if collect model's performance data
     # or visualizing the results of the model's performance

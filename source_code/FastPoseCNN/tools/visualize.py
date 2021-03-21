@@ -310,9 +310,9 @@ def get_visualized_hough_voting(
     )
 
     colors = torch.tensor([
-        [0,0.5,0], # mask
-        [0,1,1], # original hypothesis
-        [1,0,1], # pruned hypothesis
+        [1,1,1], # mask
+        [0,0,1], # original hypothesis
+        [0,1,0], # pruned hypothesis
         [1,0,0], # final conclusion
     ], dtype=torch.float, device=mask.device)
 
@@ -1002,7 +1002,7 @@ def compare_pose_performance_v5(
     draw_image = image.cpu().numpy()
 
     # Create colorized mask
-    pred_mask_vis = get_visualized_masks(pred_mask, mask_colormap)
+    pred_mask_vis = get_visualized_masks(pred_mask.cpu().numpy(), mask_colormap)
 
     # Drawing per sample
     for sequence_id, sample_id in enumerate(sample_ids):
@@ -1049,12 +1049,12 @@ def compare_all_performance(sample, outputs, pred_gt_matches, intrinsics, mask_c
     image = sample[image_key]
 
     # Masked
-    pred_mask_vis = get_visualized_masks(outputs['auxilary']['cat_mask'], mask_colormap)
-    gt_mask_vis = get_visualized_masks(sample['mask'], mask_colormap)
+    pred_mask_vis = get_visualized_masks(outputs['auxilary']['cat_mask'].cpu().numpy(), mask_colormap)
+    gt_mask_vis = get_visualized_masks(sample['mask'].cpu().numpy(), mask_colormap)
 
     # z
     #gt_z_vis = get_visualized_zs(sample['z'])
-    pred_z_vis = get_visualized_zs(outputs['z'])
+    pred_z_vis = get_visualized_zs(outputs['z'].cpu().numpy())
 
     # Ground truth xy
     #gt_uv = get_visualized_u_vector_xys(sample['mask'], sample['xy'].cpu().numpy())

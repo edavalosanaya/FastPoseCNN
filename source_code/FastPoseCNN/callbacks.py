@@ -457,7 +457,7 @@ class TensorboardCallback(pl.callbacks.Callback):
                 summary_fig = tools.vz.compare_pose_performance_v5(
                     batch['clean_image'],
                     gt_pred_matches,
-                    outputs['auxilary']['cat_mask'].cpu().numpy(),
+                    outputs['auxilary']['cat_mask'],
                     mask_colormap=dataset.COLORMAP,
                     intrinsics=dataset.INTRINSICS
                 )

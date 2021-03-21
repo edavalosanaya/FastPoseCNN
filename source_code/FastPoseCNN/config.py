@@ -8,21 +8,22 @@ import tools
 #-------------------------------------------------------------------------------
 # Configurations
 
-# Run hyperparameters
 class DEFAULT_POSE_HPARAM(argparse.Namespace):
     
     # Experiment Identification 
     EXPERIMENT_NAME = "TESTING" # string
     DEBUG = False
     DETERMINISTIC = False
+    RUNTIME_TIMING = False
 
     # Training Specifications
     #CHECKPOINT = None
     #CHECKPOINT = pathlib.Path(os.getenv("LOGS")) / 'good_saved_runs' / '2_object' / '21-38-XY_REGRESSION_DEBUG-CAMERA-resnet18-imagenet' / '_' / 'checkpoints' / 'last.ckpt'
-    CHECKPOINT = pathlib.Path(os.getenv("LOGS")) / 'good_saved_runs' / 'all_object' / '22-10-LONG_MASK_ALL_OBJECTS-CAMERA-resnet18-imagenet' / '_' / 'checkpoints' / 'last.ckpt'
+    #CHECKPOINT = pathlib.Path(os.getenv("LOGS")) / 'good_saved_runs' / 'all_object' / '22-10-LONG_MASK_ALL_OBJECTS-CAMERA-resnet18-imagenet' / '_' / 'checkpoints' / 'last.ckpt'
     #CHECKPOINT = pathlib.Path(os.getenv("LOGS")) / 'debugging_test_runs' / '13-15-MASK_TEST-CAMERA-resnet18-imagenet' / '_' / 'checkpoints' / 'n-ckpt_epoch=5.ckpt'
-    #CHECKPOINT = pathlib.Path('/home/students/edavalos/GitHub/FastPoseCNN/source_code/FastPoseCNN/logs/21-03-11/08-30-HEAD_TRAINING2-Experimental-CAMERA-resnet18-imagenet/_/checkpoints/epoch=04-checkpoint_on=0.7862.ckpt')
+    CHECKPOINT = pathlib.Path('/home/students/edavalos/GitHub/FastPoseCNN/source_code/FastPoseCNN/logs/21-03-12/20-37-BASE_TRIM_LONG-PoseRegressor-CAMERA-resnet18-imagenet/_/checkpoints/last.ckpt')
 
+    # Model Specifications
     MODEL = 'PoseRegressor'
     DATASET_NAME = 'CAMERA' # string
     #SELECTED_CLASSES = ['bg','camera','laptop']
@@ -30,22 +31,22 @@ class DEFAULT_POSE_HPARAM(argparse.Namespace):
     CKPT_SAVE_FREQUENCY = 5
 
     # Run Specifications
-    CUDA_VISIBLE_DEVICES = '2' # '0,1,2,3'
+    CUDA_VISIBLE_DEVICES = '0' # '0,1,2,3'
     BATCH_SIZE = 2
     NUM_WORKERS = int(1 * (36/4)) # 36 total CPUs
     NUM_GPUS = 1 # 4 total GPUs
     
     # Test Trim Dataset
-    # TRAIN_SIZE = 100
-    # VALID_SIZE = 20
+    TRAIN_SIZE = 100
+    VALID_SIZE = 20
 
     # Small Trim Dataset
     # TRAIN_SIZE = 5_000
     # VALID_SIZE = 200
 
     # Large Trim Dataset
-    TRAIN_SIZE = 10_000
-    VALID_SIZE = 500
+    # TRAIN_SIZE = 10_000
+    # VALID_SIZE = 500
 
     # Entire Dataset
     # TRAIN_SIZE = None
@@ -100,6 +101,7 @@ class DEFAULT_POSE_HPARAM(argparse.Namespace):
     ### Pruning Method Parameters (IQR)
     IQR_MULTIPLIER=1.5
 
+# TRAINING
 class MASK_TRAINING(DEFAULT_POSE_HPARAM):
 
     FREEZE_ENCODER = False
@@ -115,11 +117,35 @@ class MASK_TRAINING(DEFAULT_POSE_HPARAM):
 
 class HEAD_TRAINING(DEFAULT_POSE_HPARAM):
 
-    FREEZE_ENCODER = True
-    FREEZE_MASK_TRAINING = True
+    FREEZE_ENCODER = False
+    FREEZE_MASK_TRAINING = False
     FREEZE_ROTATION_TRAINING = False
     FREEZE_TRANSLATION_TRAINING = False
     FREEZE_SCALES_TRAINING = False
+
+    PERFORM_AGGREGATION = True
+    PERFORM_HOUGH_VOTING = True
+    PERFORM_RT_CALCULATION = True
+    PERFORM_MATCHING = True
+
+# EVALUATING
+class EVALUATING(DEFAULT_POSE_HPARAM):
+
+    VALID_SIZE = 2000
+    HV_NUM_OF_HYPOTHESES = 501
+
+    PERFORM_AGGREGATION = True
+    PERFORM_HOUGH_VOTING = True
+    PERFORM_RT_CALCULATION = True
+    PERFORM_MATCHING = True
+
+# INFERENCE
+class INFERENCE(DEFAULT_POSE_HPARAM):
+
+    HV_NUM_OF_HYPOTHESES = 6
+    BATCH_SIZE = 1
+    VALID_SIZE = 100
+    RUNTIME_TIMING = True
 
     PERFORM_AGGREGATION = True
     PERFORM_HOUGH_VOTING = True

@@ -95,7 +95,7 @@ def class_compress(num_of_classes, cat_mask, data):
 def class_compress2(num_of_classes, cat_mask, logits):
     
     class_compress_logits = {}
-    class_chunks_logits = {k:torch.chunk(v, num_of_classes-1, dim=1) for k,v in logits.items()}
+    class_chunks_logits = {k:torch.chunk(v, num_of_classes-1, dim=1) for k,v in logits.items() if k != 'mask'}
 
     # Per class
     for class_id in range(num_of_classes):
@@ -109,6 +109,10 @@ def class_compress2(num_of_classes, cat_mask, logits):
 
         # Perform class compression on the logits for pixel-wise regression
         for logit_key in logits.keys():
+
+            # If dealing with the mask logits, skip it
+            if logit_key == 'mask':
+                continue
 
             # Applying the class mask on the logits class chunk
             masked_class_chunk = class_chunks_logits[logit_key][class_id-1] * torch.unsqueeze(class_mask, dim=1)
