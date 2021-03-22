@@ -12,6 +12,8 @@ import torch.nn as nn
 
 import scipy.special
 
+import ransac_voting_gpu_layer.ransac_voting_gpu as rvg
+
 # Local imports
 sys.path.append(os.getenv("TOOLS_DIR"))
 
@@ -43,10 +45,20 @@ class HoughVotingLayer(nn.Module):
         mask = agg_data['instance_masks']
         
         # Performing hough voting
-        output = self.batchwise_hough_voting(uv_img, mask)
+        #output2 = self.batchwise_hough_voting(uv_img, mask)
+
+        # Using PVNet's Hough Voting\
+        reshaped_uv_img = torch.unsqueeze(uv_img.permute(0,2,3,1), dim=3)
+        output = rvg.ransac_voting_layer_v3(
+            mask = mask, # [b,h,w]
+            vertex = reshaped_uv_img, # [b,h,w,vn,2]
+            round_hyp_num = self.HPARAM.HV_NUM_OF_HYPOTHESES
+        )
+
+        good_output = torch.squeeze(output, dim=1)
 
         # Store data
-        agg_data.update(output)
+        agg_data.update({'hypothesis': output, 'pruned_hypothesis': output, 'xy': good_output, 'xy_mask':uv_img})
 
         return agg_data
 

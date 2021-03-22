@@ -17,11 +17,11 @@ class DEFAULT_POSE_HPARAM(argparse.Namespace):
     RUNTIME_TIMING = False
 
     # Training Specifications
-    #CHECKPOINT = None
-    #CHECKPOINT = pathlib.Path(os.getenv("LOGS")) / 'good_saved_runs' / '2_object' / '21-38-XY_REGRESSION_DEBUG-CAMERA-resnet18-imagenet' / '_' / 'checkpoints' / 'last.ckpt'
-    #CHECKPOINT = pathlib.Path(os.getenv("LOGS")) / 'good_saved_runs' / 'all_object' / '22-10-LONG_MASK_ALL_OBJECTS-CAMERA-resnet18-imagenet' / '_' / 'checkpoints' / 'last.ckpt'
-    #CHECKPOINT = pathlib.Path(os.getenv("LOGS")) / 'debugging_test_runs' / '13-15-MASK_TEST-CAMERA-resnet18-imagenet' / '_' / 'checkpoints' / 'n-ckpt_epoch=5.ckpt'
-    CHECKPOINT = pathlib.Path('/home/students/edavalos/GitHub/FastPoseCNN/source_code/FastPoseCNN/logs/21-03-12/20-37-BASE_TRIM_LONG-PoseRegressor-CAMERA-resnet18-imagenet/_/checkpoints/last.ckpt')
+    # CHECKPOINT = None
+    # CHECKPOINT = pathlib.Path(os.getenv("LOGS")) / 'good_saved_runs' / '2_object' / '21-38-XY_REGRESSION_DEBUG-CAMERA-resnet18-imagenet' / '_' / 'checkpoints' / 'last.ckpt'
+    CHECKPOINT = pathlib.Path(os.getenv("LOGS")) / 'good_saved_runs' / 'all_object' / '22-10-LONG_MASK_ALL_OBJECTS-CAMERA-resnet18-imagenet' / '_' / 'checkpoints' / 'last.ckpt'
+    # CHECKPOINT = pathlib.Path(os.getenv("LOGS")) / 'debugging_test_runs' / '13-15-MASK_TEST-CAMERA-resnet18-imagenet' / '_' / 'checkpoints' / 'n-ckpt_epoch=5.ckpt'
+    # CHECKPOINT = pathlib.Path('/home/students/edavalos/GitHub/FastPoseCNN/source_code/FastPoseCNN/logs/21-03-12/20-37-BASE_TRIM_LONG-PoseRegressor-CAMERA-resnet18-imagenet/_/checkpoints/last.ckpt')
 
     # Model Specifications
     MODEL = 'PoseRegressor'
@@ -32,21 +32,21 @@ class DEFAULT_POSE_HPARAM(argparse.Namespace):
 
     # Run Specifications
     CUDA_VISIBLE_DEVICES = '0' # '0,1,2,3'
-    BATCH_SIZE = 2
+    BATCH_SIZE = 3
     NUM_WORKERS = int(1 * (36/4)) # 36 total CPUs
     NUM_GPUS = 1 # 4 total GPUs
     
     # Test Trim Dataset
-    TRAIN_SIZE = 100
-    VALID_SIZE = 20
+    # TRAIN_SIZE = 100
+    # VALID_SIZE = 20
 
     # Small Trim Dataset
     # TRAIN_SIZE = 5_000
     # VALID_SIZE = 200
 
     # Large Trim Dataset
-    # TRAIN_SIZE = 10_000
-    # VALID_SIZE = 500
+    TRAIN_SIZE = 10_000
+    VALID_SIZE = 500
 
     # Entire Dataset
     # TRAIN_SIZE = None
@@ -87,7 +87,7 @@ class DEFAULT_POSE_HPARAM(argparse.Namespace):
     # Algorithmic Parameters
     
     ## Hough Voting Parameters 
-    HV_NUM_OF_HYPOTHESES = 51 # Good at 50 though (preferably 2*n + 1 because of iqr)
+    HV_NUM_OF_HYPOTHESES = 128 # Good at 50 though (preferably 2*n + 1 because of iqr)
     HV_HYPOTHESIS_IN_MASK_MULTIPLIER = 3 
     
     ### Pruning Parameters
@@ -142,9 +142,9 @@ class EVALUATING(DEFAULT_POSE_HPARAM):
 # INFERENCE
 class INFERENCE(DEFAULT_POSE_HPARAM):
 
-    HV_NUM_OF_HYPOTHESES = 6
+    HV_NUM_OF_HYPOTHESES = 1000
     BATCH_SIZE = 1
-    VALID_SIZE = 100
+    VALID_SIZE = 200
     RUNTIME_TIMING = True
 
     PERFORM_AGGREGATION = True

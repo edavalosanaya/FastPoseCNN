@@ -97,6 +97,8 @@ for batch_id, batch in tqdm.tqdm(enumerate(datamodule.val_dataloader())):
     if batch_id > DRAW_IMAGE:
         continue
 
+    continue
+
     # Determine matches between the aggreated ground truth and preds
     gt_pred_matches = lib.mg.batchwise_find_matches(
         outputs['auxilary']['agg_pred'],
@@ -150,6 +152,16 @@ for batch_id, batch in tqdm.tqdm(enumerate(datamodule.val_dataloader())):
             # Saving the image
             image_path = pathlib.Path(os.getenv('TEST_OUTPUT')) / f'{batch_id}-{image_type_name}.png'
             skimage.io.imsave(str(image_path), image)
+
+    # Saving the raw mask
+    mask_img = outputs['auxilary']['cat_mask'].cpu().numpy()
+    mask_path = pathlib.Path(os.getenv('TEST_OUTPUT')) / f'{batch_id}-raw_mask.npy'
+    np.save(str(mask_path), mask_img)
+
+    # Saving the raw hough voting vectors!
+    hv_img = outputs['auxilary']['agg_pred']['xy_mask'].cpu().numpy()
+    hv_path = pathlib.Path(os.getenv('TEST_OUTPUT')) / f'{batch_id}-raw_hv.npy'
+    np.save(str(hv_path), hv_img)
 
 # At the end of running loop, calculate the runtime of each model
 if HPARAM.RUNTIME_TIMING:

@@ -7,8 +7,10 @@
 *.json
 *.obj
 *.vscode
+*.so
 
 # Folder-Type Ignore 
+build/
 logs/
 logs2/
 logs*/
