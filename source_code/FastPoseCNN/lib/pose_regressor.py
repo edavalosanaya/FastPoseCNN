@@ -450,7 +450,7 @@ class Model(object):
         cat_mask = torch.argmax(torch.nn.LogSoftmax(dim=1)(logits['mask']), dim=1)
 
         # Class compression of the data
-        cc_logits = gtf.class_compress2(self.classes, cat_mask, logits)
+        cc_logits = gtf.class_compress3(self.classes, cat_mask, logits)
 
         return cat_mask, cc_logits
 

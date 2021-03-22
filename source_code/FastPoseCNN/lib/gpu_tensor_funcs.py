@@ -134,6 +134,52 @@ def class_compress2(num_of_classes, cat_mask, logits):
 
     return class_compress_logits
 
+def class_compress3(num_of_classes, cat_mask, logits):
+
+    # Output:
+    class_compress_logits = {}
+
+    # Obtaining size information from cat_mask
+    b, h, w = cat_mask.shape
+
+    # Creating class masks
+    class_masks = torch.zeros((b, num_of_classes, h, w), device=cat_mask.device)
+    class_masks = class_masks.scatter(1, torch.unsqueeze(cat_mask, dim=1), 1)[:,1:]
+
+    # Creating class data for the logits
+    class_chunks_logits = {k:torch.stack(torch.chunk(v, num_of_classes-1, dim=1), dim=1) for k,v in logits.items() if k != 'mask'}
+
+    # Perform class compression on the logits for pixel-wise regression
+    for logit_key in logits.keys():
+
+        # If dealing with the mask logits, skip it
+        if logit_key == 'mask':
+            continue
+
+        # Applying the class masks to the logits
+        masked_class_chunk = torch.where(
+            torch.unsqueeze(class_masks, dim=2).bool(), 
+            class_chunks_logits[logit_key].double(),
+            0.0
+        ).float()
+
+        # Compress the classes into one
+        class_compress_logit = torch.sum(masked_class_chunk, dim=1)
+
+        # Need to squeeze when logit_key == z in dim = 1 to match categorical
+        # ground truth data
+        if logit_key == 'z':
+            class_compress_logit = torch.squeeze(class_compress_logit, dim=1)
+
+        # Normalize quaternion and xy
+        elif logit_key == 'quaternion' or logit_key == 'xy':
+            class_compress_logit = normalize(class_compress_logit, dim=1)
+
+        # Store data
+        class_compress_logits[logit_key] = class_compress_logit
+    
+    return class_compress_logits
+
 def mask_gradients(to_be_masked, mask):
 
     # Creating a binary mask of all objects
