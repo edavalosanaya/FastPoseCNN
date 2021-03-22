@@ -52,6 +52,96 @@ class AggregationLayer(nn.Module):
         ])
 
     def forward(
+        self,
+        cat_mask: torch.Tensor,
+        data: Union[dict], # categorical data
+        ):
+
+        # Outputs
+        complete_agg_data = {
+            'class_ids': [],
+            'instance_masks': [],
+            'sample_ids': []
+        }
+
+        # Breaking the overall mask into instances
+        instance_masks, total_num_of_instances = self.batchwise_break_segmentation_mask(cat_mask != 0)
+
+        # Obtain the shape of the masks
+        b,h,w = cat_mask.shape
+
+        # Per batch
+        for bi in range(b):
+
+            # Obtaining the number of instances in the batch
+            batch_number_of_instances = (torch.unique(instance_masks[bi]) != 0).sum()
+            sample_to_mask = torch.ones(
+                (batch_number_of_instances,),
+                dtype=torch.int64,
+                device=cat_mask.device
+            ) * bi
+
+            # Storing array indicating sample-to-mask correspondence
+            complete_agg_data['sample_ids'].append(sample_to_mask)
+
+            # Converting the categorical instance mask into binary instance masks
+            binary_instance_masks = torch.zeros((total_num_of_instances+1, h, w), device=cat_mask.device)
+            binary_instance_masks = binary_instance_masks.scatter(0, torch.unsqueeze(instance_masks[bi], dim=0).type(torch.int64), 1)[1:]
+
+            # Removing all-zero image-planes (extra were made for safety reasons)
+            binary_instance_masks = binary_instance_masks[torch.sum(binary_instance_masks, dim=(-2, -1)) != 0]
+
+            # Storing the binary instance masks
+            complete_agg_data['instance_masks'].append(binary_instance_masks)
+
+            # Obtaining the class_ids for the instance masks
+            class_instance_masks = torch.unsqueeze(cat_mask[bi], dim=0) * binary_instance_masks.bool()
+            instance_classes = torch.stack([torch.unique(x)[1] for x in torch.unbind(class_instance_masks)])
+
+            # Storing the classes for the instance masks
+            complete_agg_data['class_ids'].append(instance_classes)
+
+        # Concatenate all of the information
+        for key in complete_agg_data.keys():
+            complete_agg_data[key] = torch.cat(complete_agg_data[key], dim=0)
+
+        # Obaint the instances' values      
+        for data_key in ['quaternion', 'scales', 'xy', 'z']:
+
+            # Matching the categorical data to the instance' quantity and order
+            instance_data = data[data_key][complete_agg_data['sample_ids']]
+
+            # Need to expand the instance_data when data_key == 'z'
+            if data_key == 'z':
+                instance_data = torch.unsqueeze(instance_data, dim=1)
+
+            # Obtaining the data for the instance in respect to their mask
+            masked_data = torch.unsqueeze(complete_agg_data['instance_masks'], dim=1) * instance_data
+
+            # Use native average as the instance-wise data
+            if data_key in ['quaternion', 'scales', 'z']:
+                total_val = torch.sum(masked_data, dim=(-2, -1))
+                mask_size = torch.sum(complete_agg_data['instance_masks'], dim=(-2, -1))
+                agg_data = torch.div(total_val, torch.unsqueeze(mask_size.T, dim=1))
+
+                # Undoing the torch.log in data embedding
+                if data_key == 'z':
+                    agg_data = torch.exp(agg_data)
+
+                # Normalizing quaternion
+                elif data_key == 'quaternion':
+                    agg_data = gtf.normalize(agg_data, dim=1)
+
+            # Not performing aggregation via averaging. Instead allow hough voting to use data
+            elif data_key == 'xy':
+                agg_data = masked_data
+
+            # Store the information into the container
+            complete_agg_data[data_key] = agg_data
+
+        return complete_agg_data
+
+    def forward2(
         self, 
         cat_mask: torch.Tensor, 
         data: Union[dict], # categorical data
@@ -161,7 +251,7 @@ class AggregationLayer(nn.Module):
         # Converting torch to GPU numpy (cupy)
         if class_mask.is_cuda:
             with cp.cuda.Device(class_mask.device.index):
-                cupy_class_mask = cp.asarray(class_mask)
+                cupy_class_mask = cp.asarray(class_mask.float())
 
             # Shattering the segmentation into instances
             cupy_instance_masks, num_of_instances = cupyx.scipy.ndimage.label(cupy_class_mask, structure=self.s)
