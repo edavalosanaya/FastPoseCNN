@@ -31,7 +31,7 @@ class CE(_Loss):
     def forward(self, pred, gt) -> Tensor:
 
         # Indexing the corresponding mask pred and ground truth
-        y_pred = pred['mask']
+        y_pred = pred['logits']['mask']
         y_true = gt['mask']
 
         loss = nn.CrossEntropyLoss()
@@ -55,7 +55,7 @@ class CCE(_Loss):
         """
 
         # Indexing the corresponding mask pred and ground truth
-        y_pred = pred['mask']
+        y_pred = pred['logits']['mask']
         y_true = gt['mask']
 
         y_pred = nn.LogSoftmax(dim=1)(y_pred)
@@ -83,7 +83,7 @@ class Focal(_Loss):
         """
 
         # Indexing the corresponding mask pred and ground truth
-        y_pred = pred['mask']
+        y_pred = pred['logits']['mask']
         y_true = gt['mask']
 
         # Converting the data to a more stable range [-inf,0)
@@ -107,7 +107,7 @@ class MaskedMSELoss(_Loss):
     def forward(self, pred, gt) -> Tensor:
 
         # Selecting the categorical_mask
-        cat_mask = pred['auxilary']['cat_mask']
+        cat_mask = pred['categorical']['mask']
 
         # Creating union mask between pred and gt
         mask_union = torch.logical_and(cat_mask != 0, gt['mask'] != 0)

@@ -599,7 +599,11 @@ def ransac_voting_layer_v3(mask, vertex, round_hyp_num, inlier_thresh=0.999, con
         all_win_pts=torch.matmul(b_inv(ATA),torch.unsqueeze(ATb,2)) # [vn,2,1]
         batch_win_pts.append(all_win_pts[None,:,:,0])
 
-    batch_win_pts=torch.cat(batch_win_pts)
+    try:
+        batch_win_pts=torch.cat(batch_win_pts)
+    except RuntimeError: # Empty list
+        batch_win_pts=torch.empty((0,vn,2))
+
     return batch_win_pts
 
 def ransac_voting_center(mask, vertex, round_hyp_num, inlier_thresh=0.99, confidence=0.999, max_iter=20, min_num=100):

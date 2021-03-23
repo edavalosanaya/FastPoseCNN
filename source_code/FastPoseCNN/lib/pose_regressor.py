@@ -4,6 +4,7 @@ import base64
 import abc
 import logging
 import pprint
+import typing
 
 from typing import Optional, OrderedDict, Union
 
@@ -29,6 +30,7 @@ import gpu_tensor_funcs as gtf
 import aggregation_layer as al
 import hough_voting as hv
 import matching as mg
+import type_hinting as th
 
 #-------------------------------------------------------------------------------
 # Constants
@@ -173,9 +175,6 @@ class PoseRegressionTask(pl.LightningModule):
         LOGGER.info(f'BATCH ID={batch_idx} ({self.device})')
         LOGGER.info(f"({self.device}) IMAGES={pprint.pformat(batch['path'])}")
 
-        #! Debugging the inf problem
-        #batch = torch.load('/home/students/edavalos/GitHub/FastPoseCNN/source_code/FastPoseCNN/logs/21-03-04/18-43-INF_CATCH1-CAMERA-resnet18-imagenet/inf_batch_epoch=1.pth', map_location = self.device)
-
         # Forward pass the input and generate the prediction of the NN
         outputs = self.forward(batch['image'])
 
@@ -183,7 +182,7 @@ class PoseRegressionTask(pl.LightningModule):
         if self.HPARAM.PERFORM_AGGREGATION and self.HPARAM.PERFORM_MATCHING:
             # Determine matches between the aggreated ground truth and preds
             gt_pred_matches = mg.batchwise_find_matches(
-                outputs['auxilary']['agg_pred'],
+                outputs['aggregated'],
                 batch['agg_data']
             )
         else:
@@ -325,12 +324,12 @@ class PoseRegressionTask(pl.LightningModule):
                 if metric_attrs['D'] == 'pixel-wise':
                     
                     # Indexing the task specific output
-                    pred = outputs[task_name]
+                    pred = outputs['categorical'][task_name]
                     gt = inputs[task_name]
 
                     # Handling times where metrics handle unexpectedly
                     if task_name == 'mask':
-                        pred = outputs['auxilary']['cat_mask']
+                        pred = outputs['categorical']['mask']
 
                     metrics[metric_name] = metric_attrs['F'](pred, gt)
 
@@ -444,26 +443,29 @@ class PoseRegressionTask(pl.LightningModule):
 class Model(object):
 
     @CLASS_COMPRESS_TIMER
-    def class_compression(self, logits):
+    def class_compression(self, logits: th.LogitData) -> th.CategoricalData:
 
         # Create categorical mask
         cat_mask = torch.argmax(torch.nn.LogSoftmax(dim=1)(logits['mask']), dim=1)
 
         # Class compression of the data
-        cc_logits = gtf.class_compress3(self.classes, cat_mask, logits)
+        cc_logits = gtf.class_compress(self.classes, cat_mask, logits)
 
-        return cat_mask, cc_logits
+        # Constructing categorical data
+        cc_logits.update({'mask': cat_mask})
+
+        return cc_logits
 
     @AGG_TIMER
-    def aggregate(self, cat_mask, data):
+    def aggregate(self, data: th.CategoricalData) -> th.AggData:
         
         # Perform aggregation
-        agg_data = self.aggregation_layer.forward(cat_mask, data)
+        agg_data = self.aggregation_layer.forward(data)
 
         return agg_data
 
     @HV_TIMER
-    def hough_voting(self, agg_data):
+    def hough_voting(self, agg_data: th.AggData) -> th.AggData:
 
         # Perform hough voting
         agg_data = self.hough_voting_layer(agg_data)
@@ -471,7 +473,7 @@ class Model(object):
         return agg_data
 
     @RT_CAL_TIMER
-    def perform_RT_calculation(self, agg_data):
+    def perform_RT_calculation(self, agg_data: th.AggData) -> th.AggData:
 
         # Perform RT calculation
         agg_data = gtf.samplewise_get_RT(agg_data, self.inv_intrinsics)
@@ -479,12 +481,12 @@ class Model(object):
         return agg_data
 
     # Shared aggregation, hough voting and RT generation function
-    def agg_hough_and_generate_RT(self, cat_mask, data):
+    def agg_hough_and_generate_RT(self, categorical_data: th.CategoricalData) -> Union[None, th.AggData]:
 
         # If aggregation is wanted, perform it
         if self.HPARAM.PERFORM_AGGREGATION:
             # Aggregating the results
-            agg_data = self.aggregate(cat_mask, data)
+            agg_data = self.aggregate(categorical_data)
 
             # If hough voting is wanted, perform it
             if self.HPARAM.PERFORM_HOUGH_VOTING:
@@ -705,7 +707,7 @@ class PoseRegressor(Model, torch.nn.Module):
             gtf.freeze(self.scales_head)
 
     @MODEL_TIMER
-    def pure_model_forward(self, x):
+    def pure_model_forward(self, x: torch.Tensor) -> th.LogitData:
 
         # Encoder
         features = self.encoder(x)
@@ -741,7 +743,7 @@ class PoseRegressor(Model, torch.nn.Module):
         return logits
 
     @FORWARD_TIMER
-    def forward(self, x):
+    def forward(self, x: torch.Tensor):
 
         # Ensuring that intrinsics is in the same device
         if self.intrinsics.device != x.device:
@@ -752,207 +754,17 @@ class PoseRegressor(Model, torch.nn.Module):
         logits = self.pure_model_forward(x)
 
         # Perform Class Compression
-        cat_mask, cc_logits = self.class_compression(logits)
+        categorical_data = self.class_compression(logits)
 
         # Perform aggregation, hough voting, and generate RT matrix given the 
         # results o f previous operations.
-        agg_pred = self.agg_hough_and_generate_RT(
-            cat_mask,
-            cc_logits
-        )
+        agg_pred = self.agg_hough_and_generate_RT(categorical_data)
 
         # Generating complete output
         output = {
-            'mask': logits['mask'],
-            **cc_logits,
-            'auxilary': {
-                'cat_mask': cat_mask,
-                'agg_pred': agg_pred
-            }
-        }
-
-        return output
-
-class PoseRegressor2(Model, torch.nn.Module):
-
-    # Inspired by 
-    # https://github.com/qubvel/segmentation_models.pytorch/blob/1f1be174738703af225b6d7c5da90c6c04ce275b/segmentation_models_pytorch/base/model.py#L5
-    # https://github.com/qubvel/segmentation_models.pytorch/blob/master/segmentation_models_pytorch/fpn/decoder.py
-    # https://github.com/qubvel/segmentation_models.pytorch/blob/1f1be174738703af225b6d7c5da90c6c04ce275b/segmentation_models_pytorch/encoders/__init__.py#L32
-
-    def __init__(
-        self,
-        HPARAM,
-        architecture: str = 'FPN',
-        encoder_name: str = "resnet34",
-        encoder_depth: int = 5,
-        encoder_weights: Optional[str] = "imagenet",
-        decoder_pyramid_channels: int = 256,
-        decoder_segmentation_channels: int = 128,
-        decoder_merge_policy: str = "add",
-        decoder_dropout: float = 0.2,
-        in_channels: int = 3,
-        classes: int = 2, # bg and one more class
-        activation: Optional[str] = None,
-        upsampling: int = 4
-        ):
-
-        super().__init__()
-
-        # Storing crucial parameters
-        self.HPARAM = HPARAM # other algorithm and run hyperparameters
-        self.classes = classes # includes background
-        self.intrinsics = torch.from_numpy(HPARAM.NUMPY_INTRINSICS).float()
-        self.inv_intrinsics = torch.inverse(self.intrinsics)
-
-        # Obtain encoder
-        self.encoder = smp.encoders.get_encoder(
-            encoder_name,
-            in_channels=in_channels,
-            depth=encoder_depth,
-            weights=encoder_weights,
-        )
-
-        # Obtain decoder
-        if architecture == 'FPN':
-
-            param_dict = {
-                'encoder_channels': self.encoder.out_channels,
-                'encoder_depth': encoder_depth,
-                'pyramid_channels': decoder_pyramid_channels,
-                'segmentation_channels': decoder_segmentation_channels,
-                'dropout': decoder_dropout,
-                'merge_policy': decoder_merge_policy,
-            }
-
-            self.decoder = smp.fpn.decoder.FPNDecoder(**param_dict)
-
-        # Obtain segmentation head
-        self.segmentation_head = smp.base.SegmentationHead(
-            in_channels=self.decoder.out_channels,
-            out_channels=classes,
-            activation=activation,
-            kernel_size=1,
-            upsampling=upsampling,
-        )
-
-        # Creating rotation head (quaternion or rotation matrix)
-        self.rotation_head = smp.base.SegmentationHead(
-            in_channels=self.decoder.out_channels,
-            out_channels=4*(classes-1), # Removing the background
-            activation=activation,
-            kernel_size=1,
-            upsampling=upsampling,
-        )
-
-        # Creating translation head (xyz)
-        self.translation_head = smp.base.SegmentationHead(
-            in_channels=self.decoder.out_channels,
-            out_channels=3*(classes-1), # Removing the background
-            activation=activation,
-            kernel_size=1,
-            upsampling=upsampling,
-        )
-
-        # Creating scales head (height, width, and length)
-        self.scales_head = smp.base.SegmentationHead(
-            in_channels=self.decoder.out_channels,
-            out_channels=3*(classes-1), # Removing the background
-            activation=activation,
-            kernel_size=1,
-            upsampling=upsampling,
-        )
-
-        # Creating aggregation layer
-        self.aggregation_layer = al.AggregationLayer(
-            self.HPARAM, 
-            self.classes
-        )
-
-        # Creating hough voting layer
-        self.hough_voting_layer = hv.HoughVotingLayer(
-            self.HPARAM
-        )
-
-        # initialize the network
-        init.initialize_decoder(self.decoder)
-        init.initialize_head(self.segmentation_head)
-        init.initialize_head(self.rotation_head)
-        init.initialize_head(self.translation_head)
-        init.initialize_head(self.scales_head)
-
-        # Use the HPARAM variables to freeze certain components
-        # Freeze any components of the model
-        if HPARAM.FREEZE_ENCODER:
-            gtf.freeze(self.encoder)
-        if HPARAM.FREEZE_MASK_TRAINING:
-            gtf.freeze(self.segmentation_head)
-        if HPARAM.FREEZE_ROTATION_TRAINING:
-            gtf.freeze(self.rotation_head)
-        if HPARAM.FREEZE_TRANSLATION_TRAINING:
-            gtf.freeze(self.translation_head)
-        if HPARAM.FREEZE_SCALES_TRAINING:
-            gtf.freeze(self.scales_head)
-
-    @MODEL_TIMER
-    def pure_model_forward(self, x):
-
-        # Encoder
-        features = self.encoder(x)
-        decoder_output = self.decoder(*features)
-
-        # Heads 
-        mask_logits = self.segmentation_head(decoder_output)
-        quat_logits = self.rotation_head(decoder_output)
-        xyz_logits = self.translation_head(decoder_output)
-        scales_logits = self.scales_head(decoder_output)
-
-        # Spliting the (xyz) to (xy, z) since they will eventually have different
-        # ways of computing the loss.
-        xy_index = np.array([i for i in range(xyz_logits.shape[1]) if i%3!=0]) - 1
-        z_index = np.array([i for i in range(xyz_logits.shape[1]) if i%3==0]) + 2
-        xy_logits = xyz_logits[:,xy_index,:,:]
-        z_logits = xyz_logits[:,z_index,:,:]
-
-        # Storing all logits in a dictionary
-        logits = {
-            'mask': mask_logits,
-            'quaternion': quat_logits,
-            'scales': scales_logits,
-            'xy': xy_logits,
-            'z': z_logits
-        }
-
-        return logits
-
-    @FORWARD_TIMER
-    def forward(self, x):
-
-        # Ensuring that intrinsics is in the same device
-        if self.intrinsics.device != x.device:
-            self.intrinsics = self.intrinsics.to(x.device)
-            self.inv_intrinsics = torch.inverse(self.intrinsics)
-
-        logits = self.pure_model_forward(x)
-
-        # Perform Class Compression
-        cat_mask, cc_logits = self.class_compression(logits)
-
-        # Perform aggregation, hough voting, and generate RT matrix given the 
-        # results o f previous operations.
-        agg_pred = self.agg_hough_and_generate_RT(
-            cat_mask,
-            cc_logits
-        )
-
-        # Generating complete output
-        output = {
-            'mask': logits['mask'],
-            **cc_logits,
-            'auxilary': {
-                'cat_mask': cat_mask,
-                'agg_pred': agg_pred
-            }
+            'logits': logits,
+            'categorical': categorical_data,
+            'aggregated': agg_pred
         }
 
         return output
@@ -961,8 +773,7 @@ class PoseRegressor2(Model, torch.nn.Module):
 # Available models (after model definitions)
 
 MODELS = {
-    'PoseRegressor': PoseRegressor,
-    'Experimental': PoseRegressor2
+    'PoseRegressor': PoseRegressor
 }
 
 #-------------------------------------------------------------------------------

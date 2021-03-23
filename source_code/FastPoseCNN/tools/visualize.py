@@ -1049,30 +1049,30 @@ def compare_all_performance(sample, outputs, pred_gt_matches, intrinsics, mask_c
     image = sample[image_key]
 
     # Masked
-    pred_mask_vis = get_visualized_masks(outputs['auxilary']['cat_mask'].cpu().numpy(), mask_colormap)
+    pred_mask_vis = get_visualized_masks(outputs['categorical']['mask'].cpu().numpy(), mask_colormap)
     gt_mask_vis = get_visualized_masks(sample['mask'].cpu().numpy(), mask_colormap)
 
     # z
     #gt_z_vis = get_visualized_zs(sample['z'])
-    pred_z_vis = get_visualized_zs(outputs['z'].cpu().numpy())
+    pred_z_vis = get_visualized_zs(outputs['categorical']['z'].cpu().numpy())
 
     # Ground truth xy
     #gt_uv = get_visualized_u_vector_xys(sample['mask'], sample['xy'].cpu().numpy())
 
     # scales
     #gt_scales_vis = get_visualized_scales(sample['scales'].cpu().numpy())
-    pred_scales_vis = get_visualized_scales(outputs['scales'].cpu().numpy())
+    pred_scales_vis = get_visualized_scales(outputs['categorical']['scales'].cpu().numpy())
 
     # quaternion
     #gt_quat_vis = get_visualized_quaternions(sample['quaternion'].cpu().numpy())
-    pred_quat_vis = get_visualized_quaternions(outputs['quaternion'].cpu().numpy())
+    pred_quat_vis = get_visualized_quaternions(outputs['categorical']['quaternion'].cpu().numpy())
 
     # If only matches are found
     if pred_gt_matches:
         # unit vectors and hough voting
         hv_images = compare_hough_voting_performance(
             sample['clean_image'].clone(),
-            outputs['auxilary']['agg_pred'],
+            outputs['aggregated'],
             return_as_figure=False
         )
 
@@ -1080,7 +1080,7 @@ def compare_all_performance(sample, outputs, pred_gt_matches, intrinsics, mask_c
         pose_images = compare_pose_performance_v5(
             sample['clean_image'].clone(),
             pred_gt_matches,
-            outputs['auxilary']['cat_mask'],
+            outputs['categorical']['mask'],
             mask_colormap,
             intrinsics,
             return_as_figure=False

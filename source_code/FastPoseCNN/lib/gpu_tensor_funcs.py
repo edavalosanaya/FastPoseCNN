@@ -21,7 +21,7 @@ try:
 except ImportError:
     pass
 
-import hough_voting as hvk
+import type_hinting as th
 
 #-------------------------------------------------------------------------------
 # Helper Functions
@@ -49,92 +49,10 @@ def normalize(data, dim):
 
     return normalized_data
 
-def class_compress(num_of_classes, cat_mask, data):
-    """
-    Args:
-        num_of_classes: int (already removed the background)
-        cat_mask: NxHxW
-        data: NxACxHxW [A = 2,3,4]
-    Returns:
-        compressed_data: NxAxHxW [A = 2,3,4]
-        mask: NxHxW
-    """
-
-    # Divide the data by the number of classes
-    all_class_data = torch.chunk(data, num_of_classes, dim=1)
-
-    # Constructing the final compressed datas
-    compressed_data = torch.zeros_like(all_class_data[0], requires_grad=data.requires_grad)
-
-    # Creating container for all class quats
-    class_datas = []
-
-    # Filling the compressed_data from all available objects in mask
-    for object_class_id in torch.unique(cat_mask):
-
-        if object_class_id == 0: # if the background, skip
-            continue
-
-        # Create class mask (NxHxW)
-        class_mask = cat_mask == object_class_id
-
-        # Unsqueeze the class mask to make it (Nx1xHxW) making broadcastable with
-        # the (NxAxHxW) data
-        class_data = torch.unsqueeze(class_mask, dim=1) * all_class_data[object_class_id-1]
-
-        # Storing class_data into class_datas
-        class_datas.append(class_data)
-
-    # If not empty datas
-    if class_datas:
-        # Calculating the total datas
-        compressed_data = torch.sum(torch.stack(class_datas, dim=0), dim=0)
-
-    return compressed_data
-
-def class_compress2(num_of_classes, cat_mask, logits):
-    
-    class_compress_logits = {}
-    class_chunks_logits = {k:torch.chunk(v, num_of_classes-1, dim=1) for k,v in logits.items() if k != 'mask'}
-
-    # Per class
-    for class_id in range(num_of_classes):
-
-        # Skipping the background
-        if class_id == 0:
-            continue
-
-        # Selecting the class mask
-        class_mask = (cat_mask == class_id) *  torch.Tensor([1]).float().to(cat_mask.device)
-
-        # Perform class compression on the logits for pixel-wise regression
-        for logit_key in logits.keys():
-
-            # If dealing with the mask logits, skip it
-            if logit_key == 'mask':
-                continue
-
-            # Applying the class mask on the logits class chunk
-            masked_class_chunk = class_chunks_logits[logit_key][class_id-1] * torch.unsqueeze(class_mask, dim=1)
-            
-            # Need to squeeze when logit_key == z in dim = 1 to match 
-            # categorical ground truth data
-            if logit_key == 'z':
-                masked_class_chunk = torch.squeeze(masked_class_chunk, dim=1)
-            
-            # Normalize quaternion and xy
-            elif logit_key == 'quaternion' or logit_key == 'xy':
-                masked_class_chunk = normalize(masked_class_chunk, dim=1)
-
-            # Store data
-            if logit_key in class_compress_logits.keys():
-                class_compress_logits[logit_key] += masked_class_chunk
-            else:
-                class_compress_logits[logit_key] = masked_class_chunk
-
-    return class_compress_logits
-
-def class_compress3(num_of_classes, cat_mask, logits):
+def class_compress(
+    num_of_classes: int, 
+    cat_mask: torch.Tensor, 
+    logits: th.LogitData) -> th.CategoricalData:
 
     # Output:
     class_compress_logits = {}
@@ -179,157 +97,6 @@ def class_compress3(num_of_classes, cat_mask, logits):
         class_compress_logits[logit_key] = class_compress_logit
     
     return class_compress_logits
-
-def mask_gradients(to_be_masked, mask):
-
-    # Creating a binary mask of all objects
-    binary_mask = (mask != 0)
-
-    # Unsqueeze and expand to match the shape of the quaternion
-    binary_mask = torch.unsqueeze(binary_mask, dim=1).expand_as(to_be_masked)
-
-    # Make only the components that match the mask regressive in the quaternion
-    if to_be_masked.requires_grad:
-        to_be_masked.register_hook(lambda grad: grad * binary_mask.float())
-
-def dense_class_data_aggregation(mask, dense_class_data, intrinsics):
-    """
-    Args:
-        mask: NxHxW (categorical)
-        dense_class_data: dict
-            quaternion: Nx4xHxW
-            xy: Nx2xHxW
-            z: NxHxW
-            scales: Nx3xHxW
-
-    Returns:
-        outputs: list
-            single_sample_output: dict
-                class_ids: list
-                instance_ids: list
-                instance_mask: HxW
-                z: list (1)
-                xy: list (2)
-                quaternion: list (4)
-                T: list (3)
-                RT: list (4x4)
-                scales: list (3)
-    """
-    outputs = []
-
-    for n in range(mask.shape[0]):
-
-        # Per sample outputs
-        single_sample_output = {
-            'class_id': [],
-            'instance_id': [],
-            'instance_mask': [],
-            'quaternion': [],
-            'xy': [],
-            'z': [],
-            'scales': [],
-            'T': [],
-            'RT': []
-        }
-
-        # Selecting the samples mask
-        sample_mask = mask[n]
-
-        # Process data per class
-        for class_id in torch.unique(sample_mask):
-
-            # Ignore the background
-            if class_id == 0:
-                continue
-
-            # Selecting the class mask
-            class_mask = (sample_mask == class_id) * torch.Tensor([1]).float().to(sample_mask.device)
-
-            # Breaking a class segmentation mask into instance masks
-            num_of_instances, instance_masks = break_segmentation_mask(class_mask)
-
-            # Process data per instance
-            for instance_id in range(1, num_of_instances+1):
-
-                # Selecting the instance mask (HxW)
-                instance_mask = (instance_masks == instance_id) # BoolTensor
-
-                # Obtaining the pertaining quaternion
-                quaternion_mask = instance_mask.expand((4, instance_mask.shape[0], instance_mask.shape[1]))
-                quaternion_img = torch.where(quaternion_mask, dense_class_data['quaternion'][n], torch.zeros_like(quaternion_mask).float().to(sample_mask.device))
-
-                # Obtaining the pertaining xy
-                xy_mask = instance_mask.expand((2, instance_mask.shape[0], instance_mask.shape[1]))
-                xy_img = torch.where(xy_mask, dense_class_data['xy'][n], torch.zeros_like(xy_mask).float().to(sample_mask.device))
-
-                # Obtaining the pertaining z
-                z_mask = instance_mask.expand((1, instance_mask.shape[0], instance_mask.shape[1]))
-                z_img = torch.where(z_mask, dense_class_data['z'][n], torch.zeros_like(z_mask).float().to(sample_mask.device))
-
-                # Obtaining the pertaining scales
-                scales_mask = instance_mask.expand((3, instance_mask.shape[0], instance_mask.shape[1]))
-                scales_img = torch.where(scales_mask, dense_class_data['scales'][n], torch.zeros_like(scales_mask).float().to(sample_mask.device))
-
-                # Aggregate the values via naive average
-                quaternion = torch.sum(quaternion_img, dim=(1,2)) / torch.sum(instance_mask)
-                z = torch.sum(z_img, dim=(1,2)) / torch.sum(instance_mask)
-                scales = torch.sum(scales_img, dim=(1,2)) / torch.sum(instance_mask)
-
-                # Convert xy (unit vector) to xy (pixel)
-                #pixel_xy = hv.hough_voting(xy_img, instance_mask)
-                h,w = instance_mask.shape
-                xy = torch.tensor([0,0], device=xy_img.device).float()
-                pixel_xy = create_pixel_xy(xy, h, w)
-
-                # Create translation vector
-                T = create_translation_vector(pixel_xy, torch.exp(z), intrinsics)
-
-                # Create rotation matrix
-                RT = quat_2_RT_given_T_in_world(quaternion, T)
-
-                # Storing per-sample data
-                single_sample_output['class_id'].append(class_id)
-                single_sample_output['instance_id'].append(instance_id)
-                single_sample_output['instance_mask'].append(instance_mask)
-                single_sample_output['quaternion'].append(quaternion)
-                single_sample_output['xy'].append(pixel_xy)
-                single_sample_output['z'].append(z)
-                single_sample_output['scales'].append(scales)
-                single_sample_output['T'].append(T)
-                single_sample_output['RT'].append(RT)
-
-        # Storing per sample data
-        outputs.append(single_sample_output)
-
-    return outputs
-
-def stack_class_matches(matches, key):
-
-    # Given the key, aggregated all the matches of that type by class
-    class_data = {}
-
-    # Iterating through all the matches
-    for match in matches:
-
-        # If this match is the first of its class object, then add new item
-        if int(match['class_id']) not in class_data.keys():
-            class_data[int(match['class_id'])] = [match[key]]
-
-        # else, just append it to the pre-existing list
-        else:
-            class_data[int(match['class_id'])].append(match[key])
-
-    # Container for per class ground truths and predictions
-    stacked_class_data = {}
-
-    # Once the quaternions have been separated by class, stack them all to
-    # formally compute the QLoss
-    for class_number, class_data in class_data.items():
-
-        # Stacking all matches in one class
-        stacked_class_data[class_number] = torch.stack(class_data)
-
-    return stacked_class_data
 
 #-------------------------------------------------------------------------------
 # Camera/World Transformation Functions
@@ -499,40 +266,6 @@ def samplewise_get_RT(agg_data, inv_intrinsics):
 
 #-------------------------------------------------------------------------------
 # Generative/Conversion Functions
-
-def break_segmentation_mask(class_mask):
-
-    # Converting torch to GPU numpy (cupy)
-    if class_mask.is_cuda:
-        with cp.cuda.Device(class_mask.device.index):
-            cupy_class_mask = cp.asarray(class_mask)
-
-        # Shattering the segmentation into instances
-        cupy_instance_masks, num_of_instances = cupyx.scipy.ndimage.label(cupy_class_mask)
-
-        # Convert cupy to tensor
-        # https://discuss.pytorch.org/t/convert-torch-tensors-directly-to-cupy-tensors/2752/7
-        instance_masks = torch.utils.dlpack.from_dlpack(cupy_instance_masks.toDlpack())
-
-    else:
-        numpy_class_mask = np.asarray(class_mask)
-
-        # Shattering the segmentation into instances
-        numpy_instance_masks, num_of_instances = scipy.ndimage.label(numpy_class_mask)
-
-        # Convert numpy to tensor
-        instance_masks = torch.from_numpy(numpy_instance_masks)
-
-    return num_of_instances, instance_masks
-
-def create_pixel_xy(xy, h, w):
-
-    pixel_xy = xy.clone()
-    pixel_xy[0] = xy[1] * w
-    pixel_xy[1] = xy[0] * h
-    pixel_xy = pixel_xy.reshape((-1,1))
-
-    return pixel_xy
 
 def quat_2_rotation_matrix(quaternion):
     # Code translated from here:
@@ -996,29 +729,6 @@ def memory_leak_check():
     memory_percentage = torch.cuda.memory_allocated()/torch.cuda.max_memory_allocated()
     print(f"Memory used: {memory_percentage:.3f}")
 
-#-------------------------------------------------------------------------------
-# CuPy Functions
-
-def tensor2cupy_dict(dict1):
-
-    # Convert PyTorch Tensor to CuPy:
-    # https://discuss.pytorch.org/t/convert-torch-tensors-directly-to-cupy-tensors/2752/5
-
-    dict2 = {}
-
-    # Obtaining the first tensor in the dict
-    first_tensor = dict2[list(dict2.keys())[0]]
-
-    # Imply which cuda to use based on the device of the tensor
-    with cp.cuda.Device(first_tensor.device.index):
-
-        # For each item in the dict1, convert it to cupy
-        for key in dict1.keys():
-            dict2[key] = cp.asarray(dict1[key])
-
-    return dict2
-
-def cupy2tensor_dict(dict1):
 
     dict2 = {}
 

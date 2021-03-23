@@ -668,6 +668,14 @@ class PoseRegressionDataModule(pl.LightningDataModule):
 #-------------------------------------------------------------------------------
 # Functions
 
+def move_dict_to(a: dict, device):
+
+    for key in a.keys():
+        if isinstance(a[key], torch.Tensor):
+            a[key] = a[key].to(device)
+
+    return a
+
 def move_batch_to(batch: dict, device):
 
     device_batch = {}
@@ -675,14 +683,7 @@ def move_batch_to(batch: dict, device):
     for key in batch.keys():
 
         if key == 'agg_data':
-            agg_data_dict = {}
-
-            for subkey in batch[key].keys():
-                if isinstance(batch[key][subkey], torch.Tensor):
-                    agg_data_dict[subkey] = batch[key][subkey].to(device)
-                else:
-                    agg_data_dict[subkey] = batch[key][subkey]
-
+            agg_data_dict = move_dict_to(batch[key], device)
             device_batch[key] = agg_data_dict
 
         else:

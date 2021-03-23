@@ -31,22 +31,22 @@ class DEFAULT_POSE_HPARAM(argparse.Namespace):
     CKPT_SAVE_FREQUENCY = 5
 
     # Run Specifications
-    CUDA_VISIBLE_DEVICES = '0' # '0,1,2,3'
+    CUDA_VISIBLE_DEVICES = '2' # '0,1,2,3'
     BATCH_SIZE = 3
     NUM_WORKERS = int(1 * (36/4)) # 36 total CPUs
     NUM_GPUS = 1 # 4 total GPUs
     
     # Test Trim Dataset
-    # TRAIN_SIZE = 100
-    # VALID_SIZE = 20
+    TRAIN_SIZE = 100
+    VALID_SIZE = 20
 
     # Small Trim Dataset
     # TRAIN_SIZE = 5_000
     # VALID_SIZE = 200
 
     # Large Trim Dataset
-    TRAIN_SIZE = 10_000
-    VALID_SIZE = 500
+    # TRAIN_SIZE = 10_000
+    # VALID_SIZE = 500
 
     # Entire Dataset
     # TRAIN_SIZE = None

@@ -236,7 +236,7 @@ class TensorboardCallback(pl.callbacks.Callback):
         summary_fig = tools.vz.compare_mask_performance(
             batch['clean_image'], 
             batch['mask'],
-            outputs['auxilary']['cat_mask'], 
+            outputs['categorical']['mask'], 
             colormap
         )
 
@@ -271,8 +271,8 @@ class TensorboardCallback(pl.callbacks.Callback):
         summary_fig = tools.vz.compare_quat_performance(
             batch['clean_image'],
             batch['quaternion'], 
-            outputs['quaternion'], 
-            outputs['auxilary']['cat_mask'], 
+            outputs['categorical']['quaternion'], 
+            outputs['categorical']['mask'], 
             mask_colormap=dataset.COLORMAP
         )
 
@@ -305,8 +305,8 @@ class TensorboardCallback(pl.callbacks.Callback):
             batch['clean_image'], 
             batch['mask'],
             batch['xy'],
-            outputs['auxilary']['cat_mask'],
-            outputs['xy'],
+            outputs['categorical']['mask'],
+            outputs['categorical']['xy'],
             mask_colormap=dataset.COLORMAP
         )
 
@@ -338,8 +338,8 @@ class TensorboardCallback(pl.callbacks.Callback):
         summary_fig = tools.vz.compare_z_performance(
             batch['clean_image'], 
             batch['z'],
-            outputs['z'], 
-            outputs['auxilary']['cat_mask'],
+            outputs['categorical']['z'], 
+            outputs['categorical']['mask'],
             mask_colormap=dataset.COLORMAP
         )
 
@@ -371,8 +371,8 @@ class TensorboardCallback(pl.callbacks.Callback):
         summary_fig = tools.vz.compare_scales_performance(
             batch['clean_image'],
             batch['scales'], 
-            outputs['scales'],
-            outputs['auxilary']['cat_mask'],
+            outputs['categorical']['scales'],
+            outputs['categorical']['mask'],
             mask_colormap=dataset.COLORMAP
         )
 
@@ -409,7 +409,7 @@ class TensorboardCallback(pl.callbacks.Callback):
         # Create summary for the pose
         summary_fig = tools.vz.compare_hough_voting_performance(
             batch['clean_image'],
-            outputs['auxilary']['agg_pred']
+            outputs['aggregated']
         )
 
         # Log the figure to tensorboard
@@ -445,7 +445,7 @@ class TensorboardCallback(pl.callbacks.Callback):
 
         # Determine matches between the aggreated ground truth and preds
         gt_pred_matches = lib.mg.batchwise_find_matches(
-            outputs['auxilary']['agg_pred'],
+            outputs['aggregated'],
             batch['agg_data']
         )
 
@@ -457,7 +457,7 @@ class TensorboardCallback(pl.callbacks.Callback):
                 summary_fig = tools.vz.compare_pose_performance_v5(
                     batch['clean_image'],
                     gt_pred_matches,
-                    outputs['auxilary']['cat_mask'],
+                    outputs['categorical']['mask'],
                     mask_colormap=dataset.COLORMAP,
                     intrinsics=dataset.INTRINSICS
                 )

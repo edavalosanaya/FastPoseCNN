@@ -20,8 +20,6 @@ import skimage.io
 
 import pytorch_lightning.overrides.data_parallel as pl_o_d
 
-os.environ['CUDA_VISIBLE_DEVICES'] = ''
-
 # Local Imports
 import setup_env
 import tools
@@ -35,7 +33,7 @@ import config
 #PATH = pathlib.Path(os.getenv("LOGS")) / 'good_saved_runs' / 'all_object' / '11-24-010_SYM_TEST-CAMERA-resnet18-imagenet' / '_' / 'checkpoints' / 'last.ckpt'
 #PATH = pathlib.Path(os.getenv("LOGS")) / 'debugging_test_runs' / '23-40-LOG_DEBUG-CAMERA-resnet18-imagenet' / '_' / 'checkpoints' / 'n-ckpt_epoch=5.ckpt'
 #PATH = pathlib.Path(os.getenv("LOGS")) / '21-02-25' / '19-57-7_56_DEBUG-CAMERA-resnet18-imagenet' / '_' / 'checkpoints' / 'n-ckpt_epoch=5.ckpt'
-PATH = pathlib.Path('/home/students/edavalos/GitHub/FastPoseCNN/source_code/FastPoseCNN/logs/21-03-17/18-32-STABLE_BASE2-PoseRegressor-CAMERA-resnet18-imagenet/_/checkpoints/epoch=45-checkpoint_on=0.5219.ckpt')
+PATH = pathlib.Path('/home/students/edavalos/GitHub/FastPoseCNN/source_code/FastPoseCNN/logs/21-03-21/19-52-PVNET_HV-PoseRegressor-CAMERA-resnet18-imagenet/_/checkpoints/epoch=37-checkpoint_on=1.0512.ckpt')
 
 HPARAM = config.EVALUATING()
 
@@ -90,7 +88,7 @@ if __name__ == '__main__':
         )
 
         # Put the model into evaluation mode
-        #model.to('cuda') # ! Make it work with multiple GPUs
+        model.to('cuda') # ! Make it work with multiple GPUs
         model.eval()
 
         # Load the PyTorch Lightning dataset
@@ -122,15 +120,25 @@ if __name__ == '__main__':
         # and the ground truths
         for batch in tqdm.tqdm(datamodule.val_dataloader()):
 
+            # Skip if the batch is empty
+            if type(batch) == type(None):
+                continue
+
+            # Move the batch to the device
+            batch = tools.ds.move_batch_to(batch, 'cuda:0')
+
             # Forward pass
             with torch.no_grad():
                 outputs = model.forward(batch['image'])
 
             # Determine matches between the aggreated ground truth and preds
             gt_pred_matches = lib.mg.batchwise_find_matches(
-                outputs['auxilary']['agg_pred'],
+                outputs['aggregated'],
                 batch['agg_data']
             )
+
+            # Move the matches to the cpu to allow for storing.
+            gt_pred_matches = tools.ds.move_dict_to(gt_pred_matches, 'cpu')
 
             # Draw the output of the model
             if DRAW and image_counter <= TOTAL_DRAW_IMAGES:
