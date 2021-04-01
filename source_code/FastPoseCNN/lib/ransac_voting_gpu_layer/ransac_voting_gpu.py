@@ -602,7 +602,7 @@ def ransac_voting_layer_v3(mask, vertex, round_hyp_num, inlier_thresh=0.999, con
     try:
         batch_win_pts=torch.cat(batch_win_pts)
     except RuntimeError: # Empty list
-        batch_win_pts=torch.empty((0,vn,2))
+        batch_win_pts=torch.empty((0,vn,2), device=mask.device)
 
     return batch_win_pts
 

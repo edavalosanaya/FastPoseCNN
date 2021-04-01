@@ -33,7 +33,7 @@ import config
 #PATH = pathlib.Path(os.getenv("LOGS")) / 'good_saved_runs' / 'all_object' / '11-24-010_SYM_TEST-CAMERA-resnet18-imagenet' / '_' / 'checkpoints' / 'last.ckpt'
 #PATH = pathlib.Path(os.getenv("LOGS")) / 'debugging_test_runs' / '23-40-LOG_DEBUG-CAMERA-resnet18-imagenet' / '_' / 'checkpoints' / 'n-ckpt_epoch=5.ckpt'
 #PATH = pathlib.Path(os.getenv("LOGS")) / '21-02-25' / '19-57-7_56_DEBUG-CAMERA-resnet18-imagenet' / '_' / 'checkpoints' / 'n-ckpt_epoch=5.ckpt'
-PATH = pathlib.Path('/home/students/edavalos/GitHub/FastPoseCNN/source_code/FastPoseCNN/logs/21-03-21/19-52-PVNET_HV-PoseRegressor-CAMERA-resnet18-imagenet/_/checkpoints/epoch=37-checkpoint_on=1.0512.ckpt')
+PATH = pathlib.Path('/home/students/edavalos/GitHub/FastPoseCNN/source_code/FastPoseCNN/logs/21-03-30/09-53-REAL_HEAD_TRAINING-PoseRegressor-REAL-resnet18-imagenet/_/checkpoints/epoch=39-checkpoint_on=8.4421.ckpt')
 
 HPARAM = config.EVALUATING()
 

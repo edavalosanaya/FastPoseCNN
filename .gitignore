@@ -1,5 +1,7 @@
-# File-Type Ignore
+# File-Specific Ignore
+temp_*.py
 
+# File-Type Ignore
 *.pth
 *.h5
 *.hdf5

@@ -1269,7 +1269,7 @@ def plot_aps(
 #-------------------------------------------------------------------------------
 # Plot quaternions
 
-def plot_quaternions(qs, name=None):
+def plot_quaternions(qs, name=None, remove_grid=False):
     
     if len(qs.shape) >= 2:
         origin = np.zeros((qs.shape[0], 3))
@@ -1287,17 +1287,23 @@ def plot_quaternions(qs, name=None):
     # More on how to change the viewpoint of the 3D plot
     # https://stackoverflow.com/questions/12904912/how-to-set-camera-position-for-3d-plots-using-python-matplotlib
 
-    fig = plt.figure(figsize=plt.figaspect(0.25))
+    fig = plt.figure(figsize=plt.figaspect(1))
 
     if name:
         fig.suptitle(name)
 
-    ax0 = fig.add_subplot(141, projection='3d') # Isometric
-    ax1 = fig.add_subplot(142, projection='3d') # top-view
-    ax2 = fig.add_subplot(143, projection='3d') # front-view
-    ax3 = fig.add_subplot(144, projection='3d') # side-view
+    ax0 = fig.add_subplot(111, projection='3d') # Isometric
+    # ax1 = fig.add_subplot(142, projection='3d') # top-view
+    # ax2 = fig.add_subplot(143, projection='3d') # front-view
+    # ax3 = fig.add_subplot(144, projection='3d') # side-view
+
+    if remove_grid:
+        plt.axis('off')
+        plt.grid(b=None)
+        
     
-    for ax in [ax0, ax1, ax2, ax3]:
+    # for ax in [ax0, ax1, ax2, ax3]:
+    for ax in [ax0]:
 
         ax.set_xlim3d(-1.25,1.25)
         ax.set_ylim3d(-1.25,1.25)
@@ -1307,19 +1313,19 @@ def plot_quaternions(qs, name=None):
         ax.set_ylabel('y')
         ax.set_zlabel('z')
 
-        for v, c in zip([x_axis, y_axis, z_axis], ['red', 'blue', 'green']):
-            ax.quiver(
-                origin[...,0], origin[...,1], origin[...,2],
-                v[0], v[1], v[2],
-                color = c, alpha = 1, arrow_length_ratio = 0.1, normalize=True,
-                length = 1.1
-            )
+        # for v, c in zip([x_axis, y_axis, z_axis], ['red', 'blue', 'green']):
+        #     ax.quiver(
+        #         origin[...,0], origin[...,1], origin[...,2],
+        #         v[0], v[1], v[2],
+        #         color = c, alpha = 1, arrow_length_ratio = 0.1, normalize=True,
+        #         length = 1.1
+        #     )
         
         for v, c in zip([r_x_axis, r_y_axis, r_z_axis], ['red', 'blue', 'green']):
             ax.quiver(
                 origin[...,0], origin[...,1], origin[...,2],
                 v[...,0], v[...,1], v[...,2],
-                color = c, alpha = 0.25, arrow_length_ratio = 0.1, normalize=True,
+                color = c, alpha = 1, arrow_length_ratio = 0.1, normalize=True,
                 length = 1.1
             )
 
@@ -1327,17 +1333,18 @@ def plot_quaternions(qs, name=None):
 
     # Now setting the viewpoint of each plot
     #ax0.azim, ax0.dist, ax0.elev = (-60, 10, 30) # Isometric
+    ax0.view_init(azim=60, elev=30)
+
+    # ax0.title.set_text('Isometric')
     
-    ax0.title.set_text('Isometric')
+    # ax1.title.set_text('Top-View')
+    # ax1.view_init(azim=0, elev=90) # xy-plane
     
-    ax1.title.set_text('Top-View')
-    ax1.view_init(azim=0, elev=90) # xy-plane
+    # ax2.title.set_text('Front-View')
+    # ax2.view_init(azim=0, elev=0) # yz-plane
     
-    ax2.title.set_text('Front-View')
-    ax2.view_init(azim=0, elev=0) # yz-plane
-    
-    ax3.title.set_text("Side-View")
-    ax3.view_init(azim=-90, elev=0) # zx-plane
+    # ax3.title.set_text("Side-View")
+    # ax3.view_init(azim=-90, elev=0) # zx-plane
 
     return fig
 

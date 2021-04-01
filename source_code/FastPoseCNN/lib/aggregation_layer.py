@@ -1,10 +1,12 @@
 import os
 import sys
 import typing
+import pathlib
 
 import torch
 import torch.nn as nn
 
+import skimage.io
 import numpy as np
 import scipy
 import scipy.ndimage
@@ -24,6 +26,8 @@ except ImportError:
 import hough_voting as hv
 import gpu_tensor_funcs as gtf
 import type_hinting as th
+
+# COUNTER = 0
 
 #-------------------------------------------------------------------------------
 
@@ -56,6 +60,8 @@ class AggregationLayer(nn.Module):
 
     def forward(self, cat_data: th.CategoricalData) -> th.AggData:
 
+        global COUNTER
+
         # Outputs
         complete_agg_data = {
             'class_ids': [],
@@ -68,6 +74,11 @@ class AggregationLayer(nn.Module):
 
         # Breaking the overall mask into instances
         instance_masks, total_num_of_instances = self.batchwise_break_segmentation_mask(cat_mask != 0)
+
+        # ! For now, I am using for visualization of the instance masks
+        # instance_mask_path = pathlib.Path(os.getenv('TEST_OUTPUT')) / f'{COUNTER}-instance_mask.png'
+        # skimage.io.imsave(str(instance_mask_path), instance_masks[0].cpu().numpy())
+        # COUNTER+=1
 
         # Obtain the shape of the masks
         b,h,w = cat_mask.shape

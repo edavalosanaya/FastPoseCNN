@@ -21,9 +21,9 @@ import lib
 #-------------------------------------------------------------------------------
 # Constants
 
-PATH = pathlib.Path('/home/students/edavalos/GitHub/FastPoseCNN/source_code/FastPoseCNN/logs/21-03-06/16-36-BASE_TEST-CAMERA-resnet18-imagenet/_/checkpoints/last.ckpt')
+PATH = pathlib.Path('/home/students/edavalos/GitHub/FastPoseCNN/source_code/FastPoseCNN/logs/21-03-21/19-52-PVNET_HV-PoseRegressor-CAMERA-resnet18-imagenet/_/checkpoints/epoch=37-checkpoint_on=1.0512.ckpt')
 HPARAM = config.INFERENCE()
-DRAW_IMAGE = 10
+DRAW_IMAGE = 20
 
 #-------------------------------------------------------------------------------
 # File Main
@@ -95,39 +95,37 @@ for batch_id, batch in tqdm.tqdm(enumerate(datamodule.val_dataloader())):
         outputs = model.forward(batch['image'])
 
     if batch_id > DRAW_IMAGE:
-        continue
-
-    continue
+        break
 
     # Determine matches between the aggreated ground truth and preds
     gt_pred_matches = lib.mg.batchwise_find_matches(
-        outputs['auxilary']['agg_pred'],
+        outputs['aggregated'],
         batch['agg_data']
     )
 
-    # Visualize ground truth data
+    # # Visualize ground truth data
     # gt_data_fig = tools.vz.visualize_gt_pose(batch, tools.pj.constants.INTRINSICS['CAMERA'])
 
     # Visualize the poses
-    # pose_data_fig = tools.vz.compare_pose_performance_v5(
-    #     batch['clean_image'],
-    #     gt_pred_matches,
-    #     outputs['auxilary']['cat_mask'],
-    #     tools.pj.constants.COLORMAP[HPARAM.DATASET_NAME],
-    #     HPARAM.NUMPY_INTRINSICS
-    # )
+    pose_data_fig = tools.vz.compare_pose_performance_v5(
+        batch['clean_image'],
+        gt_pred_matches,
+        outputs['categorical']['mask'],
+        tools.pj.constants.COLORMAP[HPARAM.DATASET_NAME],
+        HPARAM.NUMPY_INTRINSICS
+    )
 
-    # Saving visualization in temp_folder
+    # # Saving visualization in temp_folder
     # if gt_data_fig:
     #     gt_data_fig.savefig(
     #         str(pathlib.Path(os.getenv('TEST_OUTPUT')) / f'{batch_id}_gt_data.png'),
     #         dpi=300
     #     )
-    # if pose_data_fig:
-    #     pose_data_fig.savefig(
-    #         str(pathlib.Path(os.getenv('TEST_OUTPUT')) / f'{batch_id}_pose_data.png'),
-    #         dpi=300
-    #     )
+    if pose_data_fig:
+        pose_data_fig.savefig(
+            str(pathlib.Path(os.getenv('TEST_OUTPUT')) / f'{batch_id}_pose_data.png'),
+            dpi=300
+        )
 
     gt_images, pred_images, pose_images = tools.vz.compare_all_performance(
         batch,
@@ -154,14 +152,14 @@ for batch_id, batch in tqdm.tqdm(enumerate(datamodule.val_dataloader())):
             skimage.io.imsave(str(image_path), image)
 
     # Saving the raw mask
-    mask_img = outputs['auxilary']['cat_mask'].cpu().numpy()
-    mask_path = pathlib.Path(os.getenv('TEST_OUTPUT')) / f'{batch_id}-raw_mask.npy'
-    np.save(str(mask_path), mask_img)
+    # mask_img = outputs['categorical']['mask'].cpu().numpy()
+    # mask_path = pathlib.Path(os.getenv('TEST_OUTPUT')) / f'{batch_id}-raw_mask.npy'
+    # np.save(str(mask_path), mask_img)
 
-    # Saving the raw hough voting vectors!
-    hv_img = outputs['auxilary']['agg_pred']['xy_mask'].cpu().numpy()
-    hv_path = pathlib.Path(os.getenv('TEST_OUTPUT')) / f'{batch_id}-raw_hv.npy'
-    np.save(str(hv_path), hv_img)
+    # # Saving the raw hough voting vectors!
+    # hv_img = outputs['aggregated']['xy_mask'].cpu().numpy()
+    # hv_path = pathlib.Path(os.getenv('TEST_OUTPUT')) / f'{batch_id}-raw_hv.npy'
+    # np.save(str(hv_path), hv_img)
 
 # At the end of running loop, calculate the runtime of each model
 if HPARAM.RUNTIME_TIMING:

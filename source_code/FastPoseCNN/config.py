@@ -25,7 +25,7 @@ class DEFAULT_POSE_HPARAM(argparse.Namespace):
 
     # Model Specifications
     MODEL = 'PoseRegressor'
-    DATASET_NAME = 'CAMERA' # string
+    DATASET_NAME = 'REAL' # string
     #SELECTED_CLASSES = ['bg','camera','laptop']
     SELECTED_CLASSES = tools.pj.constants.CAMERA_CLASSES 
     CKPT_SAVE_FREQUENCY = 5
@@ -37,16 +37,16 @@ class DEFAULT_POSE_HPARAM(argparse.Namespace):
     NUM_GPUS = 1 # 4 total GPUs
     
     # Test Trim Dataset
-    TRAIN_SIZE = 100
-    VALID_SIZE = 20
+    # TRAIN_SIZE = 100
+    # VALID_SIZE = 20
 
     # Small Trim Dataset
     # TRAIN_SIZE = 5_000
     # VALID_SIZE = 200
 
     # Large Trim Dataset
-    # TRAIN_SIZE = 10_000
-    # VALID_SIZE = 500
+    TRAIN_SIZE = 10_000
+    VALID_SIZE = 750
 
     # Entire Dataset
     # TRAIN_SIZE = None
@@ -142,9 +142,11 @@ class EVALUATING(DEFAULT_POSE_HPARAM):
 # INFERENCE
 class INFERENCE(DEFAULT_POSE_HPARAM):
 
+    NUM_WORKERS = 36
+
     HV_NUM_OF_HYPOTHESES = 1000
     BATCH_SIZE = 1
-    VALID_SIZE = 200
+    VALID_SIZE = 1000
     RUNTIME_TIMING = True
 
     PERFORM_AGGREGATION = True
