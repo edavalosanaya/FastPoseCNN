@@ -389,24 +389,39 @@ def get_3d_bbox(scale, shift = 0):
         bbox_3d: [3, N]
 
     """
-    if hasattr(scale, "__iter__"):
-        bbox_3d = np.array([[scale[0] / 2, +scale[1] / 2, scale[2] / 2],
-                  [scale[0] / 2, +scale[1] / 2, -scale[2] / 2],
-                  [-scale[0] / 2, +scale[1] / 2, scale[2] / 2],
-                  [-scale[0] / 2, +scale[1] / 2, -scale[2] / 2],
-                  [+scale[0] / 2, -scale[1] / 2, scale[2] / 2],
-                  [+scale[0] / 2, -scale[1] / 2, -scale[2] / 2],
-                  [-scale[0] / 2, -scale[1] / 2, scale[2] / 2],
-                  [-scale[0] / 2, -scale[1] / 2, -scale[2] / 2]]) + shift
-    else:
-        bbox_3d = np.array([[scale / 2, +scale / 2, scale / 2],
-                  [scale / 2, +scale / 2, -scale / 2],
-                  [-scale / 2, +scale / 2, scale / 2],
-                  [-scale / 2, +scale / 2, -scale / 2],
-                  [+scale / 2, -scale / 2, scale / 2],
-                  [+scale / 2, -scale / 2, -scale / 2],
-                  [-scale / 2, -scale / 2, scale / 2],
-                  [-scale / 2, -scale / 2, -scale / 2]]) +shift
+    # if hasattr(scale, "__iter__"):
+    #     bbox_3d = np.array([[scale[0] / 2, +scale[1] / 2, scale[2] / 2],
+    #               [scale[0] / 2, +scale[1] / 2, -scale[2] / 2],
+    #               [-scale[0] / 2, +scale[1] / 2, scale[2] / 2],
+    #               [-scale[0] / 2, +scale[1] / 2, -scale[2] / 2],
+    #               [+scale[0] / 2, -scale[1] / 2, scale[2] / 2],
+    #               [+scale[0] / 2, -scale[1] / 2, -scale[2] / 2],
+    #               [-scale[0] / 2, -scale[1] / 2, scale[2] / 2],
+    #               [-scale[0] / 2, -scale[1] / 2, -scale[2] / 2]]) + shift
+    # else:
+    #     bbox_3d = np.array([[scale / 2, +scale / 2, scale / 2],
+    #               [scale / 2, +scale / 2, -scale / 2],
+    #               [-scale / 2, +scale / 2, scale / 2],
+    #               [-scale / 2, +scale / 2, -scale / 2],
+    #               [+scale / 2, -scale / 2, scale / 2],
+    #               [+scale / 2, -scale / 2, -scale / 2],
+    #               [-scale / 2, -scale / 2, scale / 2],
+    #               [-scale / 2, -scale / 2, -scale / 2]]) +shift
+
+    unit_bbox_3d = np.array([
+        [1, 1, 1],
+        [1, 1, -1],
+        [-1, 1, 1],
+        [-1, 1, -1],
+        [1, -1, 1],
+        [1, -1, -1],
+        [-1, -1, 1],
+        [-1, -1, -1]
+    ]) / 2
+
+    e_scales = np.expand_dims(scale, axis=0)
+
+    bbox_3d = unit_bbox_3d * e_scales
 
     bbox_3d = bbox_3d.transpose()
     return bbox_3d

@@ -199,13 +199,13 @@ class OffsetAP(pl.metrics.Metric):
         if type(gt_pred_matches) != type(None) and 'RT' in gt_pred_matches.keys():
 
             # Grabbing the gt and pred RT
-            gt_RTs = gt_pred_matches['RT'][0]
-            pred_RTs = gt_pred_matches['RT'][1]
+            gt_Ts = gt_pred_matches['T'][0]
+            pred_Ts = gt_pred_matches['T'][1]
 
             # Determing the offset errors
-            offset_errors = gtf.from_RTs_get_T_offset_errors(
-                gt_RTs,
-                pred_RTs
+            offset_errors = gtf.from_Ts_get_offset_error(
+                gt_Ts,
+                pred_Ts
             )
 
             # Compare against threshold

@@ -169,15 +169,15 @@ if __name__ == '__main__':
         },
         'xy': {
             #'loss_mse': {'D': 'pixel-wise', 'F': lib.loss.MaskedMSELoss(key='xy'), 'weight': 0.2},
-            'loss_xy': {'D': 'matched', 'F': lib.loss.XYLoss(key='xy'), 'weight': 0.01},
+            'loss_xy': {'D': 'matched', 'F': lib.loss.XYLoss(key='xy', loss_type=HPARAM.XYLOSS_TYPE), 'weight': 0.01},
         },
         'z': {
             #'loss_mse': {'D': 'pixel-wise', 'F': lib.loss.MaskedMSELoss(key='z'), 'weight': 0.2},
-            'loss_z': {'D': 'matched', 'F': lib.loss.ZLoss(key='z'), 'weight': 0.1},
+            'loss_z': {'D': 'matched', 'F': lib.loss.ZLoss(key='z', loss_type=HPARAM.ZLOSS_TYPE), 'weight': 0.1},
         },
         'scales': {
             #'loss_mse': {'D': 'pixel-wise', 'F': lib.loss.MaskedMSELoss(key='scales'), 'weight': 0.2},
-            'loss_scales': {'D': 'matched', 'F': lib.loss.ScalesLoss(key='scales'), 'weight': 0.1},
+            'loss_scales': {'D': 'matched', 'F': lib.loss.ScalesLoss(key='scales', loss_type=HPARAM.SCALESLOSS_TYPE), 'weight': 0.1},
         },
         #'RT_and_metrics': {
         #    'loss_R': {'D': 'matched', 'F': lib.loss.RLoss(key='R'), 'weight': 1.0},

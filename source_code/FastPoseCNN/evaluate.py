@@ -29,11 +29,8 @@ import config
 #-------------------------------------------------------------------------------
 # Constants
 
-#PATH = pathlib.Path(os.getenv("LOGS")) / 'good_saved_runs' / '2_object' / '21-38-XY_REGRESSION_DEBUG-CAMERA-resnet18-imagenet' / '_' / 'checkpoints' / 'last.ckpt'
-#PATH = pathlib.Path(os.getenv("LOGS")) / 'good_saved_runs' / 'all_object' / '11-24-010_SYM_TEST-CAMERA-resnet18-imagenet' / '_' / 'checkpoints' / 'last.ckpt'
-#PATH = pathlib.Path(os.getenv("LOGS")) / 'debugging_test_runs' / '23-40-LOG_DEBUG-CAMERA-resnet18-imagenet' / '_' / 'checkpoints' / 'n-ckpt_epoch=5.ckpt'
-#PATH = pathlib.Path(os.getenv("LOGS")) / '21-02-25' / '19-57-7_56_DEBUG-CAMERA-resnet18-imagenet' / '_' / 'checkpoints' / 'n-ckpt_epoch=5.ckpt'
-PATH = pathlib.Path('/home/students/edavalos/GitHub/FastPoseCNN/source_code/FastPoseCNN/logs/21-03-30/09-53-REAL_HEAD_TRAINING-PoseRegressor-REAL-resnet18-imagenet/_/checkpoints/epoch=39-checkpoint_on=8.4421.ckpt')
+#PATH = pathlib.Path('/home/students/edavalos/GitHub/FastPoseCNN/source_code/FastPoseCNN/logs/21-04-01/12-13-L1_LOSS_TEST-PoseRegressor-CAMERA-resnet18-imagenet/_/checkpoints/epoch=22-checkpoint_on=0.8301.ckpt')
+PATH = pathlib.Path('/home/students/edavalos/GitHub/FastPoseCNN/source_code/FastPoseCNN/logs/21-04-01/12-12-L2_LOSS_TEST-PoseRegressor-CAMERA-resnet18-imagenet/_/checkpoints/epoch=44-checkpoint_on=2.7191.ckpt')
 
 HPARAM = config.EVALUATING()
 
@@ -206,6 +203,10 @@ if __name__ == '__main__':
             'offset_error': torch.tensor([5, 10])
         }
 
+        table_complex_metrics_thresholds = {
+            'degree_error+offset_error': torch.vstack((torch.tensor([5, 10, 10]), torch.tensor([5, 5, 10])))
+        }
+
         # Load the .pth file with the tensors
         all_matches = torch.load(pth_path)
 
@@ -235,6 +236,8 @@ if __name__ == '__main__':
                 pred_RTs = match['RT'][1][class_instances]
                 gt_scales = match['scales'][0][class_instances]
                 pred_scales = match['scales'][1][class_instances]
+                gt_Ts = match['T'][0][class_instances]
+                pred_Ts = match['T'][1][class_instances]
 
                 # Calculating the distance between the quaternions
                 degree_distance = lib.gtf.get_quat_distance(
@@ -247,9 +250,9 @@ if __name__ == '__main__':
                 ious_3d = lib.gtf.get_3d_ious(gt_RTs, pred_RTs, gt_scales, pred_scales)
 
                 # Determing the offset errors
-                offset_errors = lib.gtf.from_RTs_get_T_offset_errors(
-                    gt_RTs,
-                    pred_RTs
+                offset_errors = lib.gtf.from_Ts_get_offset_error(
+                    gt_Ts,
+                    pred_Ts
                 )
 
                 # Store data
@@ -298,6 +301,20 @@ if __name__ == '__main__':
             table_metrics_thresholds,
             metrics_operator
         )
+
+        # Calculate complex shared APs between degree_error and offset_error
+        complex_table_aps = lib.gtf.calculate_complex_aps(
+            raw_data,
+            table_complex_metrics_thresholds,
+            metrics_operator
+        )
+
+        # Overwriting the table_complex_metrics_thresholds to make it work with the excel writer
+        table_complex_metrics_thresholds['degree_error+offset_error'] = torch.tensor([5.5, 5.10, 10.10])
+
+        # Adding the complex data to the original simple data
+        table_metrics_thresholds.update(table_complex_metrics_thresholds)
+        table_aps.update(complex_table_aps)
 
         # Storing the table critical values into an excel sheet
         excel_path = PATH.parent.parent / f'{HPARAM.VALID_SIZE}_aps_values_table.xlsx'

@@ -21,7 +21,7 @@ import lib
 #-------------------------------------------------------------------------------
 # Constants
 
-PATH = pathlib.Path('/home/students/edavalos/GitHub/FastPoseCNN/source_code/FastPoseCNN/logs/21-03-21/19-52-PVNET_HV-PoseRegressor-CAMERA-resnet18-imagenet/_/checkpoints/epoch=37-checkpoint_on=1.0512.ckpt')
+PATH = pathlib.Path('/home/students/edavalos/GitHub/FastPoseCNN/source_code/FastPoseCNN/logs/good_saved_runs/all_object/19-52-PVNET_HV-PoseRegressor-CAMERA-resnet18-imagenet/_/checkpoints/epoch=37-checkpoint_on=1.0512.ckpt')
 HPARAM = config.INFERENCE()
 DRAW_IMAGE = 20
 

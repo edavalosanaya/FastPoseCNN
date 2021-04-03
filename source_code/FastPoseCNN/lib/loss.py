@@ -1,5 +1,6 @@
 import sys
 import os
+import functools
 
 import torch
 from torch import Tensor, nn
@@ -12,6 +13,7 @@ import matplotlib.pyplot as plt
 
 # Local imports
 sys.path.append(os.getenv("TOOLS_DIR"))
+import type_hinting as th
 
 try:
     import visualize as vz
@@ -233,6 +235,39 @@ class AggregatedLoss(_Loss):
 #-------------------------------------------------------------------------------
 # Aggregated loss functions
 
+# Decorator for catching empty data
+def dec_empty_check(function):
+    """ A Decorator that catches when the input data is None """
+
+    @functools.wraps(function)
+    def wrapper(*args, **kwargs):
+
+        # gt_pred_matches is the first parameter or access it via the keyword argument
+        try:
+            loss_object = args[0]
+            gt_pred_matches = args[1]
+        except:
+            loss_object = args[0]
+            gt_pred_matches = kwargs['gt_pred_matches']
+
+        if type(gt_pred_matches) != type(None) and loss_object.key in gt_pred_matches.keys():
+
+            # Obtain the result
+            result = function(*args, **kwargs)
+
+        else:
+            try: # Try using the same device
+                return torch.tensor(float('nan'), device=gt_pred_matches['instance_masks'].device).float()   
+            except:
+                try: # Try using a cuda
+                    return torch.tensor(float('nan')).cuda().float()
+                except: # Finally, if all fail, return via cpu
+                    return torch.tensor(float('nan')).float() 
+
+        return result
+        
+    return wrapper
+
 # Rotation
 class QLoss(_Loss): # Quaternion
 
@@ -245,39 +280,28 @@ class QLoss(_Loss): # Quaternion
         else:
             self.key = 'quaternion'
 
-    def forward(self, gt_pred_matches) -> Tensor:
+    @dec_empty_check
+    def forward(self, gt_pred_matches: th.MatchedData) -> Tensor:
 
-        # Catching no-instance scenario
-        if type(gt_pred_matches) != type(None) and self.key in gt_pred_matches.keys():
+        # Selecting the ground truth data
+        gt = gt_pred_matches[self.key][0]
 
-            # Selecting the ground truth data
-            gt = gt_pred_matches[self.key][0]
+        # Selecting the predicted data
+        pred = gt_pred_matches[self.key][1]
 
-            # Selecting the predicted data
-            pred = gt_pred_matches[self.key][1]
+        # Handle symmetric and non-symmetric items differently
+        non_symmetric_instances = torch.where(gt_pred_matches['symmetric_ids'] == 0)[0]
+        symmetric_instances = torch.where(gt_pred_matches['symmetric_ids'] != 0)[0]
 
-            # Handle symmetric and non-symmetric items differently
-            non_symmetric_instances = torch.where(gt_pred_matches['symmetric_ids'] == 0)[0]
-            symmetric_instances = torch.where(gt_pred_matches['symmetric_ids'] != 0)[0]
+        # Calculate the loss for non-symmetric items
+        non_symmetric_loss = self.get_loss(gt[non_symmetric_instances], pred[non_symmetric_instances])
 
-            # Calculate the loss for non-symmetric items
-            non_symmetric_loss = self.get_loss(gt[non_symmetric_instances], pred[non_symmetric_instances])
+        # Calculate the loss for symmetric items
+        symmetric_loss = self.get_symmetric_loss(gt[symmetric_instances], pred[symmetric_instances])
+        #symmetric_loss = self.get_loss(gt[symmetric_instances], pred[symmetric_instances])
 
-            # Calculate the loss for symmetric items
-            symmetric_loss = self.get_symmetric_loss(gt[symmetric_instances], pred[symmetric_instances])
-            #symmetric_loss = self.get_loss(gt[symmetric_instances], pred[symmetric_instances])
-
-            # Sum the total loss
-            loss = torch.cat((non_symmetric_loss, symmetric_loss), dim=0)
-
-        else:
-            try:
-                return torch.tensor(float('nan'), device=gt_pred_matches['instance_masks'].device).float()   
-            except:
-                try:
-                    return torch.tensor(float('nan')).cuda().float()
-                except:
-                    return torch.tensor(float('nan')).float()
+        # Sum the total loss
+        loss = torch.cat((non_symmetric_loss, symmetric_loss), dim=0)
 
         # Remove any nans in the data
         clean_loss = loss[torch.isnan(loss) == False]
@@ -353,30 +377,19 @@ class RLoss(_Loss): # Rotation Matrix
         else:
             self.key = 'R'
 
-    def forward(self, gt_pred_matches) -> Tensor:
+    @dec_empty_check
+    def forward(self, gt_pred_matches: th.MatchedData) -> Tensor:
 
-        # Catching no-instance scenario
-        if type(gt_pred_matches) != type(None) and self.key in gt_pred_matches.keys():
+        # Selecting the ground truth data
+        gt = gt_pred_matches[self.key][0]
 
-            # Selecting the ground truth data
-            gt = gt_pred_matches[self.key][0]
+        # Selecting the predicted data
+        pred = gt_pred_matches[self.key][1]
 
-            # Selecting the predicted data
-            pred = gt_pred_matches[self.key][1]
-
-            # Calculating the loss
-            similarity = torch.bmm(torch.transpose(gt, 1, 2), pred)
-            traced_value = torch.einsum('bii->b', similarity) # batched trace
-            loss = torch.acos((traced_value - 1) / 2)
-
-        else:
-            try:
-                return torch.tensor(float('nan'), device=gt_pred_matches['instance_masks'].device).float()   
-            except:
-                try:
-                    return torch.tensor(float('nan')).cuda().float()
-                except:
-                    return torch.tensor(float('nan')).float()
+        # Calculating the loss
+        similarity = torch.bmm(torch.transpose(gt, 1, 2), pred)
+        traced_value = torch.einsum('bii->b', similarity) # batched trace
+        loss = torch.acos((traced_value - 1) / 2)
 
         # Remove any nans in the data
         clean_loss = loss[torch.isnan(loss) == False]
@@ -396,28 +409,18 @@ class TLoss(_Loss): # Translation Vector
         else:
             self.key = 'T'
 
-    def forward(self, gt_pred_matches) -> Tensor:
+    @dec_empty_check
+    def forward(self, gt_pred_matches: th.MatchedData) -> Tensor:
 
-        # Catching no-instance scenario
-        if type(gt_pred_matches) != type(None) and self.key in gt_pred_matches.keys():
 
-            # Selecting the ground truth data
-            gt = gt_pred_matches[self.key][0]
+        # Selecting the ground truth data
+        gt = gt_pred_matches[self.key][0]
 
-            # Selecting the predicted data
-            pred = gt_pred_matches[self.key][1]
+        # Selecting the predicted data
+        pred = gt_pred_matches[self.key][1]
 
-            # Calculating the loss
-            loss = (gt-pred).norm(dim=1)
-
-        else:
-            try:
-                return torch.tensor(float('nan'), device=gt_pred_matches['instance_masks'].device).float()   
-            except:
-                try:
-                    return torch.tensor(float('nan')).cuda().float()
-                except:
-                    return torch.tensor(float('nan')).float()  
+        # Calculating the loss
+        loss = (gt-pred).norm(dim=1)
 
         # Remove any nans in the data
         clean_loss = loss[torch.isnan(loss) == False]
@@ -427,7 +430,7 @@ class TLoss(_Loss): # Translation Vector
 
 class XYLoss(_Loss): # 2D Center
 
-    def __init__(self, key = None, eps = 0.1):
+    def __init__(self, key = None, loss_type = 'L2', eps = 0.1):
         super(XYLoss, self).__init__()
         self.eps = eps
 
@@ -436,41 +439,38 @@ class XYLoss(_Loss): # 2D Center
         else:
             self.key = 'xy'
 
-    def forward(self, gt_pred_matches) -> Tensor:
-
-        # Catching no-instance scenario
-        if type(gt_pred_matches) != type(None) and self.key in gt_pred_matches.keys():
-
-            # Selecting the ground truth data
-            gt = gt_pred_matches[self.key][0]
-
-            # Selecting the predicted data
-            pred = gt_pred_matches[self.key][1]
-
-            # Calculating the loss
-            abs_diff = (gt-pred).norm(dim=1)
-
-            # Remove any nans in the data
-            abs_diff = abs_diff[torch.isnan(abs_diff) == False]
-
-            # Calculating the loss
-            loss = torch.mean(abs_diff)
-
+        if loss_type == 'L1':
+            self.loss_func = torch.nn.L1Loss()
+        elif loss_type == 'SmoothL1':
+            self.loss_func = torch.nn.SmoothL1Loss()
+        elif loss_type == 'L2':
+            self.loss_func = torch.nn.MSELoss()
         else:
-            try:
-                return torch.tensor(float('nan'), device=gt_pred_matches['instance_masks'].device).float()   
-            except:
-                try:
-                    return torch.tensor(float('nan')).cuda().float()
-                except:
-                    return torch.tensor(float('nan')).float() 
+            raise NotImplementedError(f"{loss_type} is an invalid loss function!")
 
-        # Return the some of all the losses
-        return loss
+    @dec_empty_check
+    def forward(self, gt_pred_matches: th.MatchedData) -> Tensor:
+
+        # Selecting the ground truth data
+        gt = gt_pred_matches[self.key][0]
+
+        # Selecting the predicted data
+        pred = gt_pred_matches[self.key][1]
+
+        # Performing the loss function on each individual element (x or y)
+        total_loss = []
+        for i in range(gt.shape[1]):
+            total_loss.append(self.loss_func(gt[:,i], pred[:,i]))
+
+        # Calculate total loss
+        total_loss = torch.sum(torch.stack(total_loss))
+
+        # Return the loss
+        return total_loss
 
 class ZLoss(_Loss): # Z - depth
     
-    def __init__(self, key = None, eps = 0.1):
+    def __init__(self, key = None, loss_type='L2', eps = 0.1):
         super(ZLoss, self).__init__()
         self.eps = eps
 
@@ -479,41 +479,30 @@ class ZLoss(_Loss): # Z - depth
         else:
             self.key = 'z'
 
-    def forward(self, gt_pred_matches) -> Tensor:
-
-        # Catching no-instance scenario
-        if type(gt_pred_matches) != type(None) and self.key in gt_pred_matches.keys():
-
-            # Selecting the ground truth data
-            gt = gt_pred_matches[self.key][0]
-
-            # Selecting the predicted data
-            pred = gt_pred_matches[self.key][1]
-
-            # Calculating the loss (logging the data first)
-            abs_diff = (torch.log(gt)-torch.log(pred)).norm(dim=1)
-
-            # Remove any nans in the data
-            clean_diff = abs_diff[torch.isnan(abs_diff) == False]
-
-            # Calculating the loss
-            loss = torch.mean(clean_diff) # Reducing the loss by a factor
-
+        if loss_type == 'L1':
+            self.loss_func = torch.nn.L1Loss()
+        elif loss_type == 'SmoothL1':
+            self.loss_func = torch.nn.SmoothL1Loss()
+        elif loss_type == 'L2':
+            self.loss_func = torch.nn.MSELoss()
         else:
-            try:
-                return torch.tensor(float('nan'), device=gt_pred_matches['instance_masks'].device).float()   
-            except:
-                try:
-                    return torch.tensor(float('nan')).cuda().float()
-                except:
-                    return torch.tensor(float('nan')).float()  
+            raise NotImplementedError(f"{loss_type} is an invalid loss function!")
 
-        return loss
+    @dec_empty_check
+    def forward(self, gt_pred_matches: th.MatchedData) -> Tensor:
+
+        # Selecting the ground truth data
+        gt = torch.log(gt_pred_matches[self.key][0])
+
+        # Selecting the predicted data
+        pred = torch.log(gt_pred_matches[self.key][1])
+
+        return self.loss_func(gt, pred)
 
 # Scales
 class ScalesLoss(_Loss): # h, w, l scales
 
-    def __init__(self, key = None, eps = 0.1):
+    def __init__(self, key = None, loss_type = 'L2', eps = 0.1):
         super(ScalesLoss, self).__init__()
         self.eps = eps
 
@@ -522,36 +511,34 @@ class ScalesLoss(_Loss): # h, w, l scales
         else:
             self.key = 'scales'
 
-    def forward(self, gt_pred_matches) -> Tensor:
-
-        # Catching no-instance scenario
-        if type(gt_pred_matches) != type(None) and self.key in gt_pred_matches.keys():
-
-            # Selecting the ground truth data
-            gt = gt_pred_matches[self.key][0]
-
-            # Selecting the predicted data
-            pred = gt_pred_matches[self.key][1]
-
-            # Calculating the loss
-            abs_diff = (gt-pred).norm(dim=1)
-
-            # Remove any nans in the data
-            abs_diff = abs_diff[torch.isnan(abs_diff) == False]
-
-            # Calculating the loss
-            loss = torch.mean(abs_diff) # Reducing the loss by a factor
-
+        if loss_type == 'L1':
+            self.loss_func = torch.nn.L1Loss()
+        elif loss_type == 'SmoothL1':
+            self.loss_func = torch.nn.SmoothL1Loss()
+        elif loss_type == 'L2':
+            self.loss_func = torch.nn.MSELoss()
         else:
-            try:
-                return torch.tensor(float('nan'), device=gt_pred_matches['instance_masks'].device).float()   
-            except:
-                try:
-                    return torch.tensor(float('nan')).cuda().float()
-                except:
-                    return torch.tensor(float('nan')).float()  
+            raise NotImplementedError(f"{loss_type} is an invalid loss function!")
 
-        return loss
+    @dec_empty_check
+    def forward(self, gt_pred_matches: th.MatchedData) -> Tensor:
+
+        # Selecting the ground truth data
+        gt = gt_pred_matches[self.key][0]
+
+        # Selecting the predicted data
+        pred = gt_pred_matches[self.key][1]
+
+        # Performing the loss function on each individual element (h,w,l)
+        total_loss = []
+        for i in range(gt.shape[1]):
+            total_loss.append(self.loss_func(gt[:,i], pred[:,i]))
+
+        # Calculate total loss
+        total_loss = torch.sum(torch.stack(total_loss))
+
+        # Return the loss
+        return total_loss
 
 #-------------------------------------------------------------------------------
 # Pose loss functions

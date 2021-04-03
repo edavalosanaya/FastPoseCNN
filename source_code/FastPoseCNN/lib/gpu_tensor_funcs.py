@@ -318,26 +318,41 @@ def get_3d_bbox(scale, shift = 0):
         bbox_3d: [3, N]
 
     """
-    if hasattr(scale, "__iter__"):
-        bbox_3d = torch.tensor([
-            [scale[0] / 2, scale[1] / 2, scale[2] / 2],
-            [scale[0] / 2, scale[1] / 2, -scale[2] / 2],
-            [-scale[0] / 2, scale[1] / 2, scale[2] / 2],
-            [-scale[0] / 2, scale[1] / 2, -scale[2] / 2],
-            [scale[0] / 2, -scale[1] / 2, scale[2] / 2],
-            [scale[0] / 2, -scale[1] / 2, -scale[2] / 2],
-            [-scale[0] / 2, -scale[1] / 2, scale[2] / 2],
-            [-scale[0] / 2, -scale[1] / 2, -scale[2] / 2]], device=scale.device, dtype=scale.dtype)
-    else:
-        bbox_3d = torch.tensor([
-            [scale / 2, scale / 2, scale / 2],
-            [scale / 2, scale / 2, -scale / 2],
-            [-scale / 2, scale / 2, scale / 2],
-            [-scale / 2, scale / 2, -scale / 2],
-            [scale / 2, -scale / 2, scale / 2],
-            [scale / 2, -scale / 2, -scale / 2],
-            [-scale / 2, -scale / 2, scale / 2],
-            [-scale / 2, -scale / 2, -scale / 2]], device=scale.device, dtype=scale.dtype)
+    # if hasattr(scale, "__iter__"):
+    #     bbox_3d = torch.tensor([
+    #         [scale[0] / 2, scale[1] / 2, scale[2] / 2],
+    #         [scale[0] / 2, scale[1] / 2, -scale[2] / 2],
+    #         [-scale[0] / 2, scale[1] / 2, scale[2] / 2],
+    #         [-scale[0] / 2, scale[1] / 2, -scale[2] / 2],
+    #         [scale[0] / 2, -scale[1] / 2, scale[2] / 2],
+    #         [scale[0] / 2, -scale[1] / 2, -scale[2] / 2],
+    #         [-scale[0] / 2, -scale[1] / 2, scale[2] / 2],
+    #         [-scale[0] / 2, -scale[1] / 2, -scale[2] / 2]], device=scale.device, dtype=scale.dtype)
+    # else:
+    #     bbox_3d = torch.tensor([
+    #         [scale / 2, scale / 2, scale / 2],
+    #         [scale / 2, scale / 2, -scale / 2],
+    #         [-scale / 2, scale / 2, scale / 2],
+    #         [-scale / 2, scale / 2, -scale / 2],
+    #         [scale / 2, -scale / 2, scale / 2],
+    #         [scale / 2, -scale / 2, -scale / 2],
+    #         [-scale / 2, -scale / 2, scale / 2],
+    #         [-scale / 2, -scale / 2, -scale / 2]], device=scale.device, dtype=scale.dtype)
+
+    unit_bbox_3d = torch.tensor([
+        [1, 1, 1],
+        [1, 1, -1],
+        [-1, 1, 1],
+        [-1, 1, -1],
+        [1, -1, 1],
+        [1, -1, -1],
+        [-1, -1, 1],
+        [-1, -1, -1]
+    ], device=scale.device, dtype=scale.dtype) / 2
+    
+    e_scales = torch.unsqueeze(scale, axis=0)
+
+    bbox_3d = unit_bbox_3d * e_scales
 
     bbox_3d += shift
     bbox_3d = bbox_3d.T
@@ -519,15 +534,19 @@ def get_T_offset_errors(centers3d_1, centers3d_2):
     
     offset_errors = []
     for i in range(centers3d_1.shape[0]):
-        offset_error = get_T_offset_error(centers3d_1[i], centers3d_2[i])
+        offset_error = get_offset_error_from_centroids(centers3d_1[i], centers3d_2[i])
         offset_errors.append(offset_error)
 
     offset_errors = torch.stack(offset_errors)
     return offset_errors
 
-def get_T_offset_error(center3d_1, center3d_2):
+def get_offset_error_from_centroid(center3d_1, center3d_2):
     diff = center3d_1 - center3d_2
     return torch.sqrt(torch.sum(torch.pow(diff,2)))
+
+def from_Ts_get_offset_error(gt_Ts, pred_Ts):
+
+    return torch.linalg.norm(gt_Ts - pred_Ts, dim=1) * 10
 
 def from_RTs_get_T_offset_errors(gt_RTs, pred_RTs):
 
@@ -566,7 +585,7 @@ def from_RTs_get_T_offset_errors(gt_RTs, pred_RTs):
     pred_world_coord_3d_centers = torch.stack(pred_world_coord_3d_centers)
 
     # Calculating the distance between the gt and pred points
-    offset_errors = get_T_offset_errors(
+    offset_errors = get_offset_error_from_centroid(
         gt_world_coord_3d_centers,
         pred_world_coord_3d_centers
     ) * 10 # Converting units
@@ -611,6 +630,63 @@ def calculate_aps(raw_data, metrics_threshold, metrics_operator):
 
             # Collapse result to the sizeof the thresholds
             class_ap = torch.sum(class_ap, dim=1) / n_of_d
+
+            # Storing class aps
+            aps[data_key][class_id] = class_ap
+
+        # Calculating mean for class
+        aps[data_key]['mean'] = torch.mean(torch.stack(list(aps[data_key].values())).float(), dim=0)
+
+    return aps
+
+def calculate_complex_aps(raw_data, metrics_threshold, metrics_operator):
+
+    # Conatiner for all aps
+    aps = {}
+
+    # Iteration over the metrics
+    for data_key in metrics_threshold.keys():
+
+        # Creating subcontainer for metrics values
+        aps[data_key] = {}
+
+        # Select metrics information
+        thresholds = metrics_threshold[data_key]
+        keys = [k for k in raw_data.keys() if k in data_key]
+        
+        # Concatinating data sets
+        data = {}
+        for key in keys:
+            for class_id in raw_data[key].keys():
+                if class_id in list(data.keys()):
+                    data[class_id] = torch.stack(
+                        (data[class_id], raw_data[key][class_id])
+                    )
+                else:
+                    data[class_id] = raw_data[key][class_id]
+
+        # Iterating over the classes
+        for class_id in data.keys():
+
+            # Selecting the class' data
+            class_data = data[class_id]
+
+            # Remove Nans from the calculations
+            # class_data = class_data[torch.isnan(class_data) == False]
+            n_of_d = class_data.shape[1]
+            
+            # Expanding data to make comparison easy
+            e_class_data = torch.unsqueeze(class_data, dim=1)
+            e_threshold = torch.unsqueeze(thresholds, dim=-1)
+
+            # Applying operator (currently only using less than)
+            applied_threshold = torch.less(e_class_data, e_threshold)
+
+            # Collapsing the metrics to a single value per sample
+            threshold_mixed = (torch.sum(applied_threshold, dim=0) == applied_threshold.shape[0]).bool()
+
+            # Futher collapsing now all the samples into a single class value
+            class_ap = torch.sum(threshold_mixed, dim=1) / n_of_d
 
             # Storing class aps
             aps[data_key][class_id] = class_ap

@@ -25,13 +25,13 @@ class DEFAULT_POSE_HPARAM(argparse.Namespace):
 
     # Model Specifications
     MODEL = 'PoseRegressor'
-    DATASET_NAME = 'REAL' # string
+    DATASET_NAME = 'CAMERA' # string
     #SELECTED_CLASSES = ['bg','camera','laptop']
     SELECTED_CLASSES = tools.pj.constants.CAMERA_CLASSES 
     CKPT_SAVE_FREQUENCY = 5
 
     # Run Specifications
-    CUDA_VISIBLE_DEVICES = '2' # '0,1,2,3'
+    CUDA_VISIBLE_DEVICES = '0' # '0,1,2,3'
     BATCH_SIZE = 3
     NUM_WORKERS = int(1 * (36/4)) # 36 total CPUs
     NUM_GPUS = 1 # 4 total GPUs
@@ -65,6 +65,9 @@ class DEFAULT_POSE_HPARAM(argparse.Namespace):
     XY_WEIGHT = 0.1
     Z_WEIGHT = 0.1
     SCALES = 0.1
+    XYLOSS_TYPE = 'L1'
+    ZLOSS_TYPE = 'L1'
+    SCALESLOSS_TYPE = 'L1'
 
     # Freezing Training Specifications
     FREEZE_ENCODER = False
@@ -87,7 +90,7 @@ class DEFAULT_POSE_HPARAM(argparse.Namespace):
     # Algorithmic Parameters
     
     ## Hough Voting Parameters 
-    HV_NUM_OF_HYPOTHESES = 128 # Good at 50 though (preferably 2*n + 1 because of iqr)
+    HV_NUM_OF_HYPOTHESES = 128
     HV_HYPOTHESIS_IN_MASK_MULTIPLIER = 3 
     
     ### Pruning Parameters
@@ -131,8 +134,8 @@ class HEAD_TRAINING(DEFAULT_POSE_HPARAM):
 # EVALUATING
 class EVALUATING(DEFAULT_POSE_HPARAM):
 
-    VALID_SIZE = 2000
-    HV_NUM_OF_HYPOTHESES = 501
+    VALID_SIZE = 5000
+    HV_NUM_OF_HYPOTHESES = 1000
 
     PERFORM_AGGREGATION = True
     PERFORM_HOUGH_VOTING = True
