@@ -19,21 +19,21 @@ class DEFAULT_POSE_HPARAM(argparse.Namespace):
     # Training Specifications
     # CHECKPOINT = None
     # CHECKPOINT = pathlib.Path(os.getenv("LOGS")) / 'good_saved_runs' / '2_object' / '21-38-XY_REGRESSION_DEBUG-CAMERA-resnet18-imagenet' / '_' / 'checkpoints' / 'last.ckpt'
-    CHECKPOINT = pathlib.Path(os.getenv("LOGS")) / 'good_saved_runs' / 'all_object' / '22-10-LONG_MASK_ALL_OBJECTS-CAMERA-resnet18-imagenet' / '_' / 'checkpoints' / 'last.ckpt'
+    # CHECKPOINT = pathlib.Path(os.getenv("LOGS")) / 'good_saved_runs' / 'all_object' / '22-10-LONG_MASK_ALL_OBJECTS-CAMERA-resnet18-imagenet' / '_' / 'checkpoints' / 'last.ckpt'
     # CHECKPOINT = pathlib.Path(os.getenv("LOGS")) / 'debugging_test_runs' / '13-15-MASK_TEST-CAMERA-resnet18-imagenet' / '_' / 'checkpoints' / 'n-ckpt_epoch=5.ckpt'
-    # CHECKPOINT = pathlib.Path('/home/students/edavalos/GitHub/FastPoseCNN/source_code/FastPoseCNN/logs/21-03-12/20-37-BASE_TRIM_LONG-PoseRegressor-CAMERA-resnet18-imagenet/_/checkpoints/last.ckpt')
+    CHECKPOINT = pathlib.Path('/home/students/edavalos/GitHub/FastPoseCNN/source_code/FastPoseCNN/logs/21-04-17/13-06-CONT_FAST_LONG-PoseRegressor-CAMERA-resnet18-imagenet/_/checkpoints/epoch=10-checkpoint_on=1.2220.ckpt')
 
     # Model Specifications
     MODEL = 'PoseRegressor'
     DATASET_NAME = 'CAMERA' # string
     #SELECTED_CLASSES = ['bg','camera','laptop']
     SELECTED_CLASSES = tools.pj.constants.CAMERA_CLASSES 
-    CKPT_SAVE_FREQUENCY = 5
+    CKPT_SAVE_FREQUENCY = 2
 
     # Run Specifications
-    CUDA_VISIBLE_DEVICES = '0' # '0,1,2,3'
+    CUDA_VISIBLE_DEVICES = '0,1,2,3'
     BATCH_SIZE = 3
-    NUM_WORKERS = int(1 * (36/4)) # 36 total CPUs
+    NUM_WORKERS = int(2 * (36/4)) # 36 total CPUs
     NUM_GPUS = 1 # 4 total GPUs
     
     # Test Trim Dataset
@@ -45,18 +45,18 @@ class DEFAULT_POSE_HPARAM(argparse.Namespace):
     # VALID_SIZE = 200
 
     # Large Trim Dataset
-    TRAIN_SIZE = 10_000
-    VALID_SIZE = 750
+    # TRAIN_SIZE = 20_000
+    # VALID_SIZE = 2_000
 
     # Entire Dataset
-    # TRAIN_SIZE = None
-    # VALID_SIZE = None
+    TRAIN_SIZE = None
+    VALID_SIZE = None
 
     # Training Specifications
     WEIGHT_DECAY = 0.0003
     LEARNING_RATE = 0.0001 / 10
     ENCODER_LEARNING_RATE = 0.00005 / 10
-    NUM_EPOCHS = 50 #50
+    NUM_EPOCHS = 50
     DISTRIBUTED_BACKEND = None if NUM_GPUS <= 1 else 'ddp'
 
     # Loss Function Specifications
@@ -134,7 +134,8 @@ class HEAD_TRAINING(DEFAULT_POSE_HPARAM):
 # EVALUATING
 class EVALUATING(DEFAULT_POSE_HPARAM):
 
-    VALID_SIZE = 5000
+    TRAIN_SIZE = 1
+    VALID_SIZE = 10_000 #None
     HV_NUM_OF_HYPOTHESES = 1000
 
     PERFORM_AGGREGATION = True

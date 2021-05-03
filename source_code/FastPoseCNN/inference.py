@@ -21,7 +21,7 @@ import lib
 #-------------------------------------------------------------------------------
 # Constants
 
-PATH = pathlib.Path('/home/students/edavalos/GitHub/FastPoseCNN/source_code/FastPoseCNN/logs/good_saved_runs/all_object/19-52-PVNET_HV-PoseRegressor-CAMERA-resnet18-imagenet/_/checkpoints/epoch=37-checkpoint_on=1.0512.ckpt')
+PATH = pathlib.Path('/home/students/edavalos/GitHub/FastPoseCNN/source_code/FastPoseCNN/logs/21-04-15/16-03-CONT2_LONG_TRAIN_PVNET-PoseRegressor-CAMERA-resnet18-imagenet/_/checkpoints/epoch=12-checkpoint_on=1.4623.ckpt')
 HPARAM = config.INFERENCE()
 DRAW_IMAGE = 20
 
@@ -51,7 +51,7 @@ model = lib.pose_regressor.MODELS[HPARAM.MODEL].load_from_ckpt(
 )
 
 # Put the model into evaluation mode
-model = model.to('cuda') # ! Make it work with multiple GPUs
+# model = model.to('cuda') # ! Make it work with multiple GPUs
 model = model.eval()
 
 # Load the PyTorch Lightning dataset
@@ -95,7 +95,7 @@ for batch_id, batch in tqdm.tqdm(enumerate(datamodule.val_dataloader())):
         outputs = model.forward(batch['image'])
 
     if batch_id > DRAW_IMAGE:
-        break
+        continue
 
     # Determine matches between the aggreated ground truth and preds
     gt_pred_matches = lib.mg.batchwise_find_matches(
@@ -121,11 +121,11 @@ for batch_id, batch in tqdm.tqdm(enumerate(datamodule.val_dataloader())):
     #         str(pathlib.Path(os.getenv('TEST_OUTPUT')) / f'{batch_id}_gt_data.png'),
     #         dpi=300
     #     )
-    if pose_data_fig:
-        pose_data_fig.savefig(
-            str(pathlib.Path(os.getenv('TEST_OUTPUT')) / f'{batch_id}_pose_data.png'),
-            dpi=300
-        )
+    # if pose_data_fig:
+    #     pose_data_fig.savefig(
+    #         str(pathlib.Path(os.getenv('TEST_OUTPUT')) / f'{batch_id}_pose_data.png'),
+    #         dpi=300
+    #     )
 
     gt_images, pred_images, pose_images = tools.vz.compare_all_performance(
         batch,

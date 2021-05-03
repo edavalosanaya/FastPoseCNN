@@ -30,12 +30,12 @@ import config
 # Constants
 
 #PATH = pathlib.Path('/home/students/edavalos/GitHub/FastPoseCNN/source_code/FastPoseCNN/logs/21-04-01/12-13-L1_LOSS_TEST-PoseRegressor-CAMERA-resnet18-imagenet/_/checkpoints/epoch=22-checkpoint_on=0.8301.ckpt')
-PATH = pathlib.Path('/home/students/edavalos/GitHub/FastPoseCNN/source_code/FastPoseCNN/logs/21-04-01/12-12-L2_LOSS_TEST-PoseRegressor-CAMERA-resnet18-imagenet/_/checkpoints/epoch=44-checkpoint_on=2.7191.ckpt')
+PATH = pathlib.Path('/home/students/edavalos/GitHub/FastPoseCNN/source_code/FastPoseCNN/logs/21-04-15/16-03-CONT2_LONG_TRAIN_PVNET-PoseRegressor-CAMERA-resnet18-imagenet/_/checkpoints/epoch=12-checkpoint_on=1.4623.ckpt')
 
 HPARAM = config.EVALUATING()
 
-COLLECT_DATA = False
-DRAW = True
+HPARAM.DATASET_NAME = 'CAMERA'
+DRAW = False
 TOTAL_DRAW_IMAGES = 10
 APS_NUM_OF_POINTS = 50
 
@@ -77,7 +77,7 @@ if __name__ == '__main__':
 
     # Determining if collect model's performance data
     # or visualizing the results of the model's performance
-    if COLLECT_DATA:
+    if not pth_path.exists():
 
         model = lib.pose_regressor.MODELS[HPARAM.MODEL].load_from_ckpt(
             PATH,
@@ -127,6 +127,20 @@ if __name__ == '__main__':
             # Forward pass
             with torch.no_grad():
                 outputs = model.forward(batch['image'])
+
+            # # ! PURELY TESTING: Overwriting the z by the depth image
+            # b, c, h, w = batch['image'].shape
+            
+            # x = outputs['aggregated']['xy'][:,1].long()
+            # y = outputs['aggregated']['xy'][:,0].long()
+            
+            # safe_entry = ((x >= 0) & (x < h-1)) & ((y >= 0) & (y < w - 1))
+            
+            # z = batch['depth'][outputs['aggregated']['sample_ids'][safe_entry], x[safe_entry], y[safe_entry]]
+            # true_z = (z != 32001)
+
+            # outputs['aggregated']['z'][safe_entry][true_z] = z[true_z].reshape((-1,1))
+            # # ! END OF TESTING SECTION
 
             # Determine matches between the aggreated ground truth and preds
             gt_pred_matches = lib.mg.batchwise_find_matches(

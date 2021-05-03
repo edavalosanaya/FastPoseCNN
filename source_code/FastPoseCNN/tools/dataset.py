@@ -171,11 +171,9 @@ class NOCSDataset(Dataset, torch.utils.data.Dataset):
         mask[mask == 255] = 0
 
         # Depth
-        """
         depth_fp = str(self.images_fps[i]).replace('_color.png', '_depth.png')
-        depth = skimage.io.imread(depth_fp)
+        depth = cv2.imread(depth_fp, -1) # has to be cv2, not skimage
         depth = dm.standardize_depth(depth)
-        """
 
         # Other data
         json_fp = str(self.images_fps[i]).replace('_color.png', '_meta+.json')
@@ -234,6 +232,7 @@ class NOCSDataset(Dataset, torch.utils.data.Dataset):
             'clean_image': image,
             'image': image, 
             'mask': class_mask, 
+            'depth': depth # For testing purposes only
             #'quaternion': quaternions,
             #'scales': scales,
             #'xy': xy,
@@ -262,6 +261,7 @@ class NOCSDataset(Dataset, torch.utils.data.Dataset):
             'path': self.images_fps[i],
             'image': skimage.img_as_float32(sample['image']),
             'mask': sample['mask'].astype('long'),
+            'depth': sample['depth'].astype('float32'),
             #'quaternion': skimage.img_as_float32(sample['quaternion']),
             #'scales': skimage.img_as_float32(sample['scales']),
             #'xy': skimage.img_as_float32(sample['xy']),

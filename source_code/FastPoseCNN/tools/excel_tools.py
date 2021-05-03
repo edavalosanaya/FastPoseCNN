@@ -30,7 +30,7 @@ def save_aps_to_excel(excel_path, metrics_thresholds, aps, plot_classes):
         x = metrics_thresholds[aps_name].reshape((-1,1))
 
         # Creating data to be place in the excel
-        data = torch.hstack((x,y))
+        data = torch.hstack((x,y * 100))
 
         # Creating dataframe
         df = pd.DataFrame(data.cpu().numpy(), columns=[f'{aps_name} - x'] + y_columns_name)

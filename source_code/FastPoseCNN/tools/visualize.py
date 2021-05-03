@@ -304,7 +304,7 @@ def get_visualized_hough_voting(
     h,w = mask.shape
 
     # Flip the x and y to match the style of visualization in this function
-    pixel_xy = pixel_xy[[1,0]]
+    # pixel_xy = pixel_xy[[1,0]]
     safe_pixel_xy = torch.squeeze(
         make_pts_index_friendly(torch.unsqueeze(pixel_xy, dim=0), h, w)
     )

@@ -216,20 +216,8 @@ def batchwise_get_RT(q, xys, exp_zs, inv_intrinsics):
     safe_norm = torch.where(norm > 0, norm, torch.ones_like(norm, device=q.device))
     q = q / torch.unsqueeze(safe_norm, dim=1)
 
-    # Creating container for the all R
-    R = torch.zeros((q.shape[0], 3, 3), device=q.device, dtype=q.dtype)
-
-    # Correction matrix
-    x = torch.tensor([
-        [1,-1,1],
-        [1,-1,1],
-        [-1,1,-1]
-    ], device=q.device, dtype=q.dtype)
-
-    # Processing each quaternion individually (too hard)
-    for i in range(q.shape[0]):
-        r = quat_2_rotation_matrix(q[i])
-        R[i] = torch.mul(torch.rot90(r, 2).T, x)
+    # Convert the quaterion to rotation matrix
+    R = quats_2_rotation_matrix(q)
     
     # Need the inverse version to combine it with the translation
     inv_R = torch.inverse(R)
@@ -301,13 +289,41 @@ def get_q_bar_matrix(q):
 
 def quat_2_rotation_matrix2(q):
 
-    qw, qx, qy, qz = q
+    q1, q2, q3, q4 = q
+    q1_2 = torch.pow(q1, 2)
+    q2_2 = torch.pow(q2, 2)
+    q3_2 = torch.pow(q3, 2)
+    q4_2 = torch.pow(q4, 2) 
 
-    return torch.tensor([
-        [1-2*(torch.pow(qy,2) - torch.pow(qz,2)), 2*(qx*qy - qz*qw)                      , 2*(qx*qz + qy*qw)],
-        [2*(qx*qy + qz*qw)                      , 1-2*(torch.pow(qx,2) - torch.pow(qz,2)), 2*(qy*qz - qx*qw)],
-        [2*(qx*qz - qy*qw)                      , 2*(qy*qz + qx*qw)                      , 1 - 2*(torch.pow(qx,2) - torch.pow(qy,2))]
-    ], device=q.device, dtype=q.dtype)
+    R = torch.tensor([
+        [q1_2-q2_2-q3_2+q4_2, 2*(q1*q2 + q3*q4)   , 2*(q1*q3 - q2*q4)],
+        [2*(q1*q2 - q3*q4)  , -q1_2+q2_2-q3_2+q4_2, 2*(q2*q3 + q1*q4)],
+        [2*(q1*q3 + q2*q4)  , 2*(q2*q3 - q1*q4)   , -q1_2-q2_2+q3_2+q4_2]
+    ], device=q.device, dtype=q.dtype).T
+
+    return R
+
+def quats_2_rotation_matrix(q):
+
+    q1, q2, q3, q4 = q.unbind(dim=-1)
+    q1_2 = torch.pow(q1, 2)
+    q2_2 = torch.pow(q2, 2)
+    q3_2 = torch.pow(q3, 2)
+    q4_2 = torch.pow(q4, 2) 
+
+    R = torch.zeros((q.shape[0], 3, 3), device=q.device, dtype=q.dtype)
+
+    R[:, 0, 0] = q1_2-q2_2-q3_2+q4_2
+    R[:, 0, 1] = 2*(q1*q2 + q3*q4)
+    R[:, 0, 2] = 2*(q1*q3 - q2*q4)
+    R[:, 1, 0] = 2*(q1*q2 - q3*q4)
+    R[:, 1, 1] = -q1_2+q2_2-q3_2+q4_2
+    R[:, 1, 2] = 2*(q2*q3 + q1*q4)
+    R[:, 2, 0] = 2*(q1*q3 + q2*q4)
+    R[:, 2, 1] = 2*(q2*q3 - q1*q4)
+    R[:, 2, 2] = -q1_2-q2_2+q3_2+q4_2
+
+    return torch.transpose(R, dim0=-2, dim1=-1)
 
 def get_3d_bbox(scale, shift = 0):
     """
