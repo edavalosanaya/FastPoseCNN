@@ -37,8 +37,8 @@ class DEFAULT_POSE_HPARAM(argparse.Namespace):
     NUM_GPUS = 1 # 4 total GPUs
     
     # Test Trim Dataset
-    # TRAIN_SIZE = 100
-    # VALID_SIZE = 20
+    TRAIN_SIZE = 100
+    VALID_SIZE = 20
 
     # Small Trim Dataset
     # TRAIN_SIZE = 5_000
@@ -49,8 +49,8 @@ class DEFAULT_POSE_HPARAM(argparse.Namespace):
     # VALID_SIZE = 2_000
 
     # Entire Dataset
-    TRAIN_SIZE = None
-    VALID_SIZE = None
+    # TRAIN_SIZE = None
+    # VALID_SIZE = None
 
     # Training Specifications
     WEIGHT_DECAY = 0.0003
@@ -150,7 +150,8 @@ class INFERENCE(DEFAULT_POSE_HPARAM):
 
     HV_NUM_OF_HYPOTHESES = 1000
     BATCH_SIZE = 1
-    VALID_SIZE = 1000
+    VALID_SIZE = 100
+    TRAIN_SIZE = 1
     RUNTIME_TIMING = True
 
     PERFORM_AGGREGATION = True

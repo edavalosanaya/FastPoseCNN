@@ -51,7 +51,7 @@ model = lib.pose_regressor.MODELS[HPARAM.MODEL].load_from_ckpt(
 )
 
 # Put the model into evaluation mode
-# model = model.to('cuda') # ! Make it work with multiple GPUs
+model = model.to('cuda') # ! Make it work with multiple GPUs
 model = model.eval()
 
 # Load the PyTorch Lightning dataset

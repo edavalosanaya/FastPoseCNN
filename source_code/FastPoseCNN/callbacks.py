@@ -1,4 +1,11 @@
-import pdb
+"""
+File Metadata:
+The callbacks.py file houses all the callbacks used during the training loop
+within the train.py file. These callbacks contain all the Tensorboard logging
+and generation of visualization of the input and output.
+"""
+#-------------------------------------------------------------------------------
+
 import shutil
 import os
 import operator
@@ -31,6 +38,17 @@ class TensorboardCallback(pl.callbacks.Callback):
 
     @rank_zero_only
     def __init__(self, HPARAM, tasks, hparams, checkpoint_monitor=None):
+        """Stores hyperparameters into the instance of the class.
+
+        Args:
+            HPARAM ([config.DEFAULT_POSE_HPARAM]): Major hyperparameters
+            tasks ([List]): list of tasked to be visualized
+            hparams ([Dict]): other hyperparameters to be logged in Tensorboard
+            checkpoint_monitor ([type], optional): Defaults to None.
+
+        Raises:
+            RuntimeError: if checkpoint is set incorrectly, the error is raised 
+        """
         super().__init__()
 
         # Saving parameters
@@ -61,12 +79,32 @@ class TensorboardCallback(pl.callbacks.Callback):
 
     @rank_zero_only
     def on_train_epoch_end(self, trainer, pl_module, outputs):
+        """Executing callbacks after the training loop
+
+        Args:
+            trainer ([pl.Trainer]): PyTorch Lightnings Trainer Instance
+            pl_module ([type]): PyTorch Lightning NN Model
+            outputs ([type]): throwaways
+        """
 
         # Performing the shared funkctions of logging after end of epoch
         self.shared_epoch_end('train', trainer, pl_module)
 
     @rank_zero_only
     def on_validation_epoch_end(self, trainer, pl_module):
+        """Executing callbacks after the validation loop
+
+        Args:
+            trainer ([pl.Trainer]): PyTorch Lightnings Trainer Instance
+            pl_module ([type]): PyTorch Lightning NN Model
+
+        Raises:
+            RuntimeError: if the metric that is being monitored is not found,
+            the system raises a RunTimeError
+
+        Returns:
+            [None]: empty return statement 
+        """
 
         # Performing the shared functions of logging after end of epoch
         self.shared_epoch_end('valid', trainer, pl_module)
@@ -132,7 +170,16 @@ class TensorboardCallback(pl.callbacks.Callback):
 
     @rank_zero_only
     def shared_epoch_end(self, mode, trainer, pl_module):
+        """This function executes the generalized routine for both the end of the
+        validation and training loops. This routine includes the option of 
+        creating the visualization of the output and the accumulation of the 
+        metrics captured per-batch.
 
+        Args:
+            mode ([str]): selector of mode (train or validation)
+            trainer ([pl.Trainer]): trainer instance for the training
+            pl_module ([pl.Module]): PyTorch Lightning neural network module
+        """        
         LOGGER.info(f'EPOCH={trainer.current_epoch+1}')
 
         # Log the average for the metrics for each epoch

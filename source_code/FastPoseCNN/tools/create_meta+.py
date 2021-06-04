@@ -3,6 +3,7 @@ import sys
 import pathlib
 import tqdm
 import pdb
+import argparse
 
 import cv2
 import numpy as np
@@ -32,13 +33,6 @@ import draw as dr
 
 DEBUG = False
 FAULTY_IMAGES = []
-
-# Obtaining information paths
-DATASET_NAME = 'real'
-SUBSET_DATASET_NAME = 'test'
-
-DATASET_DIR = root.parents[1] / 'datasets' / 'NOCS' / DATASET_NAME / SUBSET_DATASET_NAME
-OBJ_MODEL_DIR = root.parents[1] / 'networks' / 'NOCS_CVPR2019' / 'data' / 'obj_models' / DATASET_NAME / SUBSET_DATASET_NAME
 
 #-------------------------------------------------------------------------------
 # Small Helper Functions
@@ -857,7 +851,18 @@ def load_new_dataset(dataset_path, obj_model_dir):
 
 if __name__ == '__main__':
 
+    # Parse arguments and replace global variables
+    parser = argparse.ArgumentParser(description='Modify NOCS datasets')
+    parser.add_argument('--DATASET_NAME', required=True, type=str)
+    parser.add_argument('--SUBSET_DATASET_NAME', required=True, type=str)
+    args = parser.parse_args()
+
+    # Obtaining information paths
+    DATASET_NAME = args.DATASET_NAME
+    SUBSET_DATASET_NAME = args.SUBSET_DATASET_NAME
+
+    DATASET_DIR = root.parents[1] / 'datasets' / 'NOCS' / DATASET_NAME / SUBSET_DATASET_NAME
+    OBJ_MODEL_DIR = root.parents[1] / 'datasets' / 'NOCS' / 'obj_models' / DATASET_NAME / SUBSET_DATASET_NAME
+
     # Create new dataset 
     create_new_dataset()
-
-

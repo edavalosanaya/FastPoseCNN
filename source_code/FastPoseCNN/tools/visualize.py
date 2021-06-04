@@ -374,8 +374,8 @@ def draw_pts(draw_image, pts, color, t=1):
     # Making the pts safe to begin with to allow for better visualization 
     pts = make_pts_index_friendly(pts, h, w)
 
-    ys = pts[:,0]
-    xs = pts[:,1]
+    ys = pts[:,1]
+    xs = pts[:,0]
 
     s = 2*t+1 # size
     a = (torch.arange(0, s**2, device=draw_image.device) % s).reshape((s, s)) - t

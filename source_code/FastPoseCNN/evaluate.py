@@ -30,7 +30,7 @@ import config
 # Constants
 
 #PATH = pathlib.Path('/home/students/edavalos/GitHub/FastPoseCNN/source_code/FastPoseCNN/logs/21-04-01/12-13-L1_LOSS_TEST-PoseRegressor-CAMERA-resnet18-imagenet/_/checkpoints/epoch=22-checkpoint_on=0.8301.ckpt')
-PATH = pathlib.Path('/home/students/edavalos/GitHub/FastPoseCNN/source_code/FastPoseCNN/logs/21-04-15/16-03-CONT2_LONG_TRAIN_PVNET-PoseRegressor-CAMERA-resnet18-imagenet/_/checkpoints/epoch=12-checkpoint_on=1.4623.ckpt')
+PATH = pathlib.Path('/home/students/edavalos/GitHub/FastPoseCNN/source_code/FastPoseCNN/logs/21-04-17/13-06-CONT_FAST_LONG-PoseRegressor-CAMERA-resnet18-imagenet/_/checkpoints/epoch=10-checkpoint_on=1.2220.ckpt')
 
 HPARAM = config.EVALUATING()
 
@@ -74,6 +74,8 @@ if __name__ == '__main__':
 
     # Getting the intrinsics for the dataset selected
     HPARAM.NUMPY_INTRINSICS = tools.pj.constants.INTRINSICS[HPARAM.DATASET_NAME]
+
+    print(pth_path)
 
     # Determining if collect model's performance data
     # or visualizing the results of the model's performance
@@ -148,6 +150,10 @@ if __name__ == '__main__':
                 batch['agg_data']
             )
 
+            # If the generated matches do not have anything, skip it!
+            if type(gt_pred_matches) == type(None):
+                continue 
+            
             # Move the matches to the cpu to allow for storing.
             gt_pred_matches = tools.ds.move_dict_to(gt_pred_matches, 'cpu')
 
